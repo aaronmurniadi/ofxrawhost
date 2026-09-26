@@ -48,6 +48,12 @@ cd ofxrawhost
 OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 ```
 
+## Support
+
+If OFX Raw Host is useful to you, you can support its development:
+
+<a href="https://www.buymeacoffee.com/aaronmurniadi"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=aaronmurniadi&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee"></a>
+
 ## License
 
 See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license.
