@@ -16,9 +16,11 @@ Use it to try OFX effects that normally only run inside Resolve, Nuke, or simila
 
 > **v0.3.1** fixes JPEG ICC export and loading of OFX Support–based plugins (e.g. GlyphBlocks). **v0.3** added plugin chaining, resizable panels, and icon buttons on the **v0.2** C++17 + Dear ImGui rewrite. Packaged installers are still macOS-only for now.
 
-https://github.com/aaronmurniadi/ofxrawhost/raw/main/docs/demo.mp4
-
 ![OFX Raw Host](docs/screenshot.png)
+
+## Demo
+
+![OFX Raw Host demo](docs/demo.gif)
 
 ---
 
