@@ -3,7 +3,14 @@
 set -e
 cd "$(dirname "$0")"
 APP=OfxRawHost.app
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+ICONSET=$(mktemp -d)/AppIcon.iconset
+mkdir "$ICONSET"
+for s in 16 32 128 256 512; do
+  sips -z $s $s docs/logo.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+  sips -z $((s*2)) $((s*2)) docs/logo.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 clang++ -std=c++17 -O2 -fobjc-arc -Wall -mmacosx-version-min=12.0 -arch arm64 -arch x86_64 \
   -Ithird_party/openfx/include OfxRawHost.mm \
   -framework Cocoa -framework CoreImage -framework UniformTypeIdentifiers \
@@ -14,6 +21,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <plist version="1.0"><dict>
   <key>CFBundleExecutable</key><string>OfxRawHost</string>
   <key>CFBundleIdentifier</key><string>com.aaronmurniadi.ofxrawhost</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleName</key><string>OFX Raw Host</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION:-0.0.0}</string>
