@@ -326,8 +326,9 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   Effect *e = c->owner;
   float *data = c->name == kOfxImageEffectOutputClipName ? e->dst : e->src;
   if (!data) return kOfxStatFailed;
-  auto *img = new PropSet;
-  OfxPropertySetHandle h = H(img);
+  // Reuse the clip's pooled PropSet instead of heap-allocating per request.
+  c->imgProps.m.clear();
+  OfxPropertySetHandle h = H(&c->imgProps);
   propSetString(h, kOfxPropType, 0, kOfxTypeImage);
   propSetString(h, kOfxImageEffectPropPixelDepth, 0, kOfxBitDepthFloat);
   propSetString(h, kOfxImageEffectPropComponents, 0, kOfxImageComponentRGBA);
@@ -345,8 +346,8 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   *out = h;
   return kOfxStatOK;
 }
-static OfxStatus clipReleaseImage(OfxPropertySetHandle h) {
-  delete P(h);
+static OfxStatus clipReleaseImage(OfxPropertySetHandle) {
+  // PropSet is owned by the Clip; cleared on next clipGetImage.
   return kOfxStatOK;
 }
 static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle c, OfxTime, OfxRectD *rod) {
@@ -551,8 +552,8 @@ static PropSet gHostProps = [] {
   propSetInt(h, kOfxPropAPIVersion, 1, 4);
   propSetInt(h, kOfxPropVersion, 0, 0);
   propSetInt(h, kOfxPropVersion, 1, 3);
-  propSetInt(h, kOfxPropVersion, 2, 2);
-  propSetString(h, kOfxPropVersionLabel, 0, "0.3.2");
+  propSetInt(h, kOfxPropVersion, 2, 5);
+  propSetString(h, kOfxPropVersionLabel, 0, "0.3.5");
   propSetInt(h, kOfxImageEffectHostPropIsBackground, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsOverlays, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsMultiResolution, 0, 0);

@@ -6,10 +6,10 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct Val {
@@ -19,7 +19,7 @@ struct Val {
   void *p = nullptr;
 };
 struct PropSet {
-  std::map<std::string, std::vector<Val>> m;
+  std::unordered_map<std::string, std::vector<Val>> m;
 };
 
 inline PropSet *P(OfxPropertySetHandle h) { return reinterpret_cast<PropSet *>(h); }
@@ -49,6 +49,7 @@ struct Effect;
 struct Clip {
   std::string name;
   PropSet props;
+  PropSet imgProps;  // reusable buffer for clipGetImage (avoids new/delete per request)
   Effect *owner = nullptr;
 };
 struct Effect {

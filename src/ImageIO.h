@@ -2,11 +2,17 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 struct Image {
   std::vector<float> px;  // bottom-up float RGBA
   int w = 0, h = 0;
+  void swap(Image &o) noexcept {
+    px.swap(o.px);
+    std::swap(w, o.w);
+    std::swap(h, o.h);
+  }
 };
 
 // Matches the UI "Output tag" combo. Plugin pixels are assumed already in this space;
