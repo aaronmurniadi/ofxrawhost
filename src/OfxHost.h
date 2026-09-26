@@ -72,6 +72,7 @@ Param *findParam(Effect *e, const char *name);
 struct PluginEntry {
   OfxPlugin *plugin;
   std::string label;
+  std::string author;
   std::unique_ptr<Effect> descriptor;  // filter-context descriptor
 };
 extern std::vector<PluginEntry> gPlugins;

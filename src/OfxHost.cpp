@@ -551,8 +551,8 @@ static PropSet gHostProps = [] {
   propSetInt(h, kOfxPropAPIVersion, 1, 4);
   propSetInt(h, kOfxPropVersion, 0, 0);
   propSetInt(h, kOfxPropVersion, 1, 3);
-  propSetInt(h, kOfxPropVersion, 2, 0);
-  propSetString(h, kOfxPropVersionLabel, 0, "0.3.1");
+  propSetInt(h, kOfxPropVersion, 2, 2);
+  propSetString(h, kOfxPropVersionLabel, 0, "0.3.2");
   propSetInt(h, kOfxImageEffectHostPropIsBackground, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsOverlays, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsMultiResolution, 0, 0);
@@ -626,6 +626,18 @@ static fs::path pluginBinary(const fs::path &bundle) {
   return contents / arch / stem;
 }
 
+static std::string pluginAuthor(OfxPlugin *p, const Effect &desc) {
+  const std::string grouping = sprop(desc.props, kOfxImageEffectPluginPropGrouping);
+  if (!grouping.empty()) return grouping;
+  const char *id = p && p->pluginIdentifier ? p->pluginIdentifier : "";
+  const std::string s = id;
+  const size_t d1 = s.find('.');
+  if (d1 == std::string::npos) return s.empty() ? "Other" : s;
+  const size_t d2 = s.find('.', d1 + 1);
+  if (d2 == std::string::npos) return s.substr(0, d1);
+  return s.substr(0, d2);
+}
+
 static void loadBundle(const fs::path &bundle) {
   const fs::path bin = pluginBinary(bundle);
   void *lib = loadLib(bin);
@@ -654,7 +666,8 @@ static void loadBundle(const fs::path &bundle) {
     propSetString(H(&in), kOfxImageEffectPropContext, 0, kOfxImageEffectContextFilter);
     if (!succeeded(callAction(p, kOfxImageEffectActionDescribeInContext, ctx.get(), &in))) continue;
     const std::string label = sprop(base->props, kOfxPropLabel);
-    gPlugins.push_back({p, label.empty() ? p->pluginIdentifier : label, std::move(ctx)});
+    const std::string author = pluginAuthor(p, *base);
+    gPlugins.push_back({p, label.empty() ? p->pluginIdentifier : label, author, std::move(ctx)});
   }
 }
 
@@ -690,6 +703,10 @@ void loadPlugins() {
       }
     }
   }
+  std::sort(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &a, const PluginEntry &b) {
+    if (a.author != b.author) return a.author < b.author;
+    return a.label < b.label;
+  });
 }
 
 std::unique_ptr<Effect> createInstance(PluginEntry &pe) {

@@ -13,6 +13,10 @@
 #define GL_SILENCE_DEPRECATION
 #include <GLFW/glfw3.h>
 
+#if defined(__APPLE__)
+#include "MacPinch.h"
+#endif
+
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
 #include <atomic>
@@ -72,6 +76,9 @@ struct App {
   float leftW = 280.0f;
   float rightW = 420.0f;
   char paramFilter[128] = {};
+  char pluginFilter[128] = {};
+  float previewZoom = 1.0f;  // 1 = fit in view
+  ImVec2 previewPan = {0, 0};
   std::vector<Node> nodes;
   int selectedNode = -1;
 
@@ -267,6 +274,8 @@ static void openPath(App &app, const std::string &path) {
   }
   app.path = path;
   app.full = std::move(img);
+  app.previewZoom = 1.0f;
+  app.previewPan = ImVec2(0, 0);
   app.setStatus("Loaded " + fs::path(path).filename().string());
   rebuildPreview(app);
 }
@@ -711,6 +720,9 @@ int runApp(const std::string &optionalPath) {
   }
   glfwMakeContextCurrent(app.window);
   glfwSwapInterval(1);
+#if defined(__APPLE__)
+  MacPinch_Install();
+#endif
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -864,20 +876,37 @@ int runApp(const std::string &optionalPath) {
       ImGui::Separator();
 
       ImGui::TextUnformatted("OFX Plugin Nodes");
-      {
-        const float addX = ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight();
-        ImGui::SameLine(addX);
-        if (iconBtn("##addNode", ICON_FA_CIRCLE_PLUS)) ImGui::OpenPopup("##addPlugin");
-      }
-      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Add plugin");
-      if (ImGui::BeginPopup("##addPlugin")) {
+      ImGui::SetNextItemWidth(-1);
+      if (ImGui::BeginCombo("##addPlugin", "Add plugin…", ImGuiComboFlags_HeightLargest)) {
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##pluginFilter", "Search…", app.pluginFilter, sizeof app.pluginFilter);
+        ImGui::Separator();
         if (gPlugins.empty()) {
           ImGui::TextDisabled("No plugins found");
         } else {
-          for (int i = 0; i < (int)gPlugins.size(); ++i)
-            if (ImGui::Selectable(gPlugins[i].label.c_str())) addNode(app, i);
+          const std::string q = app.pluginFilter;
+          std::string curAuthor;
+          int shown = 0;
+          for (int i = 0; i < (int)gPlugins.size(); ++i) {
+            const auto &pe = gPlugins[i];
+            if (!q.empty() && !icontains(pe.label, q) && !icontains(pe.author, q) &&
+                !(pe.plugin && pe.plugin->pluginIdentifier && icontains(pe.plugin->pluginIdentifier, q)))
+              continue;
+            if (pe.author != curAuthor) {
+              curAuthor = pe.author;
+              ImGui::SeparatorText(curAuthor.c_str());
+            }
+            if (ImGui::Selectable(pe.label.c_str())) {
+              addNode(app, i);
+              app.pluginFilter[0] = '\0';
+              ImGui::CloseCurrentPopup();
+            }
+            ++shown;
+          }
+          if (shown == 0) ImGui::TextDisabled("No matches");
         }
-        ImGui::EndPopup();
+        ImGui::EndCombo();
       }
 
       ImGui::BeginChild("nodeList", ImVec2(0, 0), true);
@@ -935,15 +964,83 @@ int runApp(const std::string &optionalPath) {
       ImGui::SameLine(0.0f, 0.0f);
     }
 
-    ImGui::BeginChild("preview", ImVec2(std::max(minPreview, previewW), 0), true);
-    if (app.tex) {
-      const float aw = ImGui::GetContentRegionAvail().x, ah = ImGui::GetContentRegionAvail().y;
-      const float scale = std::min(aw / (float)app.texW, ah / (float)app.texH);
-      const ImVec2 size(app.texW * scale, app.texH * scale);
-      ImGui::SetCursorPos(ImVec2((aw - size.x) * 0.5f, (ah - size.y) * 0.5f));
-      ImGui::Image((ImTextureID)(intptr_t)app.tex, size);
-    } else {
-      ImGui::TextUnformatted("Open an image to preview.");
+    ImGui::BeginChild("preview", ImVec2(std::max(minPreview, previewW), 0), ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    {
+      const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+      const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+      ImGui::InvisibleButton("##previewCanvas", canvasSize);
+      const bool hovered = ImGui::IsItemHovered();
+#if !defined(__APPLE__)
+      const bool active = ImGui::IsItemActive();
+#endif
+#if defined(__APPLE__)
+      const float pinch = MacPinch_Consume();
+#else
+      const float pinch = 0.0f;
+#endif
+
+      if (app.tex) {
+        const float fit = std::min(canvasSize.x / (float)app.texW, canvasSize.y / (float)app.texH);
+        if (hovered) {
+          float zoomFactor = 1.0f;
+#if defined(__APPLE__)
+          // macOS: pinch = zoom, two-finger scroll = pan (no wheel-zoom / drag-pan)
+          // GLFW multiplies precise trackpad deltas by 0.1 → scale 10 ≈ 1:1 screen points.
+          if (pinch != 0.0f) {
+            zoomFactor *= (1.0f + pinch);
+          } else {
+            constexpr float kPanScale = 10.0f;
+            app.previewPan.x += ImGui::GetIO().MouseWheelH * kPanScale;
+            app.previewPan.y += ImGui::GetIO().MouseWheel * kPanScale;
+          }
+#else
+          const float wheel = ImGui::GetIO().MouseWheel;
+          if (wheel != 0.0f) zoomFactor *= (wheel > 0.0f ? 1.1f : 1.0f / 1.1f);
+#endif
+          if (zoomFactor != 1.0f) {
+            const float oldZoom = app.previewZoom;
+            app.previewZoom = std::clamp(app.previewZoom * zoomFactor, 0.05f, 64.0f);
+            const ImVec2 mouse = ImGui::GetIO().MousePos;
+            const float ox = canvasPos.x + canvasSize.x * 0.5f + app.previewPan.x;
+            const float oy = canvasPos.y + canvasSize.y * 0.5f + app.previewPan.y;
+            const float oldW = app.texW * fit * oldZoom, oldH = app.texH * fit * oldZoom;
+            const float newW = app.texW * fit * app.previewZoom, newH = app.texH * fit * app.previewZoom;
+            const float u = oldW > 0.0f ? (mouse.x - (ox - oldW * 0.5f)) / oldW : 0.5f;
+            const float v = oldH > 0.0f ? (mouse.y - (oy - oldH * 0.5f)) / oldH : 0.5f;
+            app.previewPan.x += (u - 0.5f) * (oldW - newW);
+            app.previewPan.y += (v - 0.5f) * (oldH - newH);
+          }
+          if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+            app.previewZoom = 1.0f;
+            app.previewPan = ImVec2(0, 0);
+          }
+        }
+#if !defined(__APPLE__)
+        if (active && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+          app.previewPan.x += ImGui::GetIO().MouseDelta.x;
+          app.previewPan.y += ImGui::GetIO().MouseDelta.y;
+        }
+#endif
+
+        const float dispW = app.texW * fit * app.previewZoom;
+        const float dispH = app.texH * fit * app.previewZoom;
+        const ImVec2 p0(canvasPos.x + canvasSize.x * 0.5f + app.previewPan.x - dispW * 0.5f,
+                        canvasPos.y + canvasSize.y * 0.5f + app.previewPan.y - dispH * 0.5f);
+        const ImVec2 p1(p0.x + dispW, p0.y + dispH);
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->PushClipRect(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y), true);
+        dl->AddImage((ImTextureID)(intptr_t)app.tex, p0, p1);
+        dl->PopClipRect();
+
+        char zoomLbl[32];
+        std::snprintf(zoomLbl, sizeof zoomLbl, "%.0f%%", app.previewZoom * 100.0f);
+        dl->AddText(ImVec2(canvasPos.x + 8.0f, canvasPos.y + canvasSize.y - ImGui::GetTextLineHeight() - 8.0f),
+                    ImGui::GetColorU32(ImGuiCol_TextDisabled), zoomLbl);
+      } else {
+        ImGui::SetCursorScreenPos(ImVec2(canvasPos.x + 8.0f, canvasPos.y + 8.0f));
+        ImGui::TextUnformatted("Open an image to preview.");
+      }
     }
     if (!app.showLeft) {
       ImGui::SetCursorPos(ImVec2(8.0f, 8.0f));
@@ -1013,6 +1110,9 @@ int runApp(const std::string &optionalPath) {
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   ImGui::DestroyContext();
+#if defined(__APPLE__)
+  MacPinch_Shutdown();
+#endif
   glfwDestroyWindow(app.window);
   glfwTerminate();
   return 0;

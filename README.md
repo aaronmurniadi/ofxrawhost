@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.1** fixes JPEG ICC export and loading of OFX Support–based plugins (e.g. GlyphBlocks). **v0.3** added plugin chaining, resizable panels, and icon buttons on the **v0.2** C++17 + Dear ImGui rewrite. Packaged installers are still macOS-only for now.
+> **v0.3.2** adds preview zoom/pan (trackpad pinch + two-finger pan on macOS) and a searchable add-plugin list grouped by author. **v0.3.1** fixed JPEG ICC export and OFX Support plugin loading. **v0.3** added plugin chaining, resizable panels, and icon buttons on the **v0.2** C++17 + Dear ImGui rewrite. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -111,6 +111,7 @@ build/OfxRawHost --selftest
 | ----------------------------------------------- | ----------- |
 | C++17 + Dear ImGui UI (cross-platform codebase) | Done (v0.2) |
 | Plugin chaining with reorder / bypass           | Done (v0.3) |
+| Preview zoom / pan                              | Done (v0.3.2) |
 | Packaged Windows and Linux releases             | Planned     |
 
 ---

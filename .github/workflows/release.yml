@@ -11,11 +11,14 @@ permissions:
 jobs:
   macos:
     strategy:
+      fail-fast: false
       matrix:
         include:
+          # arm64 (Apple Silicon)
           - os: macos-14
             arch: arm64
-          - os: macos-13
+          # x86_64 (Intel) — macos-13 is retired; use macos-15-intel
+          - os: macos-15-intel
             arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,16 +31,57 @@ jobs:
         run: |
           rm -rf build
           ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
-          mkdir -p build/dmg && cp -R build/OfxRawHost.app build/dmg/ && ln -s /Applications build/dmg/Applications
-          hdiutil create -volname "OFX Raw Host" -srcfolder build/dmg -format UDZO -ov "build/OfxRawHost-macOS-${{ matrix.arch }}.dmg"
+          # Verify binary arch matches the matrix target
+          lipo -info build/OfxRawHost.app/Contents/MacOS/OfxRawHost | tee /dev/stderr | grep -q "${{ matrix.arch }}"
+          mkdir -p build/dmg
+          cp -R build/OfxRawHost.app build/dmg/
+          ln -sf /Applications build/dmg/Applications
+          hdiutil create -volname "OFX Raw Host" -srcfolder build/dmg -format UDZO -ov \
+            "build/OfxRawHost-macOS-${{ matrix.arch }}.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-macOS-${{ matrix.arch }}
-          path: build/OfxRawHost-macOS-*.dmg
+          path: build/OfxRawHost-macOS-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+
+  publish:
+    needs: macos
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" build/OfxRawHost-macOS-*.dmg --clobber
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          PREV=$(git tag --sort=-v:refname | awk -v t="$TAG" '$0 != t { print; exit }')
+          NOTES=$(mktemp)
+          {
+            if [ -f "docs/releases/${TAG}.md" ]; then
+              cat "docs/releases/${TAG}.md"
+              echo
+            fi
+            echo "## Downloads"
+            echo
+            echo "- **Apple Silicon:** \`OfxRawHost-macOS-arm64.dmg\`"
+            echo "- **Intel:** \`OfxRawHost-macOS-x86_64.dmg\`"
+            echo
+            if [ -n "${PREV:-}" ]; then
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${TAG}"
+            fi
+          } > "$NOTES"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file "$NOTES"
+          fi
+          gh release upload "$TAG" dist/OfxRawHost-macOS-*.dmg --clobber

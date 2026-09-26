@@ -70,6 +70,10 @@ add_executable(OfxRawHost
   third_party/tinyexr/tinyexr.cc
 )
 
+if(APPLE)
+  target_sources(OfxRawHost PRIVATE src/MacPinch.m)
+endif()
+
 target_include_directories(OfxRawHost PRIVATE
   src
   third_party/openfx/include
