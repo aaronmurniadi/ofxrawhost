@@ -1,9 +1,11 @@
 #include "OfxHost.h"
 
+#include "ofxGPURender.h"
 #include "ofxMemory.h"
 #include "ofxMessage.h"
 #include "ofxMultiThread.h"
 #include "ofxParam.h"
+#include "ofxParametricParam.h"
 
 #include <climits>
 #include <cmath>
@@ -116,10 +118,10 @@ static OfxStatus propReset(OfxPropertySetHandle h, const char *k) {
   return kOfxStatOK;
 }
 static OfxStatus propGetDimension(OfxPropertySetHandle h, const char *k, int *count) {
-  if (!h) return kOfxStatErrBadHandle;
+  if (!h || !count) return kOfxStatErrBadHandle;
   auto it = P(h)->m.find(k);
-  if (it == P(h)->m.end()) return kOfxStatErrUnknown;
-  *count = (int)it->second.size();
+  // Missing property => dimension 0 (OFX Support addSupportedBitDepth reads this first).
+  *count = it == P(h)->m.end() ? 0 : (int)it->second.size();
   return kOfxStatOK;
 }
 
@@ -545,6 +547,12 @@ static PropSet gHostProps = [] {
   OfxPropertySetHandle h = H(&ps);
   propSetString(h, kOfxPropName, 0, "local.ofxrawhost");
   propSetString(h, kOfxPropLabel, 0, "OFX Raw Host");
+  propSetInt(h, kOfxPropAPIVersion, 0, 1);
+  propSetInt(h, kOfxPropAPIVersion, 1, 4);
+  propSetInt(h, kOfxPropVersion, 0, 0);
+  propSetInt(h, kOfxPropVersion, 1, 3);
+  propSetInt(h, kOfxPropVersion, 2, 0);
+  propSetString(h, kOfxPropVersionLabel, 0, "0.3.1");
   propSetInt(h, kOfxImageEffectHostPropIsBackground, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsOverlays, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsMultiResolution, 0, 0);
@@ -557,6 +565,13 @@ static PropSet gHostProps = [] {
   propSetString(h, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
   propSetString(h, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextFilter);
   propSetString(h, kOfxImageEffectPropSupportedPixelDepths, 0, kOfxBitDepthFloat);
+  // OFX Support plugins throw HostInadequate if these are absent (even when unsupported).
+  propSetString(h, kOfxImageEffectPropOpenGLRenderSupported, 0, "false");
+  propSetString(h, kOfxImageEffectPropCudaRenderSupported, 0, "false");
+  propSetString(h, kOfxImageEffectPropCudaStreamSupported, 0, "false");
+  propSetString(h, kOfxImageEffectPropMetalRenderSupported, 0, "false");
+  propSetString(h, kOfxImageEffectPropOpenCLRenderSupported, 0, "false");
+  propSetString(h, kOfxImageEffectHostPropNativeOrigin, 0, kOfxHostNativeOriginBottomLeft);
   propSetInt(h, kOfxParamHostPropSupportsCustomInteract, 0, 0);
   propSetInt(h, kOfxParamHostPropSupportsStringAnimation, 0, 0);
   propSetInt(h, kOfxParamHostPropSupportsChoiceAnimation, 0, 0);
@@ -564,6 +579,14 @@ static PropSet gHostProps = [] {
   propSetInt(h, kOfxParamHostPropSupportsCustomAnimation, 0, 0);
   propSetInt(h, kOfxParamHostPropMaxParameters, 0, -1);
   propSetInt(h, kOfxParamHostPropMaxPages, 0, 0);
+  propSetInt(h, kOfxParamHostPropPageRowColumnCount, 0, 0);
+  propSetInt(h, kOfxParamHostPropPageRowColumnCount, 1, 0);
+  propSetInt(h, kOfxImageEffectInstancePropSequentialRender, 0, 0);
+  propSetInt(h, kOfxParamHostPropSupportsStrChoice, 0, 0);
+  propSetInt(h, kOfxParamHostPropSupportsStrChoiceAnimation, 0, 0);
+  propSetInt(h, kOfxParamHostPropSupportsParametricAnimation, 0, 0);
+  propSetInt(h, kOfxImageEffectPropRenderQualityDraft, 0, 0);
+  propSetString(h, kOfxImageEffectPropOpenCLSupported, 0, "false");
   return ps;
 }();
 static OfxHost gHost = {H(&gHostProps), fetchSuite};
@@ -617,7 +640,7 @@ static void loadBundle(const fs::path &bundle) {
   if (setHost) setHost(&gHost);
   for (int i = 0, n = count(); i < n; ++i) {
     OfxPlugin *p = get(i);
-    if (!p || strcmp(p->pluginApi, kOfxImageEffectPluginApi) != 0) continue;
+    if (!p || !p->setHost || !p->mainEntry || strcmp(p->pluginApi, kOfxImageEffectPluginApi) != 0) continue;
     p->setHost(&gHost);
     if (!succeeded(callAction(p, kOfxActionLoad, nullptr))) continue;
     auto base = std::make_unique<Effect>();

@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3** adds plugin chaining (reorder / bypass), resizable side panels, and icon buttons. It builds on the **v0.2** rewrite to **C++17 + Dear ImGui** (GLFW) with LibRaw / lcms2 / stb / tinyexr. Packaged installers are still macOS-only for now.
+> **v0.3.1** fixes JPEG ICC export and loading of OFX Support–based plugins (e.g. GlyphBlocks). **v0.3** added plugin chaining, resizable panels, and icon buttons on the **v0.2** C++17 + Dear ImGui rewrite. Packaged installers are still macOS-only for now.
 
 https://github.com/aaronmurniadi/ofxrawhost/raw/main/docs/demo.mp4
 

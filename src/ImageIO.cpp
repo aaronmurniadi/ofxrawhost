@@ -420,7 +420,8 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
     return ok;
   }
 
-  // Split ICC into APP2 segments (max 65519 payload bytes after "ICC_PROFILE\0" + seq).
+  // Split ICC into APP2 segments (max payload after length field: 65533 bytes).
+  // JPEG segment length includes the 2 length bytes themselves.
   const size_t header = 12 + 2;  // "ICC_PROFILE\0" + seq + count
   const size_t maxData = 65533 - header;
   const size_t nSeg = (icc.size() + maxData - 1) / maxData;
@@ -428,11 +429,11 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
   for (size_t s = 0; s < nSeg; ++s) {
     const size_t off = s * maxData;
     const size_t n = std::min(maxData, icc.size() - off);
-    const uint16_t payload = (uint16_t)(header + n);
+    const uint16_t seglen = (uint16_t)(2 + header + n);
     app2.push_back(0xff);
     app2.push_back(0xe2);  // APP2
-    app2.push_back((payload >> 8) & 0xff);
-    app2.push_back(payload & 0xff);
+    app2.push_back((seglen >> 8) & 0xff);
+    app2.push_back(seglen & 0xff);
     const char marker[] = "ICC_PROFILE";
     app2.insert(app2.end(), marker, marker + sizeof marker);  // incl. NUL
     app2.push_back((uint8_t)(s + 1));
