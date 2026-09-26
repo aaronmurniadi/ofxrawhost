@@ -1,8 +1,9 @@
 #!/bin/sh
-# Builds OfxRawHost.app (universal arm64 + x86_64). Self-check: OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+# Builds build/OfxRawHost.app (universal by default; ARCHS=arm64 or ARCHS=x86_64 for one).
+# Self-check: build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 set -e
 cd "$(dirname "$0")"
-APP=OfxRawHost.app
+APP=build/OfxRawHost.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 ICONSET=$(mktemp -d)/AppIcon.iconset
 mkdir "$ICONSET"
@@ -11,7 +12,7 @@ for s in 16 32 128 256 512; do
   sips -z $((s*2)) $((s*2)) docs/logo.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-clang++ -std=c++17 -O2 -fobjc-arc -Wall -mmacosx-version-min=12.0 -arch arm64 -arch x86_64 \
+clang++ -std=c++17 -O2 -fobjc-arc -Wall -mmacosx-version-min=12.0 $(for a in ${ARCHS:-arm64 x86_64}; do printf -- '-arch %s ' "$a"; done) \
   -Ithird_party/openfx/include src/*.mm \
   -framework Cocoa -framework CoreImage -framework UniformTypeIdentifiers \
   -o "$APP/Contents/MacOS/OfxRawHost"

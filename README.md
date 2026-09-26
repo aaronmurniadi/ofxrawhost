@@ -2,19 +2,36 @@
 
 # OFX Raw Host
 
+[![Latest release](https://img.shields.io/github/v/release/aaronmurniadi/ofxrawhost)](https://github.com/aaronmurniadi/ofxrawhost/releases/latest)
+![Platform: macOS](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey)
+
+<a href="https://www.buymeacoffee.com/aaronmurniadi"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=aaronmurniadi&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee"></a>
+
+> [!NOTE]
+> OFX Raw Host is currently **macOS only**. Windows and Linux versions are planned. If you'd like to see them sooner, [buy me a coffee](https://www.buymeacoffee.com/aaronmurniadi) to support that work.
+
 A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) host for macOS. Open a RAW (or any ImageIO-readable) photo, run it through an OFX filter plugin, preview, and export to TIFF, PNG, JPEG or OpenEXR — no video editor required.
 
 The main candidate plugin is [spektrafilm-ofx](https://github.com/chaert-s/spektrafilm-ofx), a film-simulation plugin (film, print, scan, grain, halation, diffusion) normally used inside DaVinci Resolve or Nuke. OFX Raw Host lets you use it on photos directly.
 
 ![OFX Raw Host](docs/screenshot.png)
 
+---
+
 ## Install
 
-Download `OfxRawHost-macOS.zip` from [Releases](https://github.com/aaronmurniadi/ofxrawhost/releases), unzip, and move `OfxRawHost.app` to `/Applications`. The app is ad-hoc signed, so on first launch right-click it and choose **Open**, or run:
+Download the DMG for your Mac from [Releases](https://github.com/aaronmurniadi/ofxrawhost/releases/latest):
+
+- **Apple Silicon (M1 and later):** `OfxRawHost-macOS-arm64.dmg`
+- **Intel:** `OfxRawHost-macOS-x86_64.dmg`
+
+Open it and drag **OfxRawHost** onto **Applications**. The app is ad-hoc signed, so on first launch right-click it and choose **Open**, or run:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
 ```
+
+---
 
 ## Installing spektrafilm-ofx
 
@@ -37,6 +54,8 @@ OFX_PLUGIN_PATH=/path/to/spektrafilm-ofx/build /Applications/OfxRawHost.app/Cont
 
 Restart OFX Raw Host after installing plugins. If none are found, the status bar says so.
 
+---
+
 ## Build
 
 Requires Xcode Command Line Tools and macOS 12+.
@@ -45,14 +64,10 @@ Requires Xcode Command Line Tools and macOS 12+.
 git clone --recursive https://github.com/aaronmurniadi/ofxrawhost.git
 cd ofxrawhost
 ./build.sh
-OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 ```
 
-## Support
-
-If OFX Raw Host is useful to you, you can support its development:
-
-<a href="https://www.buymeacoffee.com/aaronmurniadi"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=aaronmurniadi&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee"></a>
+---
 
 ## License
 
