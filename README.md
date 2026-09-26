@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.3** adds libtiff-based TIFF open (including 16-bit half float) and drops TIFF/EXR export (PNG/JPEG only). **v0.3.2** added preview zoom/pan and a searchable add-plugin list. **v0.3.1** fixed JPEG ICC export and OFX Support plugin loading. Packaged installers are still macOS-only for now.
+> **v0.3.4** adds selectable ImGui themes (Photoshop default) from [ImThemes](https://github.com/Patitotective/ImThemes). **v0.3.3** added libtiff TIFF open (incl. half float) and dropped TIFF/EXR export. **v0.3.2** added preview zoom/pan and a searchable add-plugin list. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -113,10 +113,11 @@ build/OfxRawHost --selftest
 | Plugin chaining with reorder / bypass           | Done (v0.3)   |
 | Preview zoom / pan                              | Done (v0.3.2) |
 | TIFF open via libtiff (incl. half float)        | Done (v0.3.3) |
+| Selectable ImGui themes (Photoshop default)     | Done (v0.3.4) |
 | Packaged Windows and Linux releases             | Planned       |
 
 ---
 
 ## License
 
-See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license. Vendored headers under `third_party/stb`, `third_party/tinyexr`, `third_party/portable-file-dialogs`, and `third_party/fontawesome` keep their upstream licenses.
+See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license. Vendored headers under `third_party/stb`, `third_party/tinyexr`, `third_party/portable-file-dialogs`, and `third_party/fontawesome` keep their upstream licenses. UI themes in `src/Themes.cpp` are from [ImThemes](https://github.com/Patitotective/ImThemes) (MIT).

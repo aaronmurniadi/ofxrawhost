@@ -2,6 +2,7 @@
 
 #include "ImageIO.h"
 #include "OfxHost.h"
+#include "Themes.h"
 #include "ofxParam.h"
 
 #include "IconsFontAwesome6.h"
@@ -78,6 +79,7 @@ struct App {
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
   float previewZoom = 1.0f;  // 1 = fit in view
+  int themeIndex = 2;  // Photoshop
   ImVec2 previewPan = {0, 0};
   std::vector<Node> nodes;
   int selectedNode = -1;
@@ -763,7 +765,7 @@ int runApp(const std::string &optionalPath) {
     if (!loaded) std::fprintf(stderr, "warning: could not load Font Awesome icon font\n");
   }
   io.FontGlobalScale = 1.0f / dpi;
-  ImGui::StyleColorsDark();
+  applyTheme(app.themeIndex);
   ImGui_ImplGlfw_InitForOpenGL(app.window, true);
 #if defined(__APPLE__)
   ImGui_ImplOpenGL3_Init("#version 150");
@@ -816,6 +818,15 @@ int runApp(const std::string &optionalPath) {
       if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Left panel", "Ctrl+[", &app.showLeft);
         ImGui::MenuItem("Right panel", "Ctrl+]", &app.showRight);
+        ImGui::EndMenu();
+      }
+      if (ImGui::BeginMenu("Theme")) {
+        for (int i = 0; i < themeCount(); ++i) {
+          if (ImGui::MenuItem(themeName(i), nullptr, app.themeIndex == i)) {
+            app.themeIndex = i;
+            applyTheme(i);
+          }
+        }
         ImGui::EndMenu();
       }
       ImGui::EndMainMenuBar();

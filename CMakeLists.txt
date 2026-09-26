@@ -82,6 +82,7 @@ add_executable(OfxRawHost
   src/OfxHost.cpp
   src/ImageIO.cpp
   src/UI.cpp
+  src/Themes.cpp
   third_party/tinyexr/tinyexr.cc
 )
 
