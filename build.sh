@@ -12,7 +12,7 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 clang++ -std=c++17 -O2 -fobjc-arc -Wall -mmacosx-version-min=12.0 -arch arm64 -arch x86_64 \
-  -Ithird_party/openfx/include OfxRawHost.mm \
+  -Ithird_party/openfx/include src/*.mm \
   -framework Cocoa -framework CoreImage -framework UniformTypeIdentifiers \
   -o "$APP/Contents/MacOS/OfxRawHost"
 cat > "$APP/Contents/Info.plist" <<EOF
