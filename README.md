@@ -10,11 +10,11 @@
 
 <a href="https://www.buymeacoffee.com/aaronmurniadi"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=aaronmurniadi&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee"></a>
 
-A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) **plugin host**. Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through one or more OFX filter plugins, preview the result, and export to TIFF, PNG, JPEG, or OpenEXR — no video NLE required.
+A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) **plugin host**. Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through one or more OFX filter plugins, preview the result, and export to PNG or JPEG — no video NLE required.
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.2** adds preview zoom/pan (trackpad pinch + two-finger pan on macOS) and a searchable add-plugin list grouped by author. **v0.3.1** fixed JPEG ICC export and OFX Support plugin loading. **v0.3** added plugin chaining, resizable panels, and icon buttons on the **v0.2** C++17 + Dear ImGui rewrite. Packaged installers are still macOS-only for now.
+> **v0.3.3** adds libtiff-based TIFF open (including 16-bit half float) and drops TIFF/EXR export (PNG/JPEG only). **v0.3.2** added preview zoom/pan and a searchable add-plugin list. **v0.3.1** fixed JPEG ICC export and OFX Support plugin loading. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -79,14 +79,14 @@ Restart OFX Raw Host after installing plugins. If none are found, the status bar
 
 ## Build
 
-Requires CMake 3.16+, a C++17 compiler, [LibRaw](https://www.libraw.org/), and [Little CMS 2](https://www.littlecms.com/). GLFW and Dear ImGui are fetched automatically by CMake.
+Requires CMake 3.16+, a C++17 compiler, [LibRaw](https://www.libraw.org/), [libtiff](https://libtiff.gitlab.io/libtiff/), and [Little CMS 2](https://www.littlecms.com/). GLFW and Dear ImGui are fetched automatically by CMake.
 
 ```sh
 # macOS
-brew install cmake libraw little-cms2
+brew install cmake libraw libtiff little-cms2
 
 # Debian/Ubuntu
-sudo apt install cmake pkg-config libraw-dev liblcms2-dev libgl1-mesa-dev xorg-dev
+sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libgl1-mesa-dev xorg-dev
 
 git clone --recursive https://github.com/aaronmurniadi/ofxrawhost.git
 cd ofxrawhost
@@ -107,12 +107,13 @@ build/OfxRawHost --selftest
 
 ## Roadmap
 
-| Feature                                         | Status      |
-| ----------------------------------------------- | ----------- |
-| C++17 + Dear ImGui UI (cross-platform codebase) | Done (v0.2) |
-| Plugin chaining with reorder / bypass           | Done (v0.3) |
+| Feature                                         | Status        |
+| ----------------------------------------------- | ------------- |
+| C++17 + Dear ImGui UI (cross-platform codebase) | Done (v0.2)   |
+| Plugin chaining with reorder / bypass           | Done (v0.3)   |
 | Preview zoom / pan                              | Done (v0.3.2) |
-| Packaged Windows and Linux releases             | Planned     |
+| TIFF open via libtiff (incl. half float)        | Done (v0.3.3) |
+| Packaged Windows and Linux releases             | Planned       |
 
 ---
 

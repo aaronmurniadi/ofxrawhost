@@ -26,7 +26,7 @@ jobs:
         with:
           submodules: true
       - name: Install dependencies
-        run: brew install cmake libraw little-cms2
+        run: brew install cmake libraw libtiff little-cms2
       - name: Build and package DMG
         run: |
           rm -rf build

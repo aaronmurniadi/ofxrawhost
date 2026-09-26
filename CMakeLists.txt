@@ -46,6 +46,21 @@ endif()
 
 find_package(ZLIB REQUIRED)
 
+# --- libtiff ---
+if(PkgConfig_FOUND)
+  pkg_check_modules(LIBTIFF IMPORTED_TARGET libtiff-4)
+endif()
+if(NOT LIBTIFF_FOUND)
+  find_path(LIBTIFF_INCLUDE_DIR tiffio.h)
+  find_library(LIBTIFF_LIBRARY NAMES tiff)
+  if(LIBTIFF_INCLUDE_DIR AND LIBTIFF_LIBRARY)
+    set(LIBTIFF_FOUND TRUE)
+  endif()
+endif()
+if(NOT LIBTIFF_FOUND)
+  message(FATAL_ERROR "libtiff not found. Install libtiff (e.g. brew install libtiff / apt install libtiff-dev).")
+endif()
+
 # --- Little CMS (ICC) ---
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -98,6 +113,13 @@ if(TARGET PkgConfig::LIBRAW)
 else()
   target_include_directories(OfxRawHost PRIVATE ${LIBRAW_INCLUDE_DIR})
   target_link_libraries(OfxRawHost PRIVATE ${LIBRAW_LIBRARY})
+endif()
+
+if(TARGET PkgConfig::LIBTIFF)
+  target_link_libraries(OfxRawHost PRIVATE PkgConfig::LIBTIFF)
+else()
+  target_include_directories(OfxRawHost PRIVATE ${LIBTIFF_INCLUDE_DIR})
+  target_link_libraries(OfxRawHost PRIVATE ${LIBTIFF_LIBRARY})
 endif()
 
 if(TARGET PkgConfig::LCMS2)

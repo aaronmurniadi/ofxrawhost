@@ -20,11 +20,11 @@ enum class ColorSpace {
 
 const char *colorSpaceName(ColorSpace cs);
 
-// Loads RAW via LibRaw (linear, camera WB) or PNG/JPEG/TIFF/EXR via stb/tinyexr.
+// Loads RAW via LibRaw (linear, camera WB), TIFF via libtiff, or PNG/JPEG/EXR via stb/tinyexr.
 bool loadImage(const std::string &path, Image &out);
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
-// Format from path extension; EXR stays float (chromaticities), PNG/JPEG/TIFF embed ICC.
+// Format from path extension; PNG/JPEG embed ICC.
 bool writeImage(const Image &img, const std::string &path, ColorSpace space = ColorSpace::sRGB, int jpegQuality = 92);
 // Top-down 8-bit RGBA for display (lcms2 transform into sRGB).
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out);

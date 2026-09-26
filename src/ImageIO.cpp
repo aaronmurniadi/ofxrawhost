@@ -2,6 +2,7 @@
 
 #include <libraw/libraw.h>
 #include <lcms2.h>
+#include <tiffio.h>
 #include <zlib.h>
 
 #include <algorithm>
@@ -123,6 +124,142 @@ static bool loadExr(const std::string &path, Image &out) {
   return true;
 }
 
+static float halfToFloat(uint16_t h) {
+  const uint32_t sign = (uint32_t)(h >> 15) << 31;
+  uint32_t exp = (h >> 10) & 0x1f;
+  uint32_t mant = h & 0x3ff;
+  uint32_t bits;
+  if (exp == 0) {
+    if (mant == 0) {
+      bits = sign;
+    } else {
+      exp = 127 - 15 + 1;
+      while ((mant & 0x400) == 0) {
+        mant <<= 1;
+        --exp;
+      }
+      bits = sign | (exp << 23) | ((mant & 0x3ff) << 13);
+    }
+  } else if (exp == 31) {
+    bits = sign | 0x7f800000u | (mant << 13);
+  } else {
+    bits = sign | ((exp + 127 - 15) << 23) | (mant << 13);
+  }
+  float f;
+  std::memcpy(&f, &bits, sizeof f);
+  return f;
+}
+
+static bool loadTiffScanline(TIFF *tif, uint32_t w, uint32_t h, uint16_t bps, uint16_t spp, uint16_t sf,
+                             Image &out) {
+  const tsize_t rowBytes = TIFFScanlineSize(tif);
+  if (rowBytes <= 0) return false;
+  std::vector<uint8_t> row((size_t)rowBytes);
+  out.w = (int)w;
+  out.h = (int)h;
+  out.px.assign((size_t)w * h * 4, 0.0f);
+  for (uint32_t y = 0; y < h; ++y) {
+    if (TIFFReadScanline(tif, row.data(), y, 0) < 0) return false;
+    float *dst = out.px.data() + (size_t)(h - 1 - y) * w * 4;
+    if (bps == 8 && sf == SAMPLEFORMAT_UINT) {
+      const uint8_t *src = row.data();
+      const float s = 1.0f / 255.0f;
+      for (uint32_t x = 0; x < w; ++x) {
+        dst[0] = src[0] * s;
+        dst[1] = (spp > 1 ? src[1] : src[0]) * s;
+        dst[2] = (spp > 2 ? src[2] : src[0]) * s;
+        dst[3] = spp > 3 ? src[3] * s : 1.0f;
+        src += spp;
+        dst += 4;
+      }
+    } else if (bps == 16 && sf == SAMPLEFORMAT_UINT) {
+      const uint16_t *src = reinterpret_cast<const uint16_t *>(row.data());
+      const float s = 1.0f / 65535.0f;
+      for (uint32_t x = 0; x < w; ++x) {
+        dst[0] = src[0] * s;
+        dst[1] = (spp > 1 ? src[1] : src[0]) * s;
+        dst[2] = (spp > 2 ? src[2] : src[0]) * s;
+        dst[3] = spp > 3 ? src[3] * s : 1.0f;
+        src += spp;
+        dst += 4;
+      }
+    } else if (bps == 16 && sf == SAMPLEFORMAT_IEEEFP) {
+      const uint16_t *src = reinterpret_cast<const uint16_t *>(row.data());
+      for (uint32_t x = 0; x < w; ++x) {
+        dst[0] = halfToFloat(src[0]);
+        dst[1] = halfToFloat(spp > 1 ? src[1] : src[0]);
+        dst[2] = halfToFloat(spp > 2 ? src[2] : src[0]);
+        dst[3] = spp > 3 ? halfToFloat(src[3]) : 1.0f;
+        src += spp;
+        dst += 4;
+      }
+    } else if (bps == 32 && sf == SAMPLEFORMAT_IEEEFP) {
+      const float *src = reinterpret_cast<const float *>(row.data());
+      for (uint32_t x = 0; x < w; ++x) {
+        dst[0] = src[0];
+        dst[1] = spp > 1 ? src[1] : src[0];
+        dst[2] = spp > 2 ? src[2] : src[0];
+        dst[3] = spp > 3 ? src[3] : 1.0f;
+        src += spp;
+        dst += 4;
+      }
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool loadTiffRgba(TIFF *tif, uint32_t w, uint32_t h, Image &out) {
+  std::vector<uint32_t> raster((size_t)w * h);
+  if (!TIFFReadRGBAImageOriented(tif, w, h, raster.data(), ORIENTATION_TOPLEFT, 0)) return false;
+  out.w = (int)w;
+  out.h = (int)h;
+  out.px.resize((size_t)w * h * 4);
+  const float s = 1.0f / 255.0f;
+  for (uint32_t y = 0; y < h; ++y) {
+    float *dst = out.px.data() + (size_t)(h - 1 - y) * w * 4;
+    const uint32_t *src = raster.data() + (size_t)y * w;
+    for (uint32_t x = 0; x < w; ++x) {
+      const uint32_t p = src[x];
+      dst[0] = TIFFGetR(p) * s;
+      dst[1] = TIFFGetG(p) * s;
+      dst[2] = TIFFGetB(p) * s;
+      dst[3] = TIFFGetA(p) * s;
+      dst += 4;
+    }
+  }
+  return true;
+}
+
+static bool loadTiff(const std::string &path, Image &out) {
+  TIFF *tif = TIFFOpen(path.c_str(), "r");
+  if (!tif) return false;
+  uint32_t w = 0, h = 0;
+  uint16_t bps = 8, spp = 3, sf = SAMPLEFORMAT_UINT, planar = PLANARCONFIG_CONTIG, orient = ORIENTATION_TOPLEFT;
+  TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &w);
+  TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &h);
+  TIFFGetFieldDefaulted(tif, TIFFTAG_BITSPERSAMPLE, &bps);
+  TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLESPERPIXEL, &spp);
+  TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLEFORMAT, &sf);
+  TIFFGetFieldDefaulted(tif, TIFFTAG_PLANARCONFIG, &planar);
+  TIFFGetFieldDefaulted(tif, TIFFTAG_ORIENTATION, &orient);
+  bool ok = false;
+  if (w && h && !TIFFIsTiled(tif) && planar == PLANARCONFIG_CONTIG && spp >= 1 && spp <= 4 &&
+      orient == ORIENTATION_TOPLEFT &&
+      ((bps == 8 && sf == SAMPLEFORMAT_UINT) || (bps == 16 && sf == SAMPLEFORMAT_UINT) ||
+       (bps == 16 && sf == SAMPLEFORMAT_IEEEFP) || (bps == 32 && sf == SAMPLEFORMAT_IEEEFP))) {
+    ok = loadTiffScanline(tif, w, h, bps, spp, sf, out);
+  }
+  if (!ok && w && h) {
+    out = {};
+    ok = loadTiffRgba(tif, w, h, out);
+  }
+  TIFFClose(tif);
+  if (!ok) out = {};
+  return ok;
+}
+
 static bool loadStb(const std::string &path, Image &out) {
   int w = 0, h = 0, n = 0;
   float *data = stbi_loadf(path.c_str(), &w, &h, &n, 4);
@@ -137,6 +274,7 @@ bool loadImage(const std::string &path, Image &out) {
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
   if (e == ".exr") return loadExr(path, out);
+  if (e == ".tif" || e == ".tiff") return loadTiff(path, out);
   if (loadStb(path, out)) return true;
   return loadRaw(path, out);
 }
@@ -255,63 +393,6 @@ static void toTopDown8(const Image &img, std::vector<unsigned char> &out) {
       dst += 4;
     }
   }
-}
-
-static void toTopDown16(const Image &img, std::vector<uint16_t> &out) {
-  out.resize((size_t)img.w * img.h * 4);
-  for (int y = 0; y < img.h; ++y) {
-    const float *src = img.px.data() + (size_t)(img.h - 1 - y) * img.w * 4;
-    uint16_t *dst = out.data() + (size_t)y * img.w * 4;
-    for (int x = 0; x < img.w; ++x) {
-      for (int c = 0; c < 4; ++c)
-        dst[c] = (uint16_t)std::lround(std::clamp(src[c], 0.0f, 1.0f) * 65535.0f);
-      src += 4;
-      dst += 4;
-    }
-  }
-}
-
-static bool writeTiff16(const Image &img, const std::string &path, const std::vector<uint8_t> &icc) {
-  std::vector<uint16_t> px;
-  toTopDown16(img, px);
-  FILE *f = fopen(path.c_str(), "wb");
-  if (!f) return false;
-  const uint32_t w = img.w, h = img.h;
-  const uint32_t stripBytes = w * h * 8;
-  const bool haveIcc = !icc.empty();
-  const uint16_t nTags = haveIcc ? 11 : 10;
-
-  uint8_t hdr[8] = {'I', 'I', 42, 0, 8, 0, 0, 0};
-  fwrite(hdr, 1, 8, f);
-  fwrite(&nTags, 2, 1, f);
-  auto tag = [&](uint16_t id, uint16_t type, uint32_t count, uint32_t val) {
-    fwrite(&id, 2, 1, f);
-    fwrite(&type, 2, 1, f);
-    fwrite(&count, 4, 1, f);
-    fwrite(&val, 4, 1, f);
-  };
-  const uint32_t bitsOff = 8 + 2 + nTags * 12 + 4;
-  const uint32_t iccOff = bitsOff + 8;
-  const uint32_t dataOff = iccOff + (haveIcc ? (uint32_t)icc.size() : 0);
-  tag(256, 3, 1, w);
-  tag(257, 3, 1, h);
-  tag(258, 3, 4, bitsOff);
-  tag(259, 3, 1, 1);
-  tag(262, 3, 1, 2);
-  tag(273, 4, 1, dataOff);
-  tag(277, 3, 1, 4);
-  tag(278, 3, 1, h);
-  tag(279, 4, 1, stripBytes);
-  tag(284, 3, 1, 1);
-  if (haveIcc) tag(34675, 7, (uint32_t)icc.size(), iccOff);  // ICC Profile, UNDEFINED
-  uint32_t next = 0;
-  fwrite(&next, 4, 1, f);
-  uint16_t bits[4] = {16, 16, 16, 16};
-  fwrite(bits, 2, 4, f);
-  if (haveIcc) fwrite(icc.data(), 1, icc.size(), f);
-  fwrite(px.data(), 2, px.size(), f);
-  fclose(f);
-  return true;
 }
 
 static uint32_t crc32_png(const uint8_t *data, size_t n) {
@@ -455,33 +536,14 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
   return ok;
 }
 
-static bool writeExr(const Image &img, const std::string &path, ColorSpace space) {
-  std::vector<float> top((size_t)img.w * img.h * 4);
-  for (int y = 0; y < img.h; ++y) {
-    const float *src = img.px.data() + (size_t)(img.h - 1 - y) * img.w * 4;
-    std::copy(src, src + img.w * 4, top.data() + (size_t)y * img.w * 4);
-  }
-  // tinyexr SaveEXR has no chromaticities hook; pixels stay float. Tag is a no-op for EXR.
-  (void)space;
-  const char *err = nullptr;
-  int st = SaveEXR(top.data(), img.w, img.h, 4, 0, path.c_str(), &err);
-  if (st != TINYEXR_SUCCESS) {
-    if (err) FreeEXRErrorMessage(err);
-    return false;
-  }
-  return true;
-}
-
 bool writeImage(const Image &img, const std::string &path, ColorSpace space, int jpegQuality) {
   if (img.w <= 0 || img.h <= 0) return false;
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
 
   std::vector<uint8_t> icc;
-  if (e != ".exr" && !profileBytes(space, icc)) return false;
+  if (!profileBytes(space, icc)) return false;
 
-  if (e == ".exr") return writeExr(img, path, space);
-  if (e == ".tif" || e == ".tiff") return writeTiff16(img, path, icc);
   if (e == ".png") return writePngWithIcc(img, path, icc);
   if (e == ".jpg" || e == ".jpeg") return writeJpgWithIcc(img, path, icc, jpegQuality);
   return false;

@@ -68,7 +68,7 @@ struct App {
   Image full, preview;
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
   int outputIndex = 0;
-  int exportFormat = 2;  // JPEG
+  int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
   int previewRes = 1;  // 1080p
   bool showLeft = true;
@@ -665,8 +665,8 @@ static bool iconBtn(const char *id, const char *icon) {
 
 static void doExport(App &app) {
   if (app.full.px.empty() || app.nodes.empty()) return;
-  const char *exts[] = {".tif", ".png", ".jpg", ".exr"};
-  const char *filters[] = {"TIFF (16-bit)", "*.tif *.tiff", "PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg", "OpenEXR (float)", "*.exr"};
+  const char *exts[] = {".png", ".jpg"};
+  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
   std::string def = fs::path(app.path).stem().string() + exts[app.exportFormat];
   auto sel = pfd::save_file("Export", def, {filters[app.exportFormat * 2], filters[app.exportFormat * 2 + 1]});
   std::string outPath = sel.result();
@@ -868,8 +868,8 @@ int runApp(const std::string &optionalPath) {
         for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
         if (ImGui::Combo("Preview", &app.previewRes, items, kPreviewResCount)) rebuildPreview(app);
       }
-      ImGui::Combo("Export format", &app.exportFormat, "TIFF (16-bit)\0PNG (8-bit)\0JPEG\0OpenEXR (float)\0");
-      if (app.exportFormat == 2) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
+      ImGui::Combo("Export format", &app.exportFormat, "PNG (8-bit)\0JPEG\0");
+      if (app.exportFormat == 1) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
       ImGui::Separator();
       const std::string status = app.getStatus();
       ImGui::TextWrapped("%s", status.c_str());

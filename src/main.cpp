@@ -4,6 +4,8 @@
 #include "OfxHost.h"
 #include "UI.h"
 
+#include <tiffio.h>
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -17,8 +19,44 @@ static int fail(const char *msg) {
   return 1;
 }
 
+static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
+  TIFF *tif = TIFFOpen(p.c_str(), "w");
+  if (!tif) return false;
+  TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 2);
+  TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 2);
+  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 16);
+  TIFFSetField(tif, TIFFTAG_SAMPLEFORMAT, halfFloat ? SAMPLEFORMAT_IEEEFP : SAMPLEFORMAT_UINT);
+  TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+  TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  TIFFSetField(tif, TIFFTAG_ROWSPERSTRIP, 2);
+  uint16_t row0[6], row1[6];
+  if (halfFloat) {
+    // half 1.0 = 0x3c00
+    uint16_t one = 0x3c00, z = 0;
+    row0[0] = one; row0[1] = z; row0[2] = z; row0[3] = z; row0[4] = one; row0[5] = z;
+    row1[0] = z; row1[1] = z; row1[2] = one; row1[3] = one; row1[4] = one; row1[5] = one;
+  } else {
+    row0[0] = 65535; row0[1] = 0; row0[2] = 0; row0[3] = 0; row0[4] = 65535; row0[5] = 0;
+    row1[0] = 0; row1[1] = 0; row1[2] = 65535; row1[3] = 65535; row1[4] = 65535; row1[5] = 65535;
+  }
+  const bool ok = TIFFWriteScanline(tif, row0, 0, 0) >= 0 && TIFFWriteScanline(tif, row1, 1, 0) >= 0;
+  TIFFClose(tif);
+  return ok;
+}
+
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int selfTest() {
+  for (bool half : {false, true}) {
+    const fs::path p = fs::temp_directory_path() / (half ? "ofxrawhost-selftest-half.tif" : "ofxrawhost-selftest.tif");
+    if (!writeTinyTiff(p, half)) return fail(half ? "tiff write half" : "tiff write");
+    Image img;
+    if (!loadImage(p.string(), img) || img.w != 2 || img.h != 2) return fail(half ? "tiff load half" : "tiff load");
+    if (img.px[(size_t)1 * 2 * 4 + 0] < 0.9f) return fail(half ? "tiff pixels half" : "tiff pixels");
+    fs::remove(p);
+  }
+
   Image src;
   src.w = 64;
   src.h = 48;
@@ -58,7 +96,7 @@ static int selfTest() {
     if (!finite || !touched) return fail(("output: " + pe.label).c_str());
     const fs::path dir = fs::temp_directory_path();
     bool written = true;
-    for (const char *ext : {"tif", "png", "jpg", "exr"}) {
+    for (const char *ext : {"png", "jpg"}) {
       const fs::path p = dir / ("ofxrawhost-selftest." + std::string(ext));
       written &= writeImage(out, p.string());
       fs::remove(p);
