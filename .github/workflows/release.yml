@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build
+        run: VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+      - name: Package
+        run: ditto -c -k --keepParent OfxRawHost.app OfxRawHost-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OfxRawHost-macOS
+          path: OfxRawHost-macOS.zip
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" OfxRawHost-macOS.zip --clobber
