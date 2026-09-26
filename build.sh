@@ -9,6 +9,9 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release"
 if [ -n "${ARCHS:-}" ] && [ "$(uname)" = Darwin ]; then
   CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_ARCHITECTURES=$ARCHS"
 fi
+if [ "${OFX_NATIVE_ARCH:-0}" = "1" ]; then
+  CMAKE_ARGS="$CMAKE_ARGS -DOFX_NATIVE_ARCH=ON"
+fi
 cmake -S . -B "$BUILD" $CMAKE_ARGS
 cmake --build "$BUILD" -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
 

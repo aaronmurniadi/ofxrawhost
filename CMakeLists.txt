@@ -90,6 +90,32 @@ if(APPLE)
   target_sources(OfxRawHost PRIVATE src/MacPinch.m)
 endif()
 
+# Link-time optimization (cross-TU inlining, dead-code elimination).
+include(CheckIPOSupported)
+check_ipo_supported(RESULT OFX_IPO_SUPPORTED OUTPUT OFX_IPO_OUTPUT)
+if(OFX_IPO_SUPPORTED)
+  set_property(TARGET OfxRawHost PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+  message(STATUS "LTO not supported: ${OFX_IPO_OUTPUT}")
+endif()
+
+# SSE2 is the minimum SIMD baseline on x86_64 (always available there).
+# On 32-bit x86, require it explicitly so stb_image / stbir can use SSE2 code paths.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(i386|i486|i586|i686)$")
+  target_compile_options(OfxRawHost PRIVATE -msse2 -mfpmath=sse)
+endif()
+
+# Optional: optimize for the build host CPU (enables AVX, F16C, etc.).
+option(OFX_NATIVE_ARCH "Build with -march=native for the host CPU" OFF)
+if(OFX_NATIVE_ARCH)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(OfxRawHost PRIVATE -march=native)
+  elseif(MSVC)
+    target_compile_options(OfxRawHost PRIVATE /arch:AVX2)
+  endif()
+  message(STATUS "Building with native architecture optimization")
+endif()
+
 target_include_directories(OfxRawHost PRIVATE
   src
   third_party/openfx/include

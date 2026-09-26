@@ -301,20 +301,25 @@ static void uploadTexture(App &app, const Image &img) {
 }
 
 static OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
-  Image cur = src;
+  // Thread-local pooled buffers avoid reallocating the per-node scratch space on
+  // every render. The export path (detached thread) and the preview render worker
+  // each get their own pair of buffers, so there is no cross-thread contention.
+  static thread_local Image cur, next;
+  cur.w = src.w;
+  cur.h = src.h;
+  cur.px = src.px;  // one copy of the source is unavoidable
   for (size_t i = 0; i < app.nodes.size(); ++i) {
     Node &n = app.nodes[i];
     if (!n.enabled) continue;
     if (!n.instance) return kOfxStatFailed;
-    Image next;
     next.w = cur.w;
     next.h = cur.h;
-    next.px.resize(cur.px.size());
+    if (next.px.size() != cur.px.size()) next.px.resize(cur.px.size());
     const OfxStatus st =
         renderEffect(gPlugins[n.pluginIndex].plugin, n.instance.get(), cur.px.data(), next.px.data(), cur.w, cur.h, gen);
     if (st != kOfxStatOK) return st;
     if (gen != 0 && gen != gLatestGen) return kOfxStatFailed;
-    cur = std::move(next);
+    cur.swap(next);  // O(1) – next becomes cur, old cur recycled as scratch
   }
   out = std::move(cur);
   return kOfxStatOK;

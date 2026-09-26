@@ -6,12 +6,23 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <thread>
 #include <vector>
+
+#if defined(__F16C__)
+#include <immintrin.h>
+#endif
+
+// Enable NEON paths on ARM for stb_image (auto-enabled for x86_64 SSE2).
+#if defined(__ARM_NEON) && !defined(STBI_NEON)
+#define STBI_NEON
+#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_HDR
@@ -39,13 +50,8 @@ const char *colorSpaceName(ColorSpace cs) {
 
 static void flipRows(float *px, int w, int h) {
   const size_t row = (size_t)w * 4;
-  std::vector<float> tmp(row);
-  for (int y = 0; y < h / 2; ++y) {
-    float *a = px + y * row, *b = px + (size_t)(h - 1 - y) * row;
-    std::copy(a, a + row, tmp.data());
-    std::copy(b, b + row, a);
-    std::copy(tmp.begin(), tmp.end(), b);
-  }
+  for (int y = 0; y < h / 2; ++y)
+    std::swap_ranges(px + (size_t)y * row, px + (size_t)(y + 1) * row, px + (size_t)(h - 1 - y) * row);
 }
 
 static bool fromRGBAFloatTopDown(float *src, int w, int h, Image &out) {
@@ -125,6 +131,9 @@ static bool loadExr(const std::string &path, Image &out) {
 }
 
 static float halfToFloat(uint16_t h) {
+#if defined(__F16C__)
+  return _cvtsh_ss(h);
+#else
   const uint32_t sign = (uint32_t)(h >> 15) << 31;
   uint32_t exp = (h >> 10) & 0x1f;
   uint32_t mant = h & 0x3ff;
@@ -148,6 +157,7 @@ static float halfToFloat(uint16_t h) {
   float f;
   std::memcpy(&f, &bits, sizeof f);
   return f;
+#endif
 }
 
 static bool loadTiffScanline(TIFF *tif, uint32_t w, uint32_t h, uint16_t bps, uint16_t spp, uint16_t sf,
@@ -292,7 +302,24 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   out.w = w;
   out.h = h;
   out.px.resize((size_t)w * h * 4);
-  stbir_resize_float_linear(src.px.data(), src.w, src.h, 0, out.px.data(), w, h, 0, STBIR_RGBA);
+
+  const unsigned int nThreads = std::min(std::max(1u, std::thread::hardware_concurrency()), 4u);
+  if (nThreads > 1 && longEdge >= 512) {
+    STBIR_RESIZE rs;
+    stbir_resize_init(&rs, src.px.data(), src.w, src.h, 0, out.px.data(), w, h, 0, STBIR_RGBA, STBIR_TYPE_FLOAT);
+    if (stbir_build_samplers_with_splits(&rs, (int)nThreads)) {
+      std::vector<std::thread> threads;
+      threads.reserve(nThreads);
+      for (unsigned int i = 0; i < nThreads; ++i)
+        threads.emplace_back([&rs, i] { stbir_resize_extended_split(&rs, (int)i, 1); });
+      for (auto &t : threads) t.join();
+      stbir_free_samplers(&rs);
+    } else {
+      stbir_resize_float_linear(src.px.data(), src.w, src.h, 0, out.px.data(), w, h, 0, STBIR_RGBA);
+    }
+  } else {
+    stbir_resize_float_linear(src.px.data(), src.w, src.h, 0, out.px.data(), w, h, 0, STBIR_RGBA);
+  }
   return true;
 }
 
@@ -337,19 +364,59 @@ static cmsHPROFILE makeProfile(ColorSpace cs) {
   return cmsCreate_sRGBProfile();
 }
 
-static bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out) {
-  cmsHPROFILE p = makeProfile(cs);
-  if (!p) return false;
+// Cache for deterministic ICC profiles, serialized bytes, and CMS transforms.
+// Profiles are recreated from scratch on every call without this cache, which is
+// expensive (lcms2 profile building + CMS transform linking) and called per-frame.
+static cmsHPROFILE cachedProfile(ColorSpace cs) {
+  static std::array<cmsHPROFILE, 4> profiles{};
+  const int idx = (int)cs;
+  if (!profiles[idx]) profiles[idx] = makeProfile(cs);
+  return profiles[idx];
+}
+
+static cmsHPROFILE srgbProfile() {
+  static cmsHPROFILE p = cmsCreate_sRGBProfile();
+  return p;
+}
+
+static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
+  static std::array<std::vector<uint8_t>, 4> bytes{};
+  static std::array<bool, 4> tried{};
+  const int idx = (int)cs;
+  if (tried[idx]) return bytes[idx];
+  tried[idx] = true;
+  cmsHPROFILE p = cachedProfile(cs);
+  if (!p) return bytes[idx];
   cmsUInt32Number n = 0;
-  if (!cmsSaveProfileToMem(p, nullptr, &n) || n == 0) {
-    cmsCloseProfile(p);
-    return false;
+  if (cmsSaveProfileToMem(p, nullptr, &n) && n > 0) {
+    bytes[idx].resize(n);
+    if (cmsSaveProfileToMem(p, bytes[idx].data(), &n))
+      bytes[idx].resize(n);
+    else
+      bytes[idx].clear();
   }
-  out.resize(n);
-  const bool ok = cmsSaveProfileToMem(p, out.data(), &n);
-  cmsCloseProfile(p);
-  if (ok) out.resize(n);
-  return ok;
+  return bytes[idx];
+}
+
+static cmsHTRANSFORM cachedTransform(ColorSpace cs) {
+  static std::array<cmsHTRANSFORM, 4> transforms{};
+  static std::array<bool, 4> tried{};
+  const int idx = (int)cs;
+  if (tried[idx]) return transforms[idx];
+  tried[idx] = true;
+  cmsHPROFILE src = cachedProfile(cs);
+  cmsHPROFILE dst = srgbProfile();
+  if (src && dst)
+    transforms[idx] = cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_8, INTENT_RELATIVE_COLORIMETRIC,
+                                         cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
+  return transforms[idx];
+}
+
+static bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out) {
+  const auto &icc = cachedIccBytes(cs);
+  if (icc.empty()) return false;
+  out = icc;
+  return true;
 }
 
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {
@@ -363,22 +430,14 @@ void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned cha
     std::copy(src, src + img.w * 4, top.data() + (size_t)y * img.w * 4);
   }
 
-  cmsHPROFILE src = makeProfile(space);
-  cmsHPROFILE dst = cmsCreate_sRGBProfile();
-  cmsHTRANSFORM xform = nullptr;
-  if (src && dst)
-    xform = cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_8, INTENT_RELATIVE_COLORIMETRIC,
-                               cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
+  cmsHTRANSFORM xform = cachedTransform(space);
   if (xform) {
     cmsDoTransform(xform, top.data(), out.data(), (cmsUInt32Number)img.w * img.h);
-    cmsDeleteTransform(xform);
   } else {
     // Fallback: clamp only.
     for (size_t i = 0; i < top.size(); ++i)
       out[i] = (unsigned char)std::lround(std::clamp(top[i], 0.0f, 1.0f) * 255.0f);
   }
-  if (src) cmsCloseProfile(src);
-  if (dst) cmsCloseProfile(dst);
 }
 
 static void toTopDown8(const Image &img, std::vector<unsigned char> &out) {
@@ -387,8 +446,10 @@ static void toTopDown8(const Image &img, std::vector<unsigned char> &out) {
     const float *src = img.px.data() + (size_t)(img.h - 1 - y) * img.w * 4;
     unsigned char *dst = out.data() + (size_t)y * img.w * 4;
     for (int x = 0; x < img.w; ++x) {
-      for (int c = 0; c < 4; ++c)
-        dst[c] = (unsigned char)std::lround(std::clamp(src[c], 0.0f, 1.0f) * 255.0f);
+      for (int c = 0; c < 4; ++c) {
+        const float v = src[c] * 255.0f + 0.5f;
+        dst[c] = v < 0.0f ? 0 : (v > 255.0f ? 255 : (unsigned char)v);
+      }
       src += 4;
       dst += 4;
     }
