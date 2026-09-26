@@ -69,6 +69,16 @@ build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 
 ---
 
+## Roadmap
+
+| Feature                                                                                                 | Status    |
+| ------------------------------------------------------------------------------------------------------- | --------- |
+| Support for the [ntsc-rs](https://github.com/valadaptive/ntsc-rs) OFX plugin (analog video/VHS effects) | Planned   |
+| Stacking multiple OFX plugins in a chain, reordering ofx chain                                          | Planned   |
+| Windows and Linux builds                                                                                | Unplanned |
+
+---
+
 ## License
 
 See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license.
