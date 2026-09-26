@@ -16,6 +16,8 @@ Use it to try OFX effects that normally only run inside Resolve, Nuke, or simila
 
 > **v0.3** adds plugin chaining (reorder / bypass), resizable side panels, and icon buttons. It builds on the **v0.2** rewrite to **C++17 + Dear ImGui** (GLFW) with LibRaw / lcms2 / stb / tinyexr. Packaged installers are still macOS-only for now.
 
+https://github.com/aaronmurniadi/ofxrawhost/raw/main/docs/demo.mp4
+
 ![OFX Raw Host](docs/screenshot.png)
 
 ---
