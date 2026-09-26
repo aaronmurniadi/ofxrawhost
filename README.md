@@ -1,4 +1,6 @@
-<img src="docs/logo.png" width="128" alt="OFX Raw Host logo">
+<p align="center">
+  <img src="docs/logo.png" width="128" alt="OFX Raw Host logo">
+</p>
 
 # OFX Raw Host
 
@@ -8,13 +10,24 @@
 
 <a href="https://www.buymeacoffee.com/aaronmurniadi"><img src="https://www.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=aaronmurniadi&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee"></a>
 
-A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) host. Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through an OFX filter plugin, preview, and export to TIFF, PNG, JPEG or OpenEXR. No video editor needed.
+A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) **plugin host**. Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through one or more OFX filter plugins, preview the result, and export to TIFF, PNG, JPEG, or OpenEXR — no video NLE required.
 
-It was written with [spektrafilm-ofx](https://github.com/chaert-s/spektrafilm-ofx) in mind — a film-simulation plugin (film, print, scan, grain, halation, diffusion) that normally only runs inside DaVinci Resolve or Nuke. With this you can use it on photos directly.
+Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.2** rewrites the app from Objective-C++/AppKit to **C++17 + Dear ImGui** (GLFW), with LibRaw / lcms2 / stb / tinyexr for I/O, so the same codebase can target macOS, Linux, and Windows. Packaged installers are still macOS-only for now.
+> **v0.3** adds plugin chaining (reorder / bypass), resizable side panels, and icon buttons. It builds on the **v0.2** rewrite to **C++17 + Dear ImGui** (GLFW) with LibRaw / lcms2 / stb / tinyexr. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
+
+---
+
+## Tested OFX plugins
+
+| Plugin              | What it does                                                    | Link                                                                                                                         |
+| ------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **spektrafilm-ofx** | Film simulation (film, print, scan, grain, halation, diffusion) | [chaert-s/spektrafilm-ofx](https://github.com/chaert-s/spektrafilm-ofx) · [spektrafilm.114c.de](https://spektrafilm.114c.de) |
+| **ntsc-rs**         | Analog video / VHS-style effects                                | [valadaptive/ntsc-rs](https://github.com/valadaptive/ntsc-rs)                                                                |
+
+Other OFX filter plugins may work. If you confirm one, a PR to this table is welcome.
 
 ---
 
@@ -33,29 +46,27 @@ xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
 
 ---
 
-## Installing spektrafilm-ofx
+## Installing OFX plugins
 
-OFX Raw Host loads plugins from the platform default OFX directory plus any directories in `OFX_PLUGIN_PATH`:
+OFX Raw Host loads plugins from the platform default OFX directory plus any paths in `OFX_PLUGIN_PATH`:
 
-| Platform | Default path |
-| --- | --- |
-| macOS | `/Library/OFX/Plugins` |
-| Linux | `/usr/OFX/Plugins` |
-| Windows | `C:\Program Files\Common Files\OFX\Plugins` |
+| Platform | Default path                                |
+| -------- | ------------------------------------------- |
+| macOS    | `/Library/OFX/Plugins`                      |
+| Linux    | `/usr/OFX/Plugins`                          |
+| Windows  | `C:\Program Files\Common Files\OFX\Plugins` |
 
-The easiest way on macOS is the installer from [spektrafilm.114c.de](https://spektrafilm.114c.de). It puts the plugins in `/Library/OFX/Plugins`, where OFX Raw Host (and Resolve) find them on their own.
-
-To build from source, follow the steps in the [spektrafilm-ofx README](https://github.com/chaert-s/spektrafilm-ofx#setup-from-a-fresh-checkout) (`./build_macos.sh`), then copy the resulting bundles into place:
+Install plugins the way their authors recommend (installer, package, or copy `*.ofx.bundle` into the directory above). For example on macOS:
 
 ```sh
 sudo mkdir -p /Library/OFX/Plugins
 sudo cp -R path/to/*.ofx.bundle /Library/OFX/Plugins/
 ```
 
-Or skip the copy and point the host at your build directory (apps launched from Finder don't see shell variables, so start it from the terminal):
+Or point the host at a build directory without copying (apps launched from Finder don't see shell variables, so start it from the terminal):
 
 ```sh
-OFX_PLUGIN_PATH=/path/to/spektrafilm-ofx/build /Applications/OfxRawHost.app/Contents/MacOS/OfxRawHost
+OFX_PLUGIN_PATH=/path/to/plugins /Applications/OfxRawHost.app/Contents/MacOS/OfxRawHost
 ```
 
 Restart OFX Raw Host after installing plugins. If none are found, the status bar says so.
@@ -92,15 +103,14 @@ build/OfxRawHost --selftest
 
 ## Roadmap
 
-| Feature | Status |
-| --- | --- |
+| Feature                                         | Status      |
+| ----------------------------------------------- | ----------- |
 | C++17 + Dear ImGui UI (cross-platform codebase) | Done (v0.2) |
-| Support for the [ntsc-rs](https://github.com/valadaptive/ntsc-rs) OFX plugin (analog video/VHS effects) | Planned |
-| Chaining multiple OFX plugins, with reordering | Planned |
-| Packaged Windows and Linux releases | Planned |
+| Plugin chaining with reorder / bypass           | Done (v0.3) |
+| Packaged Windows and Linux releases             | Planned     |
 
 ---
 
 ## License
 
-See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license. Vendored headers under `third_party/stb`, `third_party/tinyexr`, and `third_party/portable-file-dialogs` keep their upstream licenses.
+See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license. Vendored headers under `third_party/stb`, `third_party/tinyexr`, `third_party/portable-file-dialogs`, and `third_party/fontawesome` keep their upstream licenses.

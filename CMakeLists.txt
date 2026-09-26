@@ -76,6 +76,17 @@ target_include_directories(OfxRawHost PRIVATE
   third_party/stb
   third_party/tinyexr
   third_party/portable-file-dialogs
+  third_party/fontawesome
+)
+
+target_compile_definitions(OfxRawHost PRIVATE
+  "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
+)
+
+add_custom_command(TARGET OfxRawHost POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
+    $<TARGET_FILE_DIR:OfxRawHost>/fa-solid-900.ttf
 )
 
 if(TARGET PkgConfig::LIBRAW)
@@ -111,6 +122,9 @@ if(APPLE)
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:OfxRawHost>
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/MacOS/OfxRawHost
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
+      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/fa-solid-900.ttf
     COMMAND ${CMAKE_COMMAND} -E echo "Built ${CMAKE_BINARY_DIR}/OfxRawHost.app"
     DEPENDS OfxRawHost
   )

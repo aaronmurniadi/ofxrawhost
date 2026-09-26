@@ -4,6 +4,7 @@
 #include "OfxHost.h"
 #include "ofxParam.h"
 
+#include "IconsFontAwesome6.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -48,6 +49,13 @@ static ColorSpace outputSpace(int index) {
   return static_cast<ColorSpace>(index);
 }
 
+struct Node {
+  int pluginIndex = -1;
+  bool enabled = true;
+  std::unique_ptr<Effect> instance;
+  std::map<std::string, bool> groupOpen;
+};
+
 struct App {
   GLFWwindow *window = nullptr;
   unsigned int tex = 0;
@@ -55,14 +63,17 @@ struct App {
 
   Image full, preview;
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
-  int pluginIndex = -1;
   int outputIndex = 0;
   int exportFormat = 2;  // JPEG
   int jpegQuality = 92;
   int previewRes = 1;  // 1080p
+  bool showLeft = true;
+  bool showRight = true;
+  float leftW = 280.0f;
+  float rightW = 420.0f;
   char paramFilter[128] = {};
-  std::unique_ptr<Effect> instance;
-  std::map<std::string, bool> groupOpen;
+  std::vector<Node> nodes;
+  int selectedNode = -1;
 
   std::mutex renderMutex;
   std::condition_variable renderCv;
@@ -85,13 +96,18 @@ struct App {
   }
 };
 
+static Node *selectedNode(App &app) {
+  if (app.selectedNode < 0 || app.selectedNode >= (int)app.nodes.size()) return nullptr;
+  return &app.nodes[app.selectedNode];
+}
+
 static const std::vector<Val> &choiceOptions(Param *p) {
   static const std::vector<Val> none;
   auto it = p->props.m.find(kOfxParamPropChoiceOption);
   return it != p->props.m.end() ? it->second : none;
 }
 
-static void notifyChanged(App &app, Param *p) {
+static void notifyChanged(App &app, Node &node, Param *p) {
   PropSet in;
   OfxPropertySetHandle a = H(&in);
   const double scale[2] = {1, 1};
@@ -100,14 +116,14 @@ static void notifyChanged(App &app, Param *p) {
   propSetString(a, kOfxPropChangeReason, 0, kOfxChangeUserEdited);
   propSetDouble(a, kOfxPropTime, 0, 0);
   propSetN<double, propSetDouble>(a, kOfxImageEffectPropRenderScale, 2, scale);
-  OfxPlugin *plugin = gPlugins[app.pluginIndex].plugin;
-  callAction(plugin, kOfxActionBeginInstanceChanged, app.instance.get(), &in);
-  callAction(plugin, kOfxActionInstanceChanged, app.instance.get(), &in);
-  callAction(plugin, kOfxActionEndInstanceChanged, app.instance.get(), &in);
+  OfxPlugin *plugin = gPlugins[node.pluginIndex].plugin;
+  callAction(plugin, kOfxActionBeginInstanceChanged, node.instance.get(), &in);
+  callAction(plugin, kOfxActionInstanceChanged, node.instance.get(), &in);
+  callAction(plugin, kOfxActionEndInstanceChanged, node.instance.get(), &in);
 }
 
-static void applyColorDefaults(App &app) {
-  for (auto &up : app.instance->params) {
+static void applyColorDefaults(App &app, Node &node) {
+  for (auto &up : node.instance->params) {
     Param *p = up.get();
     if (p->type != kOfxParamTypeChoice) continue;
     const std::string label = sprop(p->props, kOfxPropLabel);
@@ -120,40 +136,37 @@ static void applyColorDefaults(App &app) {
         std::lock_guard<std::mutex> lock(gValueMutex);
         p->v[0] = (double)i;
       }
-      notifyChanged(app, p);
+      notifyChanged(app, node, p);
       break;
     }
   }
 }
 
 static void syncOutputTag(App &app) {
-  for (auto &up : app.instance->params) {
-    Param *p = up.get();
-    if (p->type != kOfxParamTypeChoice || sprop(p->props, kOfxPropLabel) != "Output Color Space" ||
-        dprop(p->props, kOfxParamPropSecret, 0, 0) != 0)
-      continue;
-    const auto &options = choiceOptions(p);
-    const size_t index = (size_t)p->v[0];
-    if (index < options.size()) {
-      for (int i = 0; i < 4; ++i)
-        if (options[index].s == kOutputSpaces[i]) {
-          app.outputIndex = i;
-          break;
-        }
+  // Prefer the last node in the chain that exposes an Output Color Space choice.
+  for (int n = (int)app.nodes.size() - 1; n >= 0; --n) {
+    for (auto &up : app.nodes[n].instance->params) {
+      Param *p = up.get();
+      if (p->type != kOfxParamTypeChoice || sprop(p->props, kOfxPropLabel) != "Output Color Space" ||
+          dprop(p->props, kOfxParamPropSecret, 0, 0) != 0)
+        continue;
+      const auto &options = choiceOptions(p);
+      const size_t index = (size_t)p->v[0];
+      if (index < options.size()) {
+        for (int i = 0; i < 4; ++i)
+          if (options[index].s == kOutputSpaces[i]) {
+            app.outputIndex = i;
+            return;
+          }
+      }
     }
   }
 }
 
-static void destroyInstance(App &app) {
-  if (!app.instance) return;
+static void waitRenderIdle(App &app) {
   ++gLatestGen;
-  // Wait for in-flight render by briefly taking the render mutex after bumping gen.
-  {
-    std::unique_lock<std::mutex> lock(app.renderMutex);
-    app.renderPending = false;
-  }
-  callAction(gPlugins[app.pluginIndex].plugin, kOfxActionDestroyInstance, app.instance.get());
-  app.instance.reset();
+  std::unique_lock<std::mutex> lock(app.renderMutex);
+  app.renderPending = false;
 }
 
 static void showSourcePreview(App &app) {
@@ -163,44 +176,87 @@ static void showSourcePreview(App &app) {
   app.displayDirty = true;
 }
 
-static void selectPlugin(App &app, int index) {
-  destroyInstance(app);
-  app.pluginIndex = index;
-  app.paramFilter[0] = '\0';
-  if (index < 0 || index >= (int)gPlugins.size()) {
+static void scheduleRender(App &app) {
+  if (app.nodes.empty() || app.preview.px.empty()) {
     showSourcePreview(app);
     return;
   }
-  app.instance = createInstance(gPlugins[index]);
-  app.groupOpen.clear();
-  if (app.instance) {
-    if (app.preview.w) {
-      app.instance->w = app.preview.w;
-      app.instance->h = app.preview.h;
+  for (auto &n : app.nodes) {
+    if (n.instance) {
+      n.instance->w = app.preview.w;
+      n.instance->h = app.preview.h;
     }
-    applyColorDefaults(app);
-    syncOutputTag(app);
-    for (auto &p : app.instance->params)
-      if (p->type == kOfxParamTypeGroup) app.groupOpen[p->name] = dprop(p->props, kOfxParamPropGroupOpen, 0, 1) != 0;
-  } else {
-    app.setStatus("Plugin failed to create an instance");
   }
   app.renderPending = true;
   app.renderCv.notify_one();
+}
+
+static void destroyNode(App &app, int index) {
+  if (index < 0 || index >= (int)app.nodes.size()) return;
+  waitRenderIdle(app);
+  Node &n = app.nodes[index];
+  if (n.instance) callAction(gPlugins[n.pluginIndex].plugin, kOfxActionDestroyInstance, n.instance.get());
+  app.nodes.erase(app.nodes.begin() + index);
+  if (app.nodes.empty())
+    app.selectedNode = -1;
+  else if (app.selectedNode >= (int)app.nodes.size())
+    app.selectedNode = (int)app.nodes.size() - 1;
+  else if (app.selectedNode > index)
+    --app.selectedNode;
+  app.paramFilter[0] = '\0';
+  scheduleRender(app);
+}
+
+static void clearNodes(App &app) {
+  waitRenderIdle(app);
+  for (auto &n : app.nodes)
+    if (n.instance) callAction(gPlugins[n.pluginIndex].plugin, kOfxActionDestroyInstance, n.instance.get());
+  app.nodes.clear();
+  app.selectedNode = -1;
+  app.paramFilter[0] = '\0';
+}
+
+static bool addNode(App &app, int pluginIndex) {
+  if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
+  waitRenderIdle(app);
+  Node node;
+  node.pluginIndex = pluginIndex;
+  node.instance = createInstance(gPlugins[pluginIndex]);
+  if (!node.instance) {
+    app.setStatus("Plugin failed to create an instance");
+    return false;
+  }
+  if (app.preview.w) {
+    node.instance->w = app.preview.w;
+    node.instance->h = app.preview.h;
+  }
+  applyColorDefaults(app, node);
+  for (auto &p : node.instance->params)
+    if (p->type == kOfxParamTypeGroup) node.groupOpen[p->name] = dprop(p->props, kOfxParamPropGroupOpen, 0, 1) != 0;
+  app.nodes.push_back(std::move(node));
+  app.selectedNode = (int)app.nodes.size() - 1;
+  app.paramFilter[0] = '\0';
+  syncOutputTag(app);
+  scheduleRender(app);
+  return true;
+}
+
+static void moveNode(App &app, int from, int to) {
+  if (from < 0 || to < 0 || from >= (int)app.nodes.size() || to >= (int)app.nodes.size() || from == to) return;
+  waitRenderIdle(app);
+  Node n = std::move(app.nodes[from]);
+  app.nodes.erase(app.nodes.begin() + from);
+  app.nodes.insert(app.nodes.begin() + to, std::move(n));
+  app.selectedNode = to;
+  syncOutputTag(app);
+  scheduleRender(app);
 }
 
 static void rebuildPreview(App &app) {
   if (app.full.px.empty()) return;
   const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
   makePreview(app.full, maxEdge, app.preview);
-  if (app.instance) {
-    app.instance->w = app.preview.w;
-    app.instance->h = app.preview.h;
-    app.renderPending = true;
-    app.renderCv.notify_one();
-  } else {
-    showSourcePreview(app);
-  }
+  scheduleRender(app);
 }
 
 static void openPath(App &app, const std::string &path) {
@@ -233,6 +289,26 @@ static void uploadTexture(App &app, const Image &img) {
   }
 }
 
+static OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
+  Image cur = src;
+  for (size_t i = 0; i < app.nodes.size(); ++i) {
+    Node &n = app.nodes[i];
+    if (!n.enabled) continue;
+    if (!n.instance) return kOfxStatFailed;
+    Image next;
+    next.w = cur.w;
+    next.h = cur.h;
+    next.px.resize(cur.px.size());
+    const OfxStatus st =
+        renderEffect(gPlugins[n.pluginIndex].plugin, n.instance.get(), cur.px.data(), next.px.data(), cur.w, cur.h, gen);
+    if (st != kOfxStatOK) return st;
+    if (gen != 0 && gen != gLatestGen) return kOfxStatFailed;
+    cur = std::move(next);
+  }
+  out = std::move(cur);
+  return kOfxStatOK;
+}
+
 static void renderWorker(App *app) {
   while (!app->quit) {
     {
@@ -241,17 +317,12 @@ static void renderWorker(App *app) {
       if (app->quit) break;
       app->renderPending = false;
     }
-    if (!app->instance || app->preview.px.empty() || app->pluginIndex < 0) continue;
+    if (app->nodes.empty() || app->preview.px.empty()) continue;
     const int gen = ++gLatestGen;
-    Effect *effect = app->instance.get();
-    OfxPlugin *plugin = gPlugins[app->pluginIndex].plugin;
     Image src = app->preview;
-    app->setStatus("Rendering…");
+    app->setStatus("Rendering...");
     Image out;
-    out.w = src.w;
-    out.h = src.h;
-    out.px.resize(src.px.size());
-    const OfxStatus st = renderEffect(plugin, effect, src.px.data(), out.px.data(), src.w, src.h, gen);
+    const OfxStatus st = renderChain(*app, src, out, gen);
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
       std::lock_guard<std::mutex> lock(app->displayMutex);
@@ -265,10 +336,10 @@ static void renderWorker(App *app) {
   }
 }
 
-static bool ancestorsOpen(App &app, const std::string &group) {
+static bool ancestorsOpen(Node &node, const std::string &group) {
   if (group.empty()) return true;
-  Param *g = findParam(app.instance.get(), group.c_str());
-  return g && app.groupOpen[group] && ancestorsOpen(app, sprop(g->props, kOfxParamPropParent));
+  Param *g = findParam(node.instance.get(), group.c_str());
+  return g && node.groupOpen[group] && ancestorsOpen(node, sprop(g->props, kOfxParamPropParent));
 }
 
 static void resetParamValues(Param *p) {
@@ -469,10 +540,12 @@ static void drawParam(App &app, Param *p) {
   if (!enabled) ImGui::EndDisabled();
   ImGui::PopID();
   if (changed) {
-    notifyChanged(app, p);
-    syncOutputTag(app);
-    app.renderPending = true;
-    app.renderCv.notify_one();
+    Node *node = selectedNode(app);
+    if (node) {
+      notifyChanged(app, *node, p);
+      syncOutputTag(app);
+      scheduleRender(app);
+    }
   }
 }
 
@@ -503,31 +576,31 @@ static bool subtreeMatches(Effect *e, const std::string &parent, const std::stri
   return false;
 }
 
-static void drawParams(App &app, const std::string &parent) {
+static void drawParams(App &app, Node &node, const std::string &parent) {
   const std::string filter = app.paramFilter;
   const bool filtering = filter[0] != '\0';
-  for (auto &up : app.instance->params) {
+  for (auto &up : node.instance->params) {
     Param *p = up.get();
     if (sprop(p->props, kOfxParamPropParent) != parent || p->type == kOfxParamTypePage) continue;
     if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
     if (p->type == kOfxParamTypeGroup) {
-      if (filtering && !subtreeMatches(app.instance.get(), p->name, filter) && !paramMatches(p, filter)) continue;
-      if (!filtering && !ancestorsOpen(app, parent) && parent != "") continue;
+      if (filtering && !subtreeMatches(node.instance.get(), p->name, filter) && !paramMatches(p, filter)) continue;
+      if (!filtering && !ancestorsOpen(node, parent) && parent != "") continue;
       const std::string groupLabel = sprop(p->props, kOfxPropLabel) + "##" + p->name;
       if (filtering) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
-      else ImGui::SetNextItemOpen(app.groupOpen[p->name], ImGuiCond_Once);
+      else ImGui::SetNextItemOpen(node.groupOpen[p->name], ImGuiCond_Once);
       if (ImGui::CollapsingHeader(groupLabel.c_str())) {
-        if (!filtering) app.groupOpen[p->name] = true;
+        if (!filtering) node.groupOpen[p->name] = true;
         ImGui::Indent();
-        drawParams(app, p->name);
+        drawParams(app, node, p->name);
         ImGui::Unindent();
       } else if (!filtering) {
-        app.groupOpen[p->name] = false;
+        node.groupOpen[p->name] = false;
       }
     } else {
       if (filtering) {
         if (!paramMatches(p, filter)) continue;
-      } else if (!ancestorsOpen(app, parent)) {
+      } else if (!ancestorsOpen(node, parent)) {
         continue;
       }
       drawParam(app, p);
@@ -535,8 +608,54 @@ static void drawParams(App &app, const std::string &parent) {
   }
 }
 
+static void vSplitter(const char *id, float *size, float minSize, float maxSize, float sign) {
+  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_SeparatorHovered));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_SeparatorActive));
+  ImGui::Button(id, ImVec2(4.0f, ImGui::GetContentRegionAvail().y));
+  if (ImGui::IsItemActive()) {
+    *size += sign * ImGui::GetIO().MouseDelta.x;
+    *size = std::clamp(*size, minSize, maxSize);
+  }
+  if (ImGui::IsItemHovered() || ImGui::IsItemActive()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+  ImGui::PopStyleColor(3);
+}
+
+static ImWchar utf8Codepoint(const char *s) {
+  const unsigned char *u = (const unsigned char *)s;
+  if (u[0] < 0x80) return (ImWchar)u[0];
+  if ((u[0] & 0xE0) == 0xC0) return (ImWchar)(((u[0] & 0x1F) << 6) | (u[1] & 0x3F));
+  if ((u[0] & 0xF0) == 0xE0) return (ImWchar)(((u[0] & 0x0F) << 12) | ((u[1] & 0x3F) << 6) | (u[2] & 0x3F));
+  return 0;
+}
+
+static bool iconBtn(const char *id, const char *icon) {
+  const float h = ImGui::GetFrameHeight();
+  ImGui::PushID(id);
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  const bool pressed = ImGui::InvisibleButton("##", ImVec2(h, h));
+  const ImU32 bg = ImGui::GetColorU32(ImGui::IsItemActive()   ? ImGuiCol_ButtonActive
+                                      : ImGui::IsItemHovered() ? ImGuiCol_ButtonHovered
+                                                               : ImGuiCol_Button);
+  ImDrawList *dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h), bg, ImGui::GetStyle().FrameRounding);
+
+  // Center on glyph ink bounds (CalcTextSize line metrics don't match FA visual boxes).
+  ImFont *font = ImGui::GetFont();
+  const float fontSize = ImGui::GetFontSize();
+  const ImWchar cp = utf8Codepoint(icon);
+  if (const ImFontGlyph *g = font->FindGlyph(cp)) {
+    const float scale = fontSize / font->FontSize;
+    const float x = p.x + h * 0.5f - (g->X0 + g->X1) * scale * 0.5f;
+    const float y = p.y + h * 0.5f - (g->Y0 + g->Y1) * scale * 0.5f;
+    font->RenderChar(dl, fontSize, ImVec2(std::floor(x), std::floor(y)), ImGui::GetColorU32(ImGuiCol_Text), cp);
+  }
+  ImGui::PopID();
+  return pressed;
+}
+
 static void doExport(App &app) {
-  if (app.full.px.empty() || !app.instance) return;
+  if (app.full.px.empty() || app.nodes.empty()) return;
   const char *exts[] = {".tif", ".png", ".jpg", ".exr"};
   const char *filters[] = {"TIFF (16-bit)", "*.tif *.tiff", "PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg", "OpenEXR (float)", "*.exr"};
   std::string def = fs::path(app.path).stem().string() + exts[app.exportFormat];
@@ -545,22 +664,25 @@ static void doExport(App &app) {
   if (outPath.empty()) return;
   if (fs::path(outPath).extension().empty()) outPath += exts[app.exportFormat];
 
-  app.setStatus("Exporting full resolution…");
-  ++gLatestGen;
-  Effect *effect = app.instance.get();
-  OfxPlugin *plugin = gPlugins[app.pluginIndex].plugin;
+  app.setStatus("Exporting full resolution...");
+  waitRenderIdle(app);
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
   const ColorSpace space = outputSpace(app.outputIndex);
   const int jpegQuality = app.jpegQuality;
-  std::thread([&, effect, plugin, src, outPath, pw, ph, space, jpegQuality]() mutable {
+  std::thread([&, src, outPath, pw, ph, space, jpegQuality]() mutable {
+    for (auto &n : app.nodes)
+      if (n.instance) {
+        n.instance->w = src.w;
+        n.instance->h = src.h;
+      }
     Image out;
-    out.w = src.w;
-    out.h = src.h;
-    out.px.resize(src.px.size());
-    OfxStatus st = renderEffect(plugin, effect, src.px.data(), out.px.data(), src.w, src.h, 0);
-    effect->w = pw;
-    effect->h = ph;
+    OfxStatus st = renderChain(app, src, out, 0);
+    for (auto &n : app.nodes)
+      if (n.instance) {
+        n.instance->w = pw;
+        n.instance->h = ph;
+      }
     bool ok = st == kOfxStatOK && writeImage(out, outPath, space, jpegQuality);
     app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
                             std::to_string(src.h) + ")"
@@ -603,6 +725,31 @@ int runApp(const std::string &optionalPath) {
   fontCfg.OversampleV = 2;
   io.Fonts->Clear();
   io.Fonts->AddFontDefault(&fontCfg);
+  {
+    // Merge Font Awesome solid icons into the default font (imgui docs/FONTS.md).
+    ImFontConfig iconsCfg;
+    iconsCfg.MergeMode = true;
+    iconsCfg.PixelSnapH = true;
+    iconsCfg.GlyphMinAdvanceX = fontCfg.SizePixels;
+    iconsCfg.OversampleH = 2;
+    iconsCfg.OversampleV = 2;
+    // Only the glyphs we use — full ICON_MIN/MAX_FA would bloat the atlas.
+    static const ImWchar iconRanges[] = {0xf00d, 0xf00d, 0xf053, 0xf055, 0xf062, 0xf063, 0xf06e, 0xf070, 0};
+    const char *cands[] = {
+        OFX_ICON_FONT_PATH,
+        "fa-solid-900.ttf",
+        "../Resources/fa-solid-900.ttf",
+    };
+    bool loaded = false;
+    for (const char *path : cands) {
+      if (!path || !path[0] || !fs::exists(path)) continue;
+      if (io.Fonts->AddFontFromFileTTF(path, fontCfg.SizePixels, &iconsCfg, iconRanges)) {
+        loaded = true;
+        break;
+      }
+    }
+    if (!loaded) std::fprintf(stderr, "warning: could not load Font Awesome icon font\n");
+  }
   io.FontGlobalScale = 1.0f / dpi;
   ImGui::StyleColorsDark();
   ImGui_ImplGlfw_InitForOpenGL(app.window, true);
@@ -617,7 +764,7 @@ int runApp(const std::string &optionalPath) {
   if (gPlugins.empty())
     app.setStatus("No OFX filter plugins found in the default OFX path or OFX_PLUGIN_PATH");
   else
-    app.setStatus("Select an OFX plugin to begin.");
+    app.setStatus("Add plugins with + to build a processing chain.");
   if (!optionalPath.empty()) openPath(app, optionalPath);
 
   app.renderThread = std::thread(renderWorker, &app);
@@ -645,17 +792,28 @@ int runApp(const std::string &optionalPath) {
 
     if (ImGui::BeginMainMenuBar()) {
       if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("Open…", "Ctrl+O")) {
+        if (ImGui::MenuItem("Open...", "Ctrl+O")) {
           auto f = pfd::open_file("Open image", "", {"Images", "*.*"});
           auto r = f.result();
           if (!r.empty()) openPath(app, r[0]);
         }
-        if (ImGui::MenuItem("Export…", "Ctrl+E")) doExport(app);
+        if (ImGui::MenuItem("Export...", "Ctrl+E")) doExport(app);
         if (ImGui::MenuItem("Quit", "Ctrl+Q")) glfwSetWindowShouldClose(app.window, 1);
+        ImGui::EndMenu();
+      }
+      if (ImGui::BeginMenu("View")) {
+        ImGui::MenuItem("Left panel", "Ctrl+[", &app.showLeft);
+        ImGui::MenuItem("Right panel", "Ctrl+]", &app.showRight);
         ImGui::EndMenu();
       }
       ImGui::EndMainMenuBar();
     }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
+        ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_LeftBracket))
+      app.showLeft = !app.showLeft;
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
+        ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
+      app.showRight = !app.showRight;
 
     const ImGuiViewport *vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -664,70 +822,175 @@ int runApp(const std::string &optionalPath) {
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-    ImGui::BeginChild("preview", ImVec2(ImGui::GetContentRegionAvail().x - 460, 0), true);
+    const float splitW = 4.0f;
+    const float minPanel = 180.0f;
+    const float minPreview = 160.0f;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float splits = (app.showLeft ? splitW : 0.0f) + (app.showRight ? splitW : 0.0f);
+    const float maxLeft = app.showLeft ? std::max(minPanel, avail - splits - minPreview - (app.showRight ? app.rightW : 0.0f)) : minPanel;
+    const float maxRight = app.showRight ? std::max(minPanel, avail - splits - minPreview - (app.showLeft ? app.leftW : 0.0f)) : minPanel;
+    if (app.showLeft) app.leftW = std::clamp(app.leftW, minPanel, maxLeft);
+    if (app.showRight) app.rightW = std::clamp(app.rightW, minPanel, maxRight);
+    const float previewW = avail - splits - (app.showLeft ? app.leftW : 0.0f) - (app.showRight ? app.rightW : 0.0f);
+
+    if (app.showLeft) {
+      ImGui::BeginChild("left", ImVec2(app.leftW, 0), true);
+      if (iconBtn("##hideLeft", ICON_FA_CHEVRON_LEFT)) app.showLeft = false;
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Hide left panel (Ctrl+[)");
+      ImGui::SameLine();
+      if (ImGui::Button("Open...")) {
+        auto f = pfd::open_file("Open image", "", {"Images", "*.*"});
+        auto r = f.result();
+        if (!r.empty()) openPath(app, r[0]);
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Export...")) doExport(app);
+
+      ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, 4);
+      if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) {
+        std::lock_guard<std::mutex> lock(app.displayMutex);
+        if (!app.display.px.empty()) app.displayDirty = true;
+      }
+      {
+        const char *items[kPreviewResCount];
+        for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
+        if (ImGui::Combo("Preview", &app.previewRes, items, kPreviewResCount)) rebuildPreview(app);
+      }
+      ImGui::Combo("Export format", &app.exportFormat, "TIFF (16-bit)\0PNG (8-bit)\0JPEG\0OpenEXR (float)\0");
+      if (app.exportFormat == 2) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
+      ImGui::Separator();
+      const std::string status = app.getStatus();
+      ImGui::TextWrapped("%s", status.c_str());
+      ImGui::Separator();
+
+      ImGui::TextUnformatted("OFX Plugin Nodes");
+      {
+        const float addX = ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight();
+        ImGui::SameLine(addX);
+        if (iconBtn("##addNode", ICON_FA_CIRCLE_PLUS)) ImGui::OpenPopup("##addPlugin");
+      }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Add plugin");
+      if (ImGui::BeginPopup("##addPlugin")) {
+        if (gPlugins.empty()) {
+          ImGui::TextDisabled("No plugins found");
+        } else {
+          for (int i = 0; i < (int)gPlugins.size(); ++i)
+            if (ImGui::Selectable(gPlugins[i].label.c_str())) addNode(app, i);
+        }
+        ImGui::EndPopup();
+      }
+
+      ImGui::BeginChild("nodeList", ImVec2(0, 0), true);
+      if (app.nodes.empty()) {
+        ImGui::TextDisabled("No nodes yet.\nPress + to add a plugin.");
+      }
+      const float btnH = ImGui::GetFrameHeight();
+      const float btnGap = ImGui::GetStyle().ItemSpacing.x;
+      const float btnsW = 4.0f * btnH + 3.0f * btnGap;
+      int removeAt = -1;
+      for (int i = 0; i < (int)app.nodes.size(); ++i) {
+        ImGui::PushID(i);
+        Node &node = app.nodes[i];
+        const bool selected = app.selectedNode == i;
+        const std::string label = gPlugins[node.pluginIndex].label;
+        if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
+        if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(ImGui::GetContentRegionAvail().x - btnsW - btnGap, btnH))) {
+          app.selectedNode = i;
+          app.paramFilter[0] = '\0';
+        }
+        if (!node.enabled) ImGui::PopStyleVar();
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+          ImGui::SetDragDropPayload("NODE_IDX", &i, sizeof(i));
+          ImGui::Text("%s", label.c_str());
+          ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginDragDropTarget()) {
+          if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("NODE_IDX")) {
+            const int from = *(const int *)payload->Data;
+            moveNode(app, from, i);
+          }
+          ImGui::EndDragDropTarget();
+        }
+        ImGui::SameLine(0.0f, btnGap);
+        if (iconBtn("##en", node.enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) {
+          node.enabled = !node.enabled;
+          scheduleRender(app);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+          ImGui::SetTooltip(node.enabled ? "Disable processing" : "Enable processing");
+        ImGui::SameLine(0.0f, btnGap);
+        if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) moveNode(app, i, i - 1);
+        ImGui::SameLine(0.0f, btnGap);
+        if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size()) moveNode(app, i, i + 1);
+        ImGui::SameLine(0.0f, btnGap);
+        if (iconBtn("##rm", ICON_FA_XMARK)) removeAt = i;
+        ImGui::PopID();
+      }
+      if (removeAt >= 0) destroyNode(app, removeAt);
+      ImGui::EndChild();
+      ImGui::EndChild();
+
+      ImGui::SameLine(0.0f, 0.0f);
+      vSplitter("##splitL", &app.leftW, minPanel, maxLeft, +1.0f);
+      ImGui::SameLine(0.0f, 0.0f);
+    }
+
+    ImGui::BeginChild("preview", ImVec2(std::max(minPreview, previewW), 0), true);
     if (app.tex) {
       const float aw = ImGui::GetContentRegionAvail().x, ah = ImGui::GetContentRegionAvail().y;
-      const float scale = std::min(aw / app.texW, ah / app.texH);
+      const float scale = std::min(aw / (float)app.texW, ah / (float)app.texH);
       const ImVec2 size(app.texW * scale, app.texH * scale);
       ImGui::SetCursorPos(ImVec2((aw - size.x) * 0.5f, (ah - size.y) * 0.5f));
       ImGui::Image((ImTextureID)(intptr_t)app.tex, size);
     } else {
       ImGui::TextUnformatted("Open an image to preview.");
     }
+    if (!app.showLeft) {
+      ImGui::SetCursorPos(ImVec2(8.0f, 8.0f));
+      if (iconBtn("##showLeft", ICON_FA_CHEVRON_RIGHT)) app.showLeft = true;
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Show left panel (Ctrl+[)");
+    }
+    if (!app.showRight) {
+      ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight() - 8.0f, 8.0f));
+      if (iconBtn("##showRight", ICON_FA_CHEVRON_LEFT)) app.showRight = true;
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Show right panel (Ctrl+])");
+    }
     ImGui::EndChild();
 
-    ImGui::SameLine();
-    ImGui::BeginChild("sidebar", ImVec2(0, 0), true);
-    if (ImGui::Button("Open…")) {
-      auto f = pfd::open_file("Open image", "", {"Images", "*.*"});
-      auto r = f.result();
-      if (!r.empty()) openPath(app, r[0]);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Export…")) doExport(app);
-
-    if (!gPlugins.empty()) {
-      std::vector<const char *> labels;
-      labels.push_back("Select plugin…");
-      for (auto &pe : gPlugins) labels.push_back(pe.label.c_str());
-      int combo = app.pluginIndex + 1;
-      if (ImGui::Combo("Plugin", &combo, labels.data(), (int)labels.size())) selectPlugin(app, combo - 1);
-    }
-    ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, 4);
-    if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) {
-      std::lock_guard<std::mutex> lock(app.displayMutex);
-      if (!app.display.px.empty()) app.displayDirty = true;
-    }
-    {
-      const char *items[kPreviewResCount];
-      for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
-      if (ImGui::Combo("Preview", &app.previewRes, items, kPreviewResCount)) rebuildPreview(app);
-    }
-    ImGui::Combo("Export format", &app.exportFormat, "TIFF (16-bit)\0PNG (8-bit)\0JPEG\0OpenEXR (float)\0");
-    if (app.exportFormat == 2) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
-    ImGui::Separator();
-    const std::string status = app.getStatus();
-    ImGui::TextWrapped("%s", status.c_str());
-    ImGui::Separator();
-    if (app.instance) {
-      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
-        ImGui::SetKeyboardFocusHere();
-      const bool hasFilter = app.paramFilter[0] != '\0';
-      if (hasFilter) {
-        const float clearW = ImGui::GetFrameHeight();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - clearW - ImGui::GetStyle().ItemSpacing.x);
+    if (app.showRight) {
+      ImGui::SameLine(0.0f, 0.0f);
+      vSplitter("##splitR", &app.rightW, minPanel, maxRight, -1.0f);
+      ImGui::SameLine(0.0f, 0.0f);
+      ImGui::BeginChild("right", ImVec2(app.rightW, 0), true);
+      if (iconBtn("##hideRight", ICON_FA_CHEVRON_RIGHT)) app.showRight = false;
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Hide right panel (Ctrl+])");
+      Node *node = selectedNode(app);
+      if (!node) {
+        ImGui::TextDisabled("Select a node to edit parameters.");
       } else {
-        ImGui::SetNextItemWidth(-1);
-      }
-      ImGui::InputTextWithHint("##paramFilter", "Search parameters…", app.paramFilter, sizeof app.paramFilter);
-      if (hasFilter) {
         ImGui::SameLine();
-        if (ImGui::Button("×", ImVec2(ImGui::GetFrameHeight(), 0))) app.paramFilter[0] = '\0';
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(gPlugins[node->pluginIndex].label.c_str());
+        ImGui::Separator();
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
+          ImGui::SetKeyboardFocusHere();
+        const bool hasFilter = app.paramFilter[0] != '\0';
+        if (hasFilter) {
+          const float clearW = ImGui::GetFrameHeight();
+          ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - clearW - ImGui::GetStyle().ItemSpacing.x);
+        } else {
+          ImGui::SetNextItemWidth(-1);
+        }
+        ImGui::InputTextWithHint("##paramFilter", "Search parameters...", app.paramFilter, sizeof app.paramFilter);
+        if (hasFilter) {
+          ImGui::SameLine();
+          if (iconBtn("##clearFilter", ICON_FA_XMARK)) app.paramFilter[0] = '\0';
+        }
+        ImGui::Separator();
+        drawParams(app, *node, "");
       }
-      ImGui::Separator();
-      drawParams(app, "");
+      ImGui::EndChild();
     }
-    ImGui::EndChild();
 
     ImGui::End();
 
@@ -744,6 +1007,7 @@ int runApp(const std::string &optionalPath) {
   app.quit = true;
   app.renderCv.notify_one();
   if (app.renderThread.joinable()) app.renderThread.join();
+  clearNodes(app);
 
   if (app.tex) glDeleteTextures(1, &app.tex);
   ImGui_ImplOpenGL3_Shutdown();
