@@ -1,5 +1,3 @@
-#import <Foundation/Foundation.h>
-
 #include "OfxHost.h"
 
 #include "ofxMemory.h"
@@ -7,16 +5,46 @@
 #include "ofxMultiThread.h"
 #include "ofxParam.h"
 
-#include <dlfcn.h>
-
 #include <climits>
 #include <cmath>
 #include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <thread>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
 namespace fs = std::filesystem;
+
+static void *loadLib(const fs::path &path) {
+#ifdef _WIN32
+  return (void *)LoadLibraryW(path.wstring().c_str());
+#else
+  return dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+#endif
+}
+static void *sym(void *lib, const char *name) {
+#ifdef _WIN32
+  return (void *)GetProcAddress((HMODULE)lib, name);
+#else
+  return dlsym(lib, name);
+#endif
+}
+static const char *loadErr() {
+#ifdef _WIN32
+  static char buf[64];
+  snprintf(buf, sizeof buf, "Win32 error %lu", GetLastError());
+  return buf;
+#else
+  return dlerror();
+#endif
+}
 
 // ------------------------------------------------------------------ properties
 
@@ -340,7 +368,7 @@ static OfxStatus imageMemoryUnlock(OfxImageMemoryHandle) { return kOfxStatOK; }
 
 // Message, memory, multithread suites
 
-void (^gOnMessage)(NSString *) = nil;
+std::function<void(const std::string &)> gOnMessage;
 
 static OfxStatus message(void *, const char *type, const char *, const char *fmt, ...) {
   char buf[4096];
@@ -349,9 +377,9 @@ static OfxStatus message(void *, const char *type, const char *, const char *fmt
   vsnprintf(buf, sizeof buf, fmt ? fmt : "", ap);
   va_end(ap);
   type = type ? type : "";
-  NSLog(@"OFX %s: %s", type, buf);
+  fprintf(stderr, "OFX %s: %s\n", type, buf);
   if (gOnMessage && (!strcmp(type, kOfxMessageError) || !strcmp(type, kOfxMessageFatal) || !strcmp(type, kOfxMessageWarning)))
-    gOnMessage([NSString stringWithUTF8String:buf] ?: @"(plugin message)");
+    gOnMessage(buf[0] ? buf : "(plugin message)");
   return !strcmp(type, kOfxMessageQuestion) ? kOfxStatReplyYes : kOfxStatOK;
 }
 static OfxStatus memoryAlloc(void *, size_t n, void **out) {
@@ -549,16 +577,42 @@ OfxStatus callAction(OfxPlugin *p, const char *action, Effect *e, PropSet *in) {
 }
 static bool succeeded(OfxStatus s) { return s == kOfxStatOK || s == kOfxStatReplyDefault; }
 
+static fs::path pluginBinary(const fs::path &bundle) {
+  const fs::path contents = bundle / "Contents";
+  const std::string stem = bundle.stem().string();  // Foo.ofx
+#if defined(_WIN32)
+  const char *arch = sizeof(void *) == 8 ? "Win64" : "Win32";
+#elif defined(__APPLE__)
+  const char *arch = "MacOS";
+#elif defined(__aarch64__) || defined(__arm64__)
+  const char *arch = "Linux-arm-64";
+#elif defined(__x86_64__)
+  const char *arch = "Linux-x86-64";
+#else
+  const char *arch = "Linux-x86";
+#endif
+  fs::path bin = contents / arch / stem;
+  if (fs::exists(bin)) return bin;
+#ifdef __APPLE__
+  // Universal / arm64 / x86_64 subdirs used by some vendors.
+  for (const char *sub : {"MacOS/arm64", "MacOS/x86_64", "MacOS/universal"}) {
+    bin = contents / sub / stem;
+    if (fs::exists(bin)) return bin;
+  }
+#endif
+  return contents / arch / stem;
+}
+
 static void loadBundle(const fs::path &bundle) {
-  const fs::path bin = bundle / "Contents" / "MacOS" / bundle.stem();
-  void *lib = dlopen(bin.c_str(), RTLD_LAZY | RTLD_LOCAL);
+  const fs::path bin = pluginBinary(bundle);
+  void *lib = loadLib(bin);
   if (!lib) {
-    NSLog(@"Skipping %s: %s", bundle.c_str(), dlerror());
+    fprintf(stderr, "Skipping %s: %s\n", bundle.string().c_str(), loadErr());
     return;
   }
-  auto setHost = reinterpret_cast<OfxStatus (*)(const OfxHost *)>(dlsym(lib, "OfxSetHost"));
-  auto count = reinterpret_cast<int (*)()>(dlsym(lib, "OfxGetNumberOfPlugins"));
-  auto get = reinterpret_cast<OfxPlugin *(*)(int)>(dlsym(lib, "OfxGetPlugin"));
+  auto setHost = reinterpret_cast<OfxStatus (*)(const OfxHost *)>(sym(lib, "OfxSetHost"));
+  auto count = reinterpret_cast<int (*)()>(sym(lib, "OfxGetNumberOfPlugins"));
+  auto get = reinterpret_cast<OfxPlugin *(*)(int)>(sym(lib, "OfxGetPlugin"));
   if (!count || !get) return;
   if (setHost) setHost(&gHost);
   for (int i = 0, n = count(); i < n; ++i) {
@@ -585,12 +639,24 @@ void loadPlugins() {
   std::vector<std::string> dirs;
   if (const char *env = getenv("OFX_PLUGIN_PATH")) {
     std::string s = env;
+#ifdef _WIN32
+    const char sep = ';';
+#else
+    const char sep = ':';
+#endif
     for (size_t start = 0, end; start <= s.size(); start = end + 1) {
-      end = std::min(s.find(':', start), s.size());
+      end = std::min(s.find(sep, start), s.size());
       if (end > start) dirs.push_back(s.substr(start, end - start));
     }
   }
+#if defined(_WIN32)
+  dirs.push_back("C:\\Program Files\\Common Files\\OFX\\Plugins");
+#elif defined(__APPLE__)
   dirs.push_back("/Library/OFX/Plugins");
+#else
+  dirs.push_back("/usr/OFX/Plugins");
+  dirs.push_back("/usr/local/OFX/Plugins");
+#endif
   for (auto &d : dirs) {
     std::error_code ec;
     for (auto it = fs::recursive_directory_iterator(d, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {

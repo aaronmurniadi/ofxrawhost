@@ -5,13 +5,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
-
-@class NSString;
 
 struct Val {
   std::string s;
@@ -64,7 +63,7 @@ struct Effect {
 extern std::atomic<int> gLatestGen;
 extern std::mutex gValueMutex;
 // Called with plugin warnings/errors, on the thread that raised them.
-extern void (^gOnMessage)(NSString *);
+extern std::function<void(const std::string &)> gOnMessage;
 
 int dims(const std::string &type);
 bool isIntType(const std::string &type);

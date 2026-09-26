@@ -1,17 +1,30 @@
-// Decode (RAW via Core Image), convert to/from OFX float buffers, export.
+// Decode RAW (LibRaw) / raster (stb), convert to/from OFX float buffers, export.
 #pragma once
 
-#import <CoreImage/CoreImage.h>
-
-#include <memory>
+#include <string>
 #include <vector>
 
-using Pixels = std::shared_ptr<std::vector<float>>;
+struct Image {
+  std::vector<float> px;  // bottom-up float RGBA
+  int w = 0, h = 0;
+};
 
-CIImage *loadImage(NSURL *url);
-// Renders to scene-linear Rec.2020, bottom-up rows (OFX order). maxEdge 0 = full size.
-Pixels renderSource(CIContext *ctx, CIImage *img, int maxEdge, int &w, int &h);
-// Wraps bottom-up float RGBA as a top-down CGImage tagged with `space`.
-CGImageRef makeCGImage(const std::vector<float> &px, int w, int h, CFStringRef space);
-// Format from the URL extension; EXR stays float, everything else is 16-bit.
-bool writeImage(CGImageRef img, NSURL *url);
+// Matches the UI "Output tag" combo. Plugin pixels are assumed already in this space;
+// we only embed the matching ICC (and convert for on-screen preview).
+enum class ColorSpace {
+  sRGB = 0,
+  DisplayP3,
+  LinearRec709,
+  LinearRec2020,
+};
+
+const char *colorSpaceName(ColorSpace cs);
+
+// Loads RAW via LibRaw (linear, camera WB) or PNG/JPEG/TIFF/EXR via stb/tinyexr.
+bool loadImage(const std::string &path, Image &out);
+// maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
+bool makePreview(const Image &src, int maxEdge, Image &out);
+// Format from path extension; EXR stays float (chromaticities), PNG/JPEG/TIFF embed ICC.
+bool writeImage(const Image &img, const std::string &path, ColorSpace space = ColorSpace::sRGB, int jpegQuality = 92);
+// Top-down 8-bit RGBA for display (lcms2 transform into sRGB).
+void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out);

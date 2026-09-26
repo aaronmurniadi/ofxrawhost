@@ -10,22 +10,29 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Build and package DMGs
+      - name: Install dependencies
+        run: brew install cmake libraw little-cms2
+      - name: Build and package DMG
         run: |
-          for arch in arm64 x86_64; do
-            rm -rf build/OfxRawHost.app build/dmg
-            ARCHS=$arch VERSION="${GITHUB_REF_NAME#v}" ./build.sh
-            mkdir build/dmg && cp -R build/OfxRawHost.app build/dmg/ && ln -s /Applications build/dmg/Applications
-            hdiutil create -volname "OFX Raw Host" -srcfolder build/dmg -format UDZO -ov "build/OfxRawHost-macOS-$arch.dmg"
-          done
+          rm -rf build
+          ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+          mkdir -p build/dmg && cp -R build/OfxRawHost.app build/dmg/ && ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "OFX Raw Host" -srcfolder build/dmg -format UDZO -ov "build/OfxRawHost-macOS-${{ matrix.arch }}.dmg"
       - uses: actions/upload-artifact@v4
         with:
-          name: OfxRawHost-macOS
+          name: OfxRawHost-macOS-${{ matrix.arch }}
           path: build/OfxRawHost-macOS-*.dmg
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
