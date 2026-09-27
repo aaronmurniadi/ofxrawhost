@@ -1,7 +1,7 @@
 // Minimal still-image OpenFX host: decode RAW/raster, run one OFX filter, preview, export.
 
-#include "ImageIO.h"
-#include "OfxHost.h"
+#include "imgio/ImageIO.h"
+#include "ofx/OfxHost.h"
 #include "UI.h"
 
 #include <tiffio.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AppState.h"
-#include "ProjectPersist.h"
+#include "persist/ProjectPersist.h"
 
 PersistGui captureGui(const App &app);
 void applyGui(App &app, const PersistGui &g);

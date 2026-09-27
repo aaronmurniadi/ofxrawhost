@@ -59,8 +59,12 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
 }
 
 void uploadTexture(App &app, const Image &img) {
+  // No nodes: buffer is still source-linear — transform from input's linear space.
+  // With nodes: buffer is assumed in the tagged Output space (plugin chain result).
+  const ColorSpace space =
+      app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
   std::vector<unsigned char> rgba;
-  toDisplayRGBA8(img, outputSpace(app.outputIndex), rgba);
+  toDisplayRGBA8(img, space, rgba);
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
 }
 

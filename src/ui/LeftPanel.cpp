@@ -1,6 +1,6 @@
 #include "ui/UiContext.h"
 
-#include "DocumentActions.h"
+#include "persist/DocumentActions.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ui/Widgets.h"

@@ -1,7 +1,7 @@
 #include "ui/UiContext.h"
 
-#include "DocumentActions.h"
-#include "Themes.h"
+#include "persist/DocumentActions.h"
+#include "ui/Themes.h"
 #include "ui/DockLayout.h"
 
 #include "imgui.h"

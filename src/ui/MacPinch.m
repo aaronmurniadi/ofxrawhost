@@ -1,6 +1,6 @@
 #import <AppKit/AppKit.h>
 
-#include "MacPinch.h"
+#include "ui/MacPinch.h"
 
 static float g_mag = 0.0f;
 static id g_monitor = nil;

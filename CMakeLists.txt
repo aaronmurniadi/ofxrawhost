@@ -79,15 +79,19 @@ endif()
 
 add_executable(OfxRawHost
   src/main.cpp
-  src/OfxHost.cpp
-  src/ImageIO.cpp
+  src/ofx/OfxSuites.cpp
+  src/ofx/OfxPlugins.cpp
+  src/imgio/ImageLoad.cpp
+  src/imgio/ImageColor.cpp
+  src/imgio/ImageWrite.cpp
   src/UI.cpp
   src/NodeGraph.cpp
   src/RenderPipeline.cpp
-  src/Filmstrip.cpp
-  src/DocumentActions.cpp
-  src/ProjectPersist.cpp
-  src/Themes.cpp
+  src/persist/DocumentActions.cpp
+  src/persist/ProjectPersistSave.cpp
+  src/persist/ProjectPersistLoad.cpp
+  src/ui/Themes.cpp
+  src/ui/Filmstrip.cpp
   src/ui/ImGuiBackend.cpp
   src/ui/DockLayout.cpp
   src/ui/UiFrame.cpp
@@ -101,7 +105,7 @@ add_executable(OfxRawHost
 )
 
 if(APPLE)
-  target_sources(OfxRawHost PRIVATE src/MacPinch.m)
+  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m)
 endif()
 
 # Link-time optimization (cross-TU inlining, dead-code elimination).

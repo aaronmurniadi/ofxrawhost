@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ImageIO.h"
-#include "OfxHost.h"
+#include "imgio/ImageIO.h"
+#include "ofx/OfxHost.h"
 
 #include <GLFW/glfw3.h>
 
@@ -58,6 +58,22 @@ inline constexpr int kPreviewResCount = 4;
 inline ColorSpace outputSpace(int index) {
   index = std::clamp(index, 0, 3);
   return static_cast<ColorSpace>(index);
+}
+
+// Working buffers are scene-linear (stbi_loadf / LibRaw). Gamma tags (sRGB, Display P3)
+// describe the *file*; for CMS display of unprocessed source use the linear counterpart.
+inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
+  switch (fileOrTag) {
+    case ColorSpace::sRGB:
+      return ColorSpace::LinearRec709;
+    case ColorSpace::DisplayP3:
+      // No linear-P3 tag yet; Rec.2020 is the closest wider linear space we have.
+      return ColorSpace::LinearRec2020;
+    case ColorSpace::LinearRec709:
+    case ColorSpace::LinearRec2020:
+      return fileOrTag;
+  }
+  return ColorSpace::LinearRec709;
 }
 
 struct App {

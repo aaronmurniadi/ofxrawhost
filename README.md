@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.7** adds workspace folders with a filmstrip, project/sidecar JSON, and a DockSpace-based ImGui layout (modular panels, persisted `.ini`). **v0.3.6** auto-detects input color space from embedded ICC. **v0.3.5** brought performance enhancements. Packaged installers are still macOS-only for now.
+> **v0.3.8** reorganizes the source tree (`imgio/`, `ofx/`, `persist/`, `ui/`) and fixes JPEG/PNG passthrough preview color (scene-linear display). **v0.3.7** added workspace filmstrip, sidecars, and DockSpace UI. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -122,10 +122,12 @@ build/OfxRawHost --selftest
 | Workspace folder + filmstrip thumbnails                             | Done (v0.3.7) |
 | Project / sidecar JSON (reproducible chain + export metadata)       | Done (v0.3.7) |
 | ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7) |
+| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)           | Done (v0.3.8) |
+| Correct JPEG/PNG passthrough preview color                          | Done (v0.3.8) |
 | Packaged Windows and Linux releases                                 | Planned       |
 
 ---
 
 ## License
 
-See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license. Vendored headers under `third_party/stb`, `third_party/tinyexr`, `third_party/portable-file-dialogs`, and `third_party/fontawesome` keep their upstream licenses. UI themes in `src/Themes.cpp` are from [ImThemes](https://github.com/Patitotective/ImThemes) (MIT).
+See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license. Vendored headers under `third_party/stb`, `third_party/tinyexr`, `third_party/portable-file-dialogs`, and `third_party/fontawesome` keep their upstream licenses. UI themes in `src/ui/Themes.cpp` are from [ImThemes](https://github.com/Patitotective/ImThemes) (MIT).

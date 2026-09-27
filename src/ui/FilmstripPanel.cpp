@@ -1,7 +1,7 @@
 #include "ui/UiContext.h"
 
-#include "DocumentActions.h"
-#include "Filmstrip.h"
+#include "persist/DocumentActions.h"
+#include "ui/Filmstrip.h"
 
 #include "imgui.h"
 

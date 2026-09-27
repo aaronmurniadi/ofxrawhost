@@ -3,7 +3,7 @@
 #include "imgui.h"
 
 #if defined(__APPLE__)
-#include "MacPinch.h"
+#include "ui/MacPinch.h"
 #endif
 
 #include <algorithm>

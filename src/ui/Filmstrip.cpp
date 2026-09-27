@@ -1,7 +1,7 @@
-#include "Filmstrip.h"
+#include "ui/Filmstrip.h"
 
-#include "ImageIO.h"
-#include "ProjectPersist.h"
+#include "imgio/ImageIO.h"
+#include "persist/ProjectPersist.h"
 
 #include <GLFW/glfw3.h>
 

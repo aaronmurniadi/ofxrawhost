@@ -1,10 +1,10 @@
-#include "DocumentActions.h"
+#include "persist/DocumentActions.h"
 
-#include "Filmstrip.h"
-#include "ImageIO.h"
+#include "ui/Filmstrip.h"
+#include "imgio/ImageIO.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
-#include "Themes.h"
+#include "ui/Themes.h"
 #include "ui/ImGuiBackend.h"
 
 #include "portable-file-dialogs.h"

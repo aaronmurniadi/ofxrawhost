@@ -1,10 +1,10 @@
 #include "UI.h"
 
 #include "AppState.h"
-#include "DocumentActions.h"
-#include "Filmstrip.h"
+#include "persist/DocumentActions.h"
+#include "ui/Filmstrip.h"
 #include "NodeGraph.h"
-#include "OfxHost.h"
+#include "ofx/OfxHost.h"
 #include "RenderPipeline.h"
 #include "ui/ImGuiBackend.h"
 #include "ui/UiContext.h"
@@ -12,7 +12,7 @@
 #include <GLFW/glfw3.h>
 
 #if defined(__APPLE__)
-#include "MacPinch.h"
+#include "ui/MacPinch.h"
 #endif
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
