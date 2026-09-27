@@ -219,10 +219,13 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
     propSetPointer(a, kOfxImageEffectPropMetalCommandQueue, 0, ofxMetalCommandQueue());
     if (!e->srcMtl) e->srcMtl = ofxMetalBufferCreate((size_t)w * h * 4 * sizeof(float));
     if (!e->dstMtl) e->dstMtl = ofxMetalBufferCreate((size_t)w * h * 4 * sizeof(float));
+    if (e->srcMtl && src)
+      std::memcpy(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->srcMtl)), src, (size_t)w * h * 4 * sizeof(float));
   } else {
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 0);
   }
   const OfxStatus st = callAction(plugin, kOfxImageEffectActionRender, e, &in);
+  if (e->metalEnabled) ofxMetalSync();
   if (e->metalEnabled && st == kOfxStatOK && e->dstMtl) {
     float *d = static_cast<float *>(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl)));
     if (d && e->dst) std::memcpy(e->dst, d, (size_t)w * h * 4 * sizeof(float));
