@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.8** reorganizes the source tree (`imgio/`, `ofx/`, `persist/`, `ui/`) and fixes JPEG/PNG passthrough preview color (scene-linear display). **v0.3.7** added workspace filmstrip, sidecars, and DockSpace UI. Packaged installers are still macOS-only for now.
+> **v0.3.9** improves preview display (cached sRGB upload, Output tag recolor without re-render), OFX multi-thread pool, and open-dialog filtering (sidecars excluded). **v0.3.8** reorganized the source tree and fixed JPEG/PNG passthrough preview color. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -124,6 +124,9 @@ build/OfxRawHost --selftest
 | ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7) |
 | Layered source layout (`imgio` / `ofx` / `persist` / `ui`)           | Done (v0.3.8) |
 | Correct JPEG/PNG passthrough preview color                          | Done (v0.3.8) |
+| Cached display buffer + Output tag recolor without re-render        | Done (v0.3.9) |
+| OFX multi-thread worker pool                                        | Done (v0.3.9) |
+| Open dialog / workspace filters (exclude sidecar JSON)              | Done (v0.3.9) |
 | Packaged Windows and Linux releases                                 | Planned       |
 
 ---

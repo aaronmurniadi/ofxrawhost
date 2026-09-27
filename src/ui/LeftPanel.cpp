@@ -1,6 +1,7 @@
 #include "ui/UiContext.h"
 
 #include "persist/DocumentActions.h"
+#include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ui/Widgets.h"
@@ -23,7 +24,7 @@ static bool icontains(const std::string &hay, const std::string &needle) {
 
 void drawLeftPanel(App &app) {
   if (ImGui::Button("Open...")) {
-    auto f = pfd::open_file("Open image", "", {"Images", "*.*"});
+    auto f = pfd::open_file("Open image", "", openImageDialogFilters());
     auto r = f.result();
     if (!r.empty()) openPath(app, r[0]);
   }
@@ -31,10 +32,7 @@ void drawLeftPanel(App &app) {
   if (ImGui::Button("Export...")) doExport(app);
 
   ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, 4);
-  if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) {
-    std::lock_guard<std::mutex> lock(app.displayMutex);
-    if (!app.display.px.empty()) app.displayDirty = true;
-  }
+  if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
   {
     const char *items[kPreviewResCount];
     for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;

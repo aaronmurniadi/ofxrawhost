@@ -353,19 +353,20 @@ void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned cha
   out.assign((size_t)img.w * img.h * 4, 0);
   if (img.w <= 0 || img.h <= 0) return;
 
-  // Top-down float copy for the transform.
-  std::vector<float> top((size_t)img.w * img.h * 4);
-  for (int y = 0; y < img.h; ++y) {
-    const float *src = img.px.data() + (size_t)(img.h - 1 - y) * img.w * 4;
-    std::copy(src, src + img.w * 4, top.data() + (size_t)y * img.w * 4);
-  }
-
   cmsHTRANSFORM xform = cachedTransform(space);
+  const int rowFloats = img.w * 4;
   if (xform) {
-    cmsDoTransform(xform, top.data(), out.data(), (cmsUInt32Number)img.w * img.h);
+    for (int y = 0; y < img.h; ++y) {
+      const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+      unsigned char *dst = out.data() + (size_t)y * rowFloats;
+      cmsDoTransform(xform, src, dst, (cmsUInt32Number)img.w);
+    }
   } else {
-    // Fallback: clamp only.
-    for (size_t i = 0; i < top.size(); ++i)
-      out[i] = (unsigned char)std::lround(std::clamp(top[i], 0.0f, 1.0f) * 255.0f);
+    for (int y = 0; y < img.h; ++y) {
+      const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+      unsigned char *dst = out.data() + (size_t)y * rowFloats;
+      for (int i = 0; i < rowFloats; ++i)
+        dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
+    }
   }
 }

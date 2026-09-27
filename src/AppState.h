@@ -127,9 +127,11 @@ struct App {
   std::atomic<bool> renderPending{false};
   std::thread renderThread;
   Image display;  // latest rendered (bottom-up float), guarded by displayMutex
+  std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;
   int displayGen = 0;
+  bool displayRecolorPending = false;
 
   std::mutex statusMutex;
   void setStatus(const std::string &s) {

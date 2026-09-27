@@ -13,7 +13,11 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 // ------------------------------------------------------------------ properties
 
@@ -365,12 +369,50 @@ static thread_local unsigned tIndex = 0;
 static thread_local bool tSpawned = false;
 static unsigned cpuCount() { return std::max(1u, std::thread::hardware_concurrency()); }
 
-static OfxStatus multiThread(OfxThreadFunctionV1 f, unsigned n, void *arg) {
-  if (!f) return kOfxStatFailed;
-  if (n <= 1) {
-    f(0, 1, arg);
-    return kOfxStatOK;
+static std::mutex gMtMu;
+static std::condition_variable gMtCv;
+static std::condition_variable gMtDone;
+static OfxThreadFunctionV1 *gMtF = nullptr;
+static void *gMtArg = nullptr;
+static unsigned gMtN = 0;
+static std::atomic<unsigned> gMtNext{0};
+static unsigned gMtWorkersDone = 0;
+static unsigned gMtParticipants = 0;
+static std::atomic<bool> gMtActive{false};
+static std::atomic<bool> gMtShutdown{false};
+static std::vector<std::thread> gMtPool;
+
+static void mtRunSlices() {
+  for (;;) {
+    const unsigned i = gMtNext.fetch_add(1, std::memory_order_relaxed);
+    if (i >= gMtN) break;
+    tIndex = i;
+    tSpawned = true;
+    gMtF(i, gMtN, gMtArg);
   }
+}
+
+static void mtWorkerLoop() {
+  for (;;) {
+    std::unique_lock<std::mutex> lock(gMtMu);
+    gMtCv.wait(lock, [] { return gMtShutdown.load() || gMtActive.load(); });
+    if (gMtShutdown.load()) return;
+    lock.unlock();
+    mtRunSlices();
+    lock.lock();
+    if (++gMtWorkersDone >= gMtParticipants) gMtDone.notify_one();
+  }
+}
+
+static void mtEnsurePool() {
+  static std::once_flag once;
+  std::call_once(once, [] {
+    const unsigned nw = cpuCount();
+    for (unsigned i = 1; i < nw; ++i) gMtPool.emplace_back(mtWorkerLoop);
+  });
+}
+
+static OfxStatus multiThreadEphemeral(OfxThreadFunctionV1 f, unsigned n, void *arg) {
   std::vector<std::thread> threads;
   for (unsigned i = 0; i < n; ++i)
     threads.emplace_back([=] {
@@ -379,6 +421,39 @@ static OfxStatus multiThread(OfxThreadFunctionV1 f, unsigned n, void *arg) {
       f(i, n, arg);
     });
   for (auto &t : threads) t.join();
+  return kOfxStatOK;
+}
+
+static OfxStatus multiThread(OfxThreadFunctionV1 f, unsigned n, void *arg) {
+  if (!f) return kOfxStatFailed;
+  if (n <= 1) {
+    tIndex = 0;
+    tSpawned = false;
+    f(0, 1, arg);
+    return kOfxStatOK;
+  }
+  if (gMtActive.load() || tSpawned) return multiThreadEphemeral(f, n, arg);
+  mtEnsurePool();
+  const unsigned helpers = std::min((unsigned)gMtPool.size(), n - 1);
+  {
+    std::unique_lock<std::mutex> lock(gMtMu);
+    gMtF = f;
+    gMtArg = arg;
+    gMtN = n;
+    gMtNext.store(0, std::memory_order_relaxed);
+    gMtWorkersDone = 0;
+    gMtParticipants = 1 + helpers;
+    gMtActive.store(true);
+  }
+  gMtCv.notify_all();
+  tSpawned = false;
+  mtRunSlices();
+  {
+    std::unique_lock<std::mutex> lock(gMtMu);
+    if (++gMtWorkersDone >= gMtParticipants) gMtDone.notify_one();
+    gMtDone.wait(lock, [] { return gMtWorkersDone >= gMtParticipants; });
+    gMtActive.store(false);
+  }
   return kOfxStatOK;
 }
 static OfxStatus multiThreadNumCPUs(unsigned *n) {
@@ -520,7 +595,7 @@ static PropSet gHostProps = [] {
   propSetInt(h, kOfxPropVersion, 0, 0);
   propSetInt(h, kOfxPropVersion, 1, 3);
   propSetInt(h, kOfxPropVersion, 2, 8);
-  propSetString(h, kOfxPropVersionLabel, 0, "0.3.8");
+  propSetString(h, kOfxPropVersionLabel, 0, "0.3.9");
   propSetInt(h, kOfxImageEffectHostPropIsBackground, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsOverlays, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsMultiResolution, 0, 0);

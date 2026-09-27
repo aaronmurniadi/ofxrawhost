@@ -1,6 +1,7 @@
 #include "ui/UiContext.h"
 
 #include "persist/DocumentActions.h"
+#include "persist/ProjectPersist.h"
 #include "ui/Themes.h"
 #include "ui/DockLayout.h"
 
@@ -23,7 +24,7 @@ void DrawUiFrame(App &app) {
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::MenuItem("Open...", "Ctrl+O")) {
-        auto f = pfd::open_file("Open image", "", {"Images", "*.*"});
+        auto f = pfd::open_file("Open image", "", openImageDialogFilters());
         auto r = f.result();
         if (!r.empty()) openPath(app, r[0]);
       }

@@ -48,6 +48,8 @@ std::string inputSidecarPath(const std::string &imagePath);
 std::string exportSidecarPath(const std::string &exportPath);
 
 bool isSupportedImagePath(const std::string &path);
+bool isHostMetadataPath(const std::string &path);
+std::vector<std::string> openImageDialogFilters();
 std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir);
 
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel);

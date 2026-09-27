@@ -92,6 +92,10 @@ void openWorkspace(App &app, const std::string &dir) {
 }
 
 void openPath(App &app, const std::string &path, bool applySidecar) {
+  if (isHostMetadataPath(path)) {
+    app.setStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
+    return;
+  }
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
   Image img;
   ColorSpace detected = ColorSpace::LinearRec2020;

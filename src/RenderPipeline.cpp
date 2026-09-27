@@ -8,8 +8,12 @@
 
 static void showSourcePreview(App &app) {
   if (app.preview.px.empty()) return;
+  const ColorSpace space = linearWorkingSpace(app.inputSpace);
+  std::vector<unsigned char> rgba;
+  toDisplayRGBA8(app.preview, space, rgba);
   std::lock_guard<std::mutex> lock(app.displayMutex);
   app.display = app.preview;
+  app.displayRGBA = std::move(rgba);
   app.displayDirty = true;
 }
 
@@ -30,6 +34,7 @@ void scheduleRender(App &app) {
       n.instance->h = app.preview.h;
     }
   }
+  ++gLatestGen;
   app.renderPending = true;
   app.renderCv.notify_one();
 }
@@ -59,8 +64,6 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
 }
 
 void uploadTexture(App &app, const Image &img) {
-  // No nodes: buffer is still source-linear — transform from input's linear space.
-  // With nodes: buffer is assumed in the tagged Output space (plugin chain result).
   const ColorSpace space =
       app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
   std::vector<unsigned char> rgba;
@@ -68,10 +71,18 @@ void uploadTexture(App &app, const Image &img) {
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
 }
 
+void scheduleDisplayRecolor(App &app) {
+  ++gLatestGen;
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  app.displayRecolorPending = true;
+  app.renderPending = true;
+  app.renderCv.notify_one();
+}
+
 void pumpDisplayUpload(App &app) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  if (app.displayDirty && !app.display.px.empty()) {
-    uploadTexture(app, app.display);
+  if (app.displayDirty && !app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0) {
+    uploadTextureRGBA(app, app.displayRGBA.data(), app.display.w, app.display.h);
     app.displayDirty = false;
   }
 }
@@ -100,25 +111,49 @@ OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
 
 void renderWorker(App *app) {
   while (!app->quit) {
+    bool recolorOnly = false;
     {
       std::unique_lock<std::mutex> lock(app->renderMutex);
       app->renderCv.wait(lock, [&] { return app->quit || app->renderPending.load(); });
       if (app->quit) break;
+      recolorOnly = app->displayRecolorPending;
+      app->displayRecolorPending = false;
       app->renderPending = false;
+    }
+    if (recolorOnly) {
+      Image img;
+      ColorSpace space;
+      {
+        std::lock_guard<std::mutex> lock(app->displayMutex);
+        if (app->display.px.empty()) continue;
+        img = app->display;
+        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : outputSpace(app->outputIndex);
+      }
+      std::vector<unsigned char> rgba;
+      toDisplayRGBA8(img, space, rgba);
+      std::lock_guard<std::mutex> lock(app->displayMutex);
+      app->displayRGBA = std::move(rgba);
+      app->displayDirty = true;
+      continue;
     }
     if (app->nodes.empty() || app->preview.px.empty()) continue;
     const int gen = ++gLatestGen;
-    Image src = app->preview;
+    const int pw = app->preview.w;
+    const int ph = app->preview.h;
     app->setStatus("Rendering...");
     Image out;
-    const OfxStatus st = renderChain(*app, src, out, gen);
+    const OfxStatus st = renderChain(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
+      const ColorSpace space = outputSpace(app->outputIndex);
+      std::vector<unsigned char> rgba;
+      toDisplayRGBA8(out, space, rgba);
       std::lock_guard<std::mutex> lock(app->displayMutex);
       app->display = std::move(out);
+      app->displayRGBA = std::move(rgba);
       app->displayDirty = true;
       app->displayGen = gen;
-      app->setStatus(std::to_string(src.w) + "×" + std::to_string(src.h) + " preview");
+      app->setStatus(std::to_string(pw) + "×" + std::to_string(ph) + " preview");
     } else {
       app->setStatus("Render failed (OFX status " + std::to_string(st) + ")");
     }

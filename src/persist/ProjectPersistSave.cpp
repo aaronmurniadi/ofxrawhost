@@ -94,6 +94,7 @@ std::string exportSidecarPath(const std::string &exportPath) {
 }
 
 bool isSupportedImagePath(const std::string &path) {
+  if (isHostMetadataPath(path)) return false;
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
   if (e == ".exr" || e == ".tif" || e == ".tiff" || e == ".png" || e == ".jpg" || e == ".jpeg") return true;
@@ -101,6 +102,16 @@ bool isSupportedImagePath(const std::string &path) {
       e == ".rw2" || e == ".pef" || e == ".srw" || e == ".raw")
     return true;
   return false;
+}
+
+bool isHostMetadataPath(const std::string &path) {
+  static constexpr const char *kSuffix = ".ofxrawhost.json";
+  return path.size() >= 18 && path.compare(path.size() - 18, 18, kSuffix) == 0;
+}
+
+std::vector<std::string> openImageDialogFilters() {
+  return {"Images",
+          "*.exr *.tif *.tiff *.png *.jpg *.jpeg *.cr2 *.cr3 *.nef *.arw *.dng *.raf *.orf *.rw2 *.pef *.srw *.raw"};
 }
 
 std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir) {
@@ -111,7 +122,7 @@ std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir) {
     if (ec) break;
     if (!ent.is_regular_file()) continue;
     const std::string p = ent.path().string();
-    if (p.find(".ofxrawhost.json") != std::string::npos) continue;
+    if (isHostMetadataPath(p)) continue;
     if (!isSupportedImagePath(p)) continue;
     out.push_back(p);
   }
