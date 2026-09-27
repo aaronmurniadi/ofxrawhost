@@ -15,7 +15,7 @@ FetchContent_Declare(glfw GIT_REPOSITORY https://github.com/glfw/glfw.git GIT_TA
 FetchContent_MakeAvailable(glfw)
 
 # --- Dear ImGui ---
-FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.91.8)
+FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.91.8-docking)
 FetchContent_MakeAvailable(imgui)
 add_library(imgui_lib
   ${imgui_SOURCE_DIR}/imgui.cpp
@@ -82,7 +82,21 @@ add_executable(OfxRawHost
   src/OfxHost.cpp
   src/ImageIO.cpp
   src/UI.cpp
+  src/NodeGraph.cpp
+  src/RenderPipeline.cpp
+  src/Filmstrip.cpp
+  src/DocumentActions.cpp
+  src/ProjectPersist.cpp
   src/Themes.cpp
+  src/ui/ImGuiBackend.cpp
+  src/ui/DockLayout.cpp
+  src/ui/UiFrame.cpp
+  src/ui/Widgets.cpp
+  src/ui/ParamWidgets.cpp
+  src/ui/LeftPanel.cpp
+  src/ui/RightPanel.cpp
+  src/ui/PreviewPanel.cpp
+  src/ui/FilmstripPanel.cpp
   third_party/tinyexr/tinyexr.cc
 )
 
@@ -127,6 +141,7 @@ target_include_directories(OfxRawHost PRIVATE
 
 target_compile_definitions(OfxRawHost PRIVATE
   "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
+  GL_SILENCE_DEPRECATION
 )
 
 add_custom_command(TARGET OfxRawHost POST_BUILD

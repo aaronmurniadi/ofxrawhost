@@ -36,3 +36,5 @@ bool makePreview(const Image &src, int maxEdge, Image &out);
 bool writeImage(const Image &img, const std::string &path, ColorSpace space = ColorSpace::sRGB, int jpegQuality = 92);
 // Top-down 8-bit RGBA for display (lcms2 transform into sRGB).
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out);
+// Small filmstrip preview (downscaled source, sRGB 8-bit RGBA).
+bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h);

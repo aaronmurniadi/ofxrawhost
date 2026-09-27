@@ -712,5 +712,11 @@ const char *themeName(int i) {
 void applyTheme(int i) {
   if (i < 0 || i >= themeCount()) return;
   kThemes[i].apply();
+  // Docked panels use ChildBg/WindowBg; many community themes leave ChildBg transparent.
+  ImVec4 &child = ImGui::GetStyle().Colors[ImGuiCol_ChildBg];
+  if (child.w < 1.0f) {
+    const ImVec4 win = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+    child = ImVec4(win.x, win.y, win.z, 1.0f);
+  }
 }
 

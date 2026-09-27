@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.6** auto-detects input color space from embedded ICC (TIFF/PNG/JPEG), with RAW and untagged float defaulting to Linear Rec.2020. **v0.3.5** brought performance enhancements (ICC caching, F16C half-float, LTO, multithreaded resize, pooled buffers). **v0.3.4** added selectable ImGui themes. Packaged installers are still macOS-only for now.
+> **v0.3.7** adds workspace folders with a filmstrip, project/sidecar JSON, and a DockSpace-based ImGui layout (modular panels, persisted `.ini`). **v0.3.6** auto-detects input color space from embedded ICC. **v0.3.5** brought performance enhancements. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -110,15 +110,18 @@ build/OfxRawHost --selftest
 
 ## Roadmap
 
-| Feature                                         | Status        |
-| ----------------------------------------------- | ------------- |
-| C++17 + Dear ImGui UI (cross-platform codebase) | Done (v0.2)   |
-| Plugin chaining with reorder / bypass           | Done (v0.3)   |
-| Preview zoom / pan                              | Done (v0.3.2) |
-| TIFF open via libtiff (incl. half float)        | Done (v0.3.3) |
-| Selectable ImGui themes (Photoshop default)     | Done (v0.3.4) |
+| Feature                                                             | Status        |
+| ------------------------------------------------------------------- | ------------- |
+| C++17 + Dear ImGui UI (cross-platform codebase)                     | Done (v0.2)   |
+| Plugin chaining with reorder / bypass                               | Done (v0.3)   |
+| Preview zoom / pan                                                  | Done (v0.3.2) |
+| TIFF open via libtiff (incl. half float)                            | Done (v0.3.3) |
+| Selectable ImGui themes (Photoshop default)                         | Done (v0.3.4) |
 | Performance: ICC caching, LTO, multithreaded resize, pooled buffers | Done (v0.3.5) |
 | Auto-detect input color space (ICC / RAW policy)                    | Done (v0.3.6) |
+| Workspace folder + filmstrip thumbnails                             | Done (v0.3.7) |
+| Project / sidecar JSON (reproducible chain + export metadata)       | Done (v0.3.7) |
+| ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7) |
 | Packaged Windows and Linux releases                                 | Planned       |
 
 ---

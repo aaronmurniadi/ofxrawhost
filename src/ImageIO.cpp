@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -47,6 +48,8 @@
 
 namespace fs = std::filesystem;
 
+static std::mutex gLibRawDecodeMutex;
+
 const char *colorSpaceName(ColorSpace cs) {
   switch (cs) {
     case ColorSpace::sRGB: return "sRGB";
@@ -72,6 +75,7 @@ static bool fromRGBAFloatTopDown(float *src, int w, int h, Image &out) {
 }
 
 static bool loadRaw(const std::string &path, Image &out) {
+  std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
   if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
   if (raw.unpack() != LIBRAW_SUCCESS) return false;
@@ -297,6 +301,97 @@ static bool loadStb(const std::string &path, Image &out) {
   fromRGBAFloatTopDown(data, w, h, out);
   stbi_image_free(data);
   return true;
+}
+
+static bool downscaleRGBA8(const unsigned char *src, int sw, int sh, int maxEdge, std::vector<unsigned char> &dst,
+                           int &dw, int &dh) {
+  if (sw <= 0 || sh <= 0) return false;
+  const int longE = std::max(sw, sh);
+  if (maxEdge <= 0 || longE <= maxEdge) {
+    dw = sw;
+    dh = sh;
+    dst.assign(src, src + (size_t)sw * sh * 4);
+    return true;
+  }
+  const double scale = (double)maxEdge / longE;
+  dw = std::max(1, (int)std::floor(sw * scale));
+  dh = std::max(1, (int)std::floor(sh * scale));
+  dst.resize((size_t)dw * dh * 4);
+  stbir_resize_uint8_linear(src, sw, sh, sw * 4, dst.data(), dw, dh, dw * 4, STBIR_RGBA);
+  return true;
+}
+
+static bool loadStbThumbRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h) {
+  int iw = 0, ih = 0, n = 0;
+  unsigned char *data = stbi_load(path.c_str(), &iw, &ih, &n, 4);
+  if (!data) return false;
+  const bool ok = downscaleRGBA8(data, iw, ih, maxEdge, rgba, w, h);
+  stbi_image_free(data);
+  return ok;
+}
+
+static bool isRawExtension(const std::string &extLower) {
+  return extLower == ".cr2" || extLower == ".cr3" || extLower == ".nef" || extLower == ".arw" || extLower == ".dng" ||
+         extLower == ".raf" || extLower == ".orf" || extLower == ".rw2" || extLower == ".pef" || extLower == ".srw" ||
+         extLower == ".raw";
+}
+
+static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w,
+                                     int &h) {
+  std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
+  LibRaw raw;
+  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
+  if (raw.unpack_thumb() != LIBRAW_SUCCESS) return false;
+  const libraw_thumbnail_t &t = raw.imgdata.thumbnail;
+  if (t.tlength <= 0 || !t.thumb) return false;
+
+  std::vector<unsigned char> decoded;
+  int tw = 0, th = 0;
+  if (t.tformat == LIBRAW_THUMBNAIL_JPEG) {
+    int n = 0;
+    unsigned char *jd =
+        stbi_load_from_memory(reinterpret_cast<const unsigned char *>(t.thumb), t.tlength, &tw, &th, &n, 4);
+    if (!jd) return false;
+    decoded.assign(jd, jd + (size_t)tw * th * 4);
+    stbi_image_free(jd);
+  } else if (t.tformat == LIBRAW_THUMBNAIL_BITMAP) {
+    tw = t.twidth;
+    th = t.theight;
+    const int tc = t.tcolors >= 3 ? t.tcolors : 3;
+    if (tw <= 0 || th <= 0 || tc > 4) return false;
+    if ((size_t)t.tlength < (size_t)tw * th * (size_t)tc) return false;
+    decoded.resize((size_t)tw * th * 4);
+    const unsigned char *src = reinterpret_cast<const unsigned char *>(t.thumb);
+    for (int y = 0; y < th; ++y) {
+      for (int x = 0; x < tw; ++x) {
+        const int si = (y * tw + x) * tc;
+        const int di = (y * tw + x) * 4;
+        decoded[(size_t)di] = src[si];
+        decoded[(size_t)di + 1] = src[si + 1];
+        decoded[(size_t)di + 2] = src[si + 2];
+        decoded[(size_t)di + 3] = tc >= 4 ? src[si + 3] : 255;
+      }
+    }
+  } else if (t.tformat == LIBRAW_THUMBNAIL_BITMAP16) {
+    tw = t.twidth;
+    th = t.theight;
+    const int tc = t.tcolors >= 3 ? t.tcolors : 3;
+    if (tw <= 0 || th <= 0 || tc > 4) return false;
+    if ((size_t)t.tlength < (size_t)tw * th * (size_t)tc * 2) return false;
+    decoded.resize((size_t)tw * th * 4);
+    const uint16_t *src = reinterpret_cast<const uint16_t *>(t.thumb);
+    for (int y = 0; y < th; ++y) {
+      for (int x = 0; x < tw; ++x) {
+        const int si = (y * tw + x) * tc;
+        const int di = (y * tw + x) * 4;
+        for (int c = 0; c < 3; ++c) decoded[(size_t)di + c] = (unsigned char)(src[si + c] >> 8);
+        decoded[(size_t)di + 3] = tc >= 4 ? (unsigned char)(src[si + 3] >> 8) : 255;
+      }
+    }
+  } else {
+    return false;
+  }
+  return downscaleRGBA8(decoded.data(), tw, th, maxEdge, rgba, w, h);
 }
 
 static bool extractPngIcc(const std::string &path, std::vector<uint8_t> &icc);
@@ -717,6 +812,16 @@ void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned cha
     for (size_t i = 0; i < top.size(); ++i)
       out[i] = (unsigned char)std::lround(std::clamp(top[i], 0.0f, 1.0f) * 255.0f);
   }
+}
+
+bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h) {
+  if (maxEdge <= 0) maxEdge = 128;
+  std::string e = fs::path(path).extension().string();
+  for (char &c : e) c = (char)tolower((unsigned char)c);
+
+  if (isRawExtension(e)) return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
+  if (e == ".png" || e == ".jpg" || e == ".jpeg") return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
+  return false;
 }
 
 static void toTopDown8(const Image &img, std::vector<unsigned char> &out) {
