@@ -122,7 +122,7 @@ build/OfxRawHost --selftest
 | Workspace folder + filmstrip thumbnails                             | Done (v0.3.7) |
 | Project / sidecar JSON (reproducible chain + export metadata)       | Done (v0.3.7) |
 | ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7) |
-| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)           | Done (v0.3.8) |
+| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)          | Done (v0.3.8) |
 | Correct JPEG/PNG passthrough preview color                          | Done (v0.3.8) |
 | Cached display buffer + Output tag recolor without re-render        | Done (v0.3.9) |
 | OFX multi-thread worker pool                                        | Done (v0.3.9) |
