@@ -9,9 +9,11 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -29,7 +31,14 @@
 #include "stb_image.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"  // stb HDR path uses sprintf
+#endif
 #include "stb_image_write.h"
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb_image_resize2.h"
@@ -242,7 +251,9 @@ static bool loadTiffRgba(TIFF *tif, uint32_t w, uint32_t h, Image &out) {
   return true;
 }
 
-static bool loadTiff(const std::string &path, Image &out) {
+static bool loadTiff(const std::string &path, Image &out, std::vector<uint8_t> &icc, bool &isFloat) {
+  icc.clear();
+  isFloat = false;
   TIFF *tif = TIFFOpen(path.c_str(), "r");
   if (!tif) return false;
   uint32_t w = 0, h = 0;
@@ -254,6 +265,11 @@ static bool loadTiff(const std::string &path, Image &out) {
   TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLEFORMAT, &sf);
   TIFFGetFieldDefaulted(tif, TIFFTAG_PLANARCONFIG, &planar);
   TIFFGetFieldDefaulted(tif, TIFFTAG_ORIENTATION, &orient);
+  uint32_t iccLen = 0;
+  void *iccPtr = nullptr;
+  if (TIFFGetField(tif, TIFFTAG_ICCPROFILE, &iccLen, &iccPtr) && iccPtr && iccLen > 0)
+    icc.assign((const uint8_t *)iccPtr, (const uint8_t *)iccPtr + iccLen);
+  isFloat = (sf == SAMPLEFORMAT_IEEEFP);
   bool ok = false;
   if (w && h && !TIFFIsTiled(tif) && planar == PLANARCONFIG_CONTIG && spp >= 1 && spp <= 4 &&
       orient == ORIENTATION_TOPLEFT &&
@@ -264,9 +280,13 @@ static bool loadTiff(const std::string &path, Image &out) {
   if (!ok && w && h) {
     out = {};
     ok = loadTiffRgba(tif, w, h, out);
+    isFloat = false;  // RGBA path is 8-bit
   }
   TIFFClose(tif);
-  if (!ok) out = {};
+  if (!ok) {
+    out = {};
+    icc.clear();
+  }
   return ok;
 }
 
@@ -279,15 +299,9 @@ static bool loadStb(const std::string &path, Image &out) {
   return true;
 }
 
-bool loadImage(const std::string &path, Image &out) {
-  out = {};
-  std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-  if (e == ".exr") return loadExr(path, out);
-  if (e == ".tif" || e == ".tiff") return loadTiff(path, out);
-  if (loadStb(path, out)) return true;
-  return loadRaw(path, out);
-}
+static bool extractPngIcc(const std::string &path, std::vector<uint8_t> &icc);
+static bool extractJpgIcc(const std::string &path, std::vector<uint8_t> &icc);
+static ColorSpace classifyIcc(const std::vector<uint8_t> &icc);
 
 bool makePreview(const Image &src, int maxEdge, Image &out) {
   if (src.w <= 0 || src.h <= 0 || src.px.empty()) return false;
@@ -417,6 +431,271 @@ static bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out) {
   if (icc.empty()) return false;
   out = icc;
   return true;
+}
+
+static std::string lowerCopy(const char *s) {
+  std::string o;
+  if (!s) return o;
+  for (; *s; ++s) o.push_back((char)tolower((unsigned char)*s));
+  return o;
+}
+
+static bool extractPngIcc(const std::string &path, std::vector<uint8_t> &icc) {
+  icc.clear();
+  FILE *f = fopen(path.c_str(), "rb");
+  if (!f) return false;
+  uint8_t sig[8];
+  if (fread(sig, 1, 8, f) != 8 || std::memcmp(sig, "\x89PNG\r\n\x1a\n", 8) != 0) {
+    fclose(f);
+    return false;
+  }
+  bool ok = false;
+  for (;;) {
+    uint8_t lenb[4], type[4];
+    if (fread(lenb, 1, 4, f) != 4 || fread(type, 1, 4, f) != 4) break;
+    const uint32_t len = ((uint32_t)lenb[0] << 24) | ((uint32_t)lenb[1] << 16) | ((uint32_t)lenb[2] << 8) | lenb[3];
+    if (std::memcmp(type, "IEND", 4) == 0) break;
+    if (std::memcmp(type, "iCCP", 4) == 0 && len > 2 && len < 64u * 1024u * 1024u) {
+      std::vector<uint8_t> chunk(len);
+      if (fread(chunk.data(), 1, len, f) != len) break;
+      fseek(f, 4, SEEK_CUR);  // CRC
+      size_t i = 0;
+      while (i < chunk.size() && chunk[i]) ++i;
+      if (i + 2 >= chunk.size() || chunk[i + 1] != 0) break;
+      const uint8_t *comp = chunk.data() + i + 2;
+      const uLong compLen = (uLong)(chunk.size() - (i + 2));
+      uLongf destLen = compLen * 4 + 65536;
+      for (int attempt = 0; attempt < 8; ++attempt) {
+        icc.resize(destLen);
+        const int z = uncompress(icc.data(), &destLen, comp, compLen);
+        if (z == Z_OK) {
+          icc.resize(destLen);
+          ok = !icc.empty();
+          break;
+        }
+        if (z != Z_BUF_ERROR) {
+          icc.clear();
+          break;
+        }
+        destLen *= 2;
+      }
+      break;
+    }
+    if (fseek(f, (long)len + 4, SEEK_CUR) != 0) break;
+  }
+  fclose(f);
+  if (!ok) icc.clear();
+  return ok;
+}
+
+static bool extractJpgIcc(const std::string &path, std::vector<uint8_t> &icc) {
+  icc.clear();
+  FILE *f = fopen(path.c_str(), "rb");
+  if (!f) return false;
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return false;
+  }
+  const long sz = ftell(f);
+  if (sz < 4 || sz > 256L * 1024L * 1024L) {
+    fclose(f);
+    return false;
+  }
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    return false;
+  }
+  std::vector<uint8_t> data((size_t)sz);
+  if (fread(data.data(), 1, data.size(), f) != data.size()) {
+    fclose(f);
+    return false;
+  }
+  fclose(f);
+  if (data[0] != 0xff || data[1] != 0xd8) return false;
+
+  std::vector<std::vector<uint8_t>> parts;
+  int expected = -1;
+  size_t i = 2;
+  while (i + 4 <= data.size()) {
+    if (data[i] != 0xff) {
+      ++i;
+      continue;
+    }
+    while (i < data.size() && data[i] == 0xff) ++i;
+    if (i >= data.size()) break;
+    const uint8_t marker = data[i++];
+    if (marker == 0xd9 || marker == 0xda) break;  // EOI / SOS
+    if (marker >= 0xd0 && marker <= 0xd7) continue;  // RSTn
+    if (i + 2 > data.size()) break;
+    const uint16_t seglen = (uint16_t)((data[i] << 8) | data[i + 1]);
+    if (seglen < 2 || i + seglen > data.size()) break;
+    if (marker == 0xe2 && seglen >= 16) {
+      const uint8_t *p = data.data() + i + 2;
+      if (std::memcmp(p, "ICC_PROFILE\0", 12) == 0) {
+        const int seq = p[12], cnt = p[13];
+        if (seq >= 1 && cnt >= 1) {
+          if (expected < 0) {
+            expected = cnt;
+            parts.assign((size_t)cnt, {});
+          }
+          if (cnt == expected && seq <= expected)
+            parts[(size_t)seq - 1].assign(p + 14, p + seglen - 2);
+        }
+      }
+    }
+    i += seglen;
+  }
+  if (expected <= 0) return false;
+  size_t total = 0;
+  for (const auto &p : parts) {
+    if (p.empty()) return false;
+    total += p.size();
+  }
+  icc.reserve(total);
+  for (const auto &p : parts) icc.insert(icc.end(), p.begin(), p.end());
+  return !icc.empty();
+}
+
+static bool profilePrimaries(cmsHPROFILE p, cmsCIExyYTRIPLE &prim, cmsCIExyY &wp) {
+  const cmsCIEXYZ *w = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigMediaWhitePointTag);
+  const cmsCIEXYZ *r = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigRedColorantTag);
+  const cmsCIEXYZ *g = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigGreenColorantTag);
+  const cmsCIEXYZ *b = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigBlueColorantTag);
+  if (!w || !r || !g || !b) return false;
+  cmsXYZ2xyY(&wp, w);
+  cmsXYZ2xyY(&prim.Red, r);
+  cmsXYZ2xyY(&prim.Green, g);
+  cmsXYZ2xyY(&prim.Blue, b);
+  return true;
+}
+
+static bool profileLooksLinear(cmsHPROFILE p) {
+  const cmsToneCurve *trc = (const cmsToneCurve *)cmsReadTag(p, cmsSigRedTRCTag);
+  if (!trc) return false;
+  const cmsFloat32Number out = cmsEvalToneCurveFloat((cmsToneCurve *)trc, 0.5f);
+  return std::fabs((double)out - 0.5) < 0.05;
+}
+
+static double primDist2(const cmsCIExyYTRIPLE &a, const cmsCIExyYTRIPLE &b) {
+  const auto d = [](const cmsCIExyY &x, const cmsCIExyY &y) {
+    const double dx = x.x - y.x, dy = x.y - y.y;
+    return dx * dx + dy * dy;
+  };
+  return d(a.Red, b.Red) + d(a.Green, b.Green) + d(a.Blue, b.Blue);
+}
+
+static ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
+  if (icc.empty()) return ColorSpace::sRGB;
+  cmsHPROFILE p = cmsOpenProfileFromMem(icc.data(), (cmsUInt32Number)icc.size());
+  if (!p) return ColorSpace::sRGB;
+
+  char desc[256] = {};
+  cmsGetProfileInfoASCII(p, cmsInfoDescription, "en", "US", desc, sizeof desc);
+  const std::string d = lowerCopy(desc);
+  ColorSpace fromDesc = ColorSpace::sRGB;
+  bool haveDesc = false;
+  if (d.find("prophoto") != std::string::npos || d.find("rec2020") != std::string::npos ||
+      d.find("rec-2020") != std::string::npos || d.find("rec.2020") != std::string::npos ||
+      d.find("bt.2020") != std::string::npos || d.find("bt2020") != std::string::npos) {
+    fromDesc = ColorSpace::LinearRec2020;
+    haveDesc = true;
+  } else if (d.find("display p3") != std::string::npos || d.find("display-p3") != std::string::npos ||
+             (d.find("p3") != std::string::npos && d.find("dci") == std::string::npos)) {
+    fromDesc = ColorSpace::DisplayP3;
+    haveDesc = true;
+  } else if (d.find("rec709") != std::string::npos || d.find("rec-709") != std::string::npos ||
+             d.find("rec.709") != std::string::npos || d.find("bt.709") != std::string::npos ||
+             d.find("bt709") != std::string::npos) {
+    fromDesc = profileLooksLinear(p) ? ColorSpace::LinearRec709 : ColorSpace::sRGB;
+    haveDesc = true;
+  } else if (d.find("srgb") != std::string::npos) {
+    fromDesc = ColorSpace::sRGB;
+    haveDesc = true;
+  }
+  if (haveDesc) {
+    // Wide-gamut linear names (ProPhoto) already mapped to Rec.2020.
+    if (fromDesc == ColorSpace::DisplayP3 && profileLooksLinear(p)) {
+      // Linear P3 is rare; keep Display P3 tag (plugin list has no Linear P3).
+    }
+    cmsCloseProfile(p);
+    return fromDesc;
+  }
+
+  cmsCIExyYTRIPLE prim{};
+  cmsCIExyY wp{};
+  if (!profilePrimaries(p, prim, wp)) {
+    cmsCloseProfile(p);
+    return ColorSpace::sRGB;
+  }
+  const bool linear = profileLooksLinear(p);
+  const cmsCIExyYTRIPLE known[4] = {
+      {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}},  // sRGB / 709
+      {{0.680, 0.320, 1.0}, {0.265, 0.690, 1.0}, {0.150, 0.060, 1.0}},  // P3
+      {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}},  // Linear Rec.709
+      {{0.708, 0.292, 1.0}, {0.170, 0.797, 1.0}, {0.131, 0.046, 1.0}},  // Linear Rec.2020
+  };
+  const ColorSpace spaces[4] = {ColorSpace::sRGB, ColorSpace::DisplayP3, ColorSpace::LinearRec709,
+                                ColorSpace::LinearRec2020};
+  double best = 1e9;
+  ColorSpace pick = ColorSpace::sRGB;
+  for (int i = 0; i < 4; ++i) {
+    // Skip gamma spaces when TRC is linear, and linear spaces when TRC is not.
+    if (linear && (spaces[i] == ColorSpace::sRGB || spaces[i] == ColorSpace::DisplayP3)) continue;
+    if (!linear && (spaces[i] == ColorSpace::LinearRec709 || spaces[i] == ColorSpace::LinearRec2020)) continue;
+    const double dist = primDist2(prim, known[i]);
+    if (dist < best) {
+      best = dist;
+      pick = spaces[i];
+    }
+  }
+  // If filters removed every candidate, fall back to unconstrained nearest.
+  if (best >= 1e9) {
+    for (int i = 0; i < 4; ++i) {
+      const double dist = primDist2(prim, known[i]);
+      if (dist < best) {
+        best = dist;
+        pick = spaces[i];
+      }
+    }
+    if (linear && pick == ColorSpace::sRGB) pick = ColorSpace::LinearRec709;
+    if (linear && pick == ColorSpace::DisplayP3) pick = ColorSpace::LinearRec2020;
+  }
+  cmsCloseProfile(p);
+  return pick;
+}
+
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
+  out = {};
+  detected = ColorSpace::sRGB;
+  std::string e = fs::path(path).extension().string();
+  for (char &c : e) c = (char)tolower((unsigned char)c);
+
+  if (e == ".exr") {
+    if (!loadExr(path, out)) return false;
+    detected = ColorSpace::LinearRec2020;
+    return true;
+  }
+  if (e == ".tif" || e == ".tiff") {
+    std::vector<uint8_t> icc;
+    bool isFloat = false;
+    if (!loadTiff(path, out, icc, isFloat)) return false;
+    detected = !icc.empty() ? classifyIcc(icc) : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
+    return true;
+  }
+
+  std::vector<uint8_t> icc;
+  if (e == ".png") extractPngIcc(path, icc);
+  else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
+
+  if (loadStb(path, out)) {
+    detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
+    return true;
+  }
+  if (loadRaw(path, out)) {
+    detected = ColorSpace::LinearRec2020;
+    return true;
+  }
+  return false;
 }
 
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {

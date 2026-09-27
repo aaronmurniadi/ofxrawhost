@@ -68,6 +68,7 @@ struct App {
 
   Image full, preview;
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
+  ColorSpace inputSpace = ColorSpace::LinearRec2020;
   int outputIndex = 0;
   int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
@@ -136,7 +137,8 @@ static void applyColorDefaults(App &app, Node &node) {
     Param *p = up.get();
     if (p->type != kOfxParamTypeChoice) continue;
     const std::string label = sprop(p->props, kOfxPropLabel);
-    const char *want = label == "Input Color Space" ? "Linear Rec.709" : label == "Output Color Space" ? "sRGB" : nullptr;
+    const char *want =
+        label == "Input Color Space" ? colorSpaceName(app.inputSpace) : label == "Output Color Space" ? "sRGB" : nullptr;
     if (!want) continue;
     const auto &options = choiceOptions(p);
     for (size_t i = 0; i < options.size(); ++i) {
@@ -270,15 +272,19 @@ static void rebuildPreview(App &app) {
 
 static void openPath(App &app, const std::string &path) {
   Image img;
-  if (!loadImage(path, img)) {
+  ColorSpace detected = ColorSpace::LinearRec2020;
+  if (!loadImage(path, img, detected)) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
   app.path = path;
   app.full = std::move(img);
+  app.inputSpace = detected;
   app.previewZoom = 1.0f;
   app.previewPan = ImVec2(0, 0);
-  app.setStatus("Loaded " + fs::path(path).filename().string());
+  app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
+  for (auto &node : app.nodes)
+    if (node.instance) applyColorDefaults(app, node);
   rebuildPreview(app);
 }
 
