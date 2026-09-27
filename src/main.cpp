@@ -52,8 +52,32 @@ static int selfTest() {
     const fs::path p = fs::temp_directory_path() / (half ? "ofxrawhost-selftest-half.tif" : "ofxrawhost-selftest.tif");
     if (!writeTinyTiff(p, half)) return fail(half ? "tiff write half" : "tiff write");
     Image img;
-    if (!loadImage(p.string(), img) || img.w != 2 || img.h != 2) return fail(half ? "tiff load half" : "tiff load");
+    ColorSpace cs = ColorSpace::sRGB;
+    if (!loadImage(p.string(), img, cs) || img.w != 2 || img.h != 2) return fail(half ? "tiff load half" : "tiff load");
     if (img.px[(size_t)1 * 2 * 4 + 0] < 0.9f) return fail(half ? "tiff pixels half" : "tiff pixels");
+    // Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB.
+    if (half && cs != ColorSpace::LinearRec2020) return fail("tiff half colorspace");
+    if (!half && cs != ColorSpace::sRGB) return fail("tiff uint colorspace");
+    fs::remove(p);
+  }
+
+  {
+    // Minimal 1x1 RGB PNG, no iCCP (untagged LDR → sRGB).
+    static const unsigned char kPng[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00,
+        0x0c, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xc9,
+        0xfe, 0x92, 0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+    const fs::path p = fs::temp_directory_path() / "ofxrawhost-selftest-cs.png";
+    FILE *f = fopen(p.c_str(), "wb");
+    if (!f || fwrite(kPng, 1, sizeof kPng, f) != sizeof kPng) {
+      if (f) fclose(f);
+      return fail("png write");
+    }
+    fclose(f);
+    Image img;
+    ColorSpace cs = ColorSpace::LinearRec2020;
+    if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
     fs::remove(p);
   }
 

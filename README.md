@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.5** brings performance enhancements across the board: ICC profile caching (eliminates per-frame color transform rebuilds), hardware half-float conversion (F16C/AVX), LTO + native-architecture compiler flags, multithreaded preview resize, and pooled memory allocations in the render pipeline and OFX host. **v0.3.4** adds selectable ImGui themes (Photoshop default) from [ImThemes](https://github.com/Patitotective/ImThemes). **v0.3.3** added libtiff TIFF open (incl. half float) and dropped TIFF/EXR export. **v0.3.2** added preview zoom/pan and a searchable add-plugin list. Packaged installers are still macOS-only for now.
+> **v0.3.6** auto-detects input color space from embedded ICC (TIFF/PNG/JPEG), with RAW and untagged float defaulting to Linear Rec.2020. **v0.3.5** brought performance enhancements (ICC caching, F16C half-float, LTO, multithreaded resize, pooled buffers). **v0.3.4** added selectable ImGui themes. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -118,7 +118,8 @@ build/OfxRawHost --selftest
 | TIFF open via libtiff (incl. half float)        | Done (v0.3.3) |
 | Selectable ImGui themes (Photoshop default)     | Done (v0.3.4) |
 | Performance: ICC caching, LTO, multithreaded resize, pooled buffers | Done (v0.3.5) |
-| Packaged Windows and Linux releases             | Planned       |
+| Auto-detect input color space (ICC / RAW policy)                    | Done (v0.3.6) |
+| Packaged Windows and Linux releases                                 | Planned       |
 
 ---
 
