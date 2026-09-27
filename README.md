@@ -14,7 +14,7 @@ A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/open
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
 
-> **v0.3.11** fixes OFX Metal GPU render (upload input to the Metal buffer and synchronize the GPU before readback) so spektrafilm no longer renders blank. **v0.3.10** adds OFX Metal GPU render support (spektrafilm diffuse/flow), plus selftest validation and performance instrumentation. **v0.3.9** improves preview display (cached sRGB upload, Output tag recolor without re-render), OFX multi-thread pool, and open-dialog filtering (sidecars excluded). **v0.3.8** reorganized the source tree and fixed JPEG/PNG passthrough preview color. Packaged installers are still macOS-only for now.
+> **v0.3.11** fixes OFX Metal GPU render (upload input to the Metal buffer and synchronize the GPU before readback) so spektrafilm no longer renders blank, and adds click-to-step −/+ buttons to numeric parameter sliders. **v0.3.10** adds OFX Metal GPU render support (spektrafilm diffuse/flow), plus selftest validation and performance instrumentation. **v0.3.9** improves preview display (cached sRGB upload, Output tag recolor without re-render), OFX multi-thread pool, and open-dialog filtering (sidecars excluded). **v0.3.8** reorganized the source tree and fixed JPEG/PNG passthrough preview color. Packaged installers are still macOS-only for now.
 
 ![OFX Raw Host](docs/screenshot.png)
 
@@ -130,6 +130,7 @@ build/OfxRawHost --selftest
 | OFX Metal GPU render support (spektrafilm diffuse/flow)        | Done (v0.3.10) |
 | Selftest validation + performance instrumentation             | Done (v0.3.10) |
 | Fix OFX Metal render readback (blank spektrafilm output)            | Done (v0.3.11) |
+| Click-to-step −/+ buttons on numeric parameter sliders              | Done (v0.3.11) |
 | Packaged Windows and Linux releases                             | Planned       |
 
 ---

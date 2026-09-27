@@ -45,11 +45,38 @@ static void drawResetIcon(ImVec2 a, ImVec2 b) {
   dl->AddTriangleFilled(tip, t1, t2, col);
 }
 
+static void drawMinusIcon(ImVec2 a, ImVec2 b) {
+  ImDrawList *dl = ImGui::GetWindowDrawList();
+  const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
+  const float cy = (a.y + b.y) * 0.5f;
+  const float pad = (b.x - a.x) * 0.28f;
+  dl->AddLine(ImVec2(a.x + pad, cy), ImVec2(b.x - pad, cy), col, 1.4f);
+}
+
+static void drawPlusIcon(ImVec2 a, ImVec2 b) {
+  ImDrawList *dl = ImGui::GetWindowDrawList();
+  const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
+  const float cx = (a.x + b.x) * 0.5f;
+  const float cy = (a.y + b.y) * 0.5f;
+  const float pad = (b.x - a.x) * 0.28f;
+  dl->AddLine(ImVec2(a.x + pad, cy), ImVec2(b.x - pad, cy), col, 1.4f);
+  dl->AddLine(ImVec2(cx, a.y + pad), ImVec2(cx, b.y - pad), col, 1.4f);
+}
+
 static bool paramResetButton() {
   const float h = ImGui::GetFrameHeight();
   const bool clicked = ImGui::Button("##reset", ImVec2(h, h));
   drawResetIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Reset to default");
+  return clicked;
+}
+
+static bool paramStepButton(bool plus) {
+  const float h = ImGui::GetFrameHeight();
+  const bool clicked = ImGui::Button(plus ? "##stepup" : "##stepdown", ImVec2(h, h));
+  if (plus) drawPlusIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+  else drawMinusIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip(plus ? "Increase" : "Decrease");
   return clicked;
 }
 
@@ -96,6 +123,8 @@ static void drawParam(App &app, Param *p) {
 
   const float btn = ImGui::GetFrameHeight();
   const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
+  const float labelW = ImGui::CalcTextSize(label.c_str()).x;
+  auto valueWidth = [&] { return std::max(40.0f, ImGui::GetContentRegionAvail().x - gap - labelW); };
 
   bool changed = false;
   if (t == kOfxParamTypeDouble || t == kOfxParamTypeInteger) {
@@ -105,7 +134,13 @@ static void drawParam(App &app, Param *p) {
     if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + (t == kOfxParamTypeInteger ? 100 : 1);
     const double hardLo = dprop(p->props, kOfxParamPropMin, 0, lo);
     const double hardHi = dprop(p->props, kOfxParamPropMax, 0, hi);
-    const float rowW = ImGui::CalcItemWidth();
+    const double step = t == kOfxParamTypeInteger ? 1.0 : std::max((hi - lo) / 100.0, 1e-6);
+    auto nudge = [&](double d) {
+      std::lock_guard<std::mutex> lock(gValueMutex);
+      const double v = std::clamp(p->v[0] + d, lo, hi);
+      p->v[0] = t == kOfxParamTypeInteger ? std::round(v) : v;
+      changed = true;
+    };
 
     if (paramResetButton()) {
       resetParamValues(p);
@@ -119,7 +154,11 @@ static void drawParam(App &app, Param *p) {
       changed = true;
     }
     ImGui::SameLine(0, gap);
-    ImGui::SetNextItemWidth(std::max(40.0f, rowW - 2 * btn - 2 * gap));
+    if (paramStepButton(false)) nudge(-step);
+    ImGui::SameLine(0, gap);
+    if (paramStepButton(true)) nudge(step);
+    ImGui::SameLine(0, gap);
+    ImGui::SetNextItemWidth(valueWidth());
     float fv = (float)p->v[0];
     if (ImGui::SliderFloat(idLabel.c_str(), &fv, (float)lo, (float)hi)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
@@ -149,7 +188,7 @@ static void drawParam(App &app, Param *p) {
     std::vector<const char *> items;
     items.reserve(opts.size());
     for (auto &o : opts) items.push_back(o.s.c_str());
-    ImGui::SetNextItemWidth(std::max(40.0f, ImGui::CalcItemWidth() - btn - gap));
+    ImGui::SetNextItemWidth(valueWidth());
     if (!items.empty() && ImGui::Combo(idLabel.c_str(), &cur, items.data(), (int)items.size())) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = cur;
@@ -167,7 +206,7 @@ static void drawParam(App &app, Param *p) {
         changed = true;
       }
       ImGui::SameLine(0, gap);
-      ImGui::SetNextItemWidth(std::max(40.0f, ImGui::CalcItemWidth() - btn - gap));
+      ImGui::SetNextItemWidth(valueWidth());
       if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf)) {
         std::lock_guard<std::mutex> lock(gValueMutex);
         p->s = buf;
@@ -177,6 +216,7 @@ static void drawParam(App &app, Param *p) {
       ImGui::Text("%s: %s", label.c_str(), p->s.c_str());
     }
   } else if (dims(t) > 1) {
+    const float rowW = ImGui::CalcItemWidth();
     if (paramResetButton()) {
       resetParamValues(p);
       changed = true;
@@ -187,7 +227,6 @@ static void drawParam(App &app, Param *p) {
     for (int i = 0; i < dims(t); ++i) {
       float fv = (float)p->v[i];
       ImGui::PushID(i);
-      const float rowW = ImGui::CalcItemWidth();
       double typed = p->v[i];
       if (paramEditButton(typed, isIntType(t), -1e7, 1e7)) {
         std::lock_guard<std::mutex> lock(gValueMutex);
