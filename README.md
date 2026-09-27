@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" width="128" alt="OFX Raw Host logo">
+  <img src="docs/logo.png" width="320" alt="OFX Raw Host logo">
 </p>
 
 # OFX Raw Host
@@ -10,28 +10,26 @@
 
 <a href="https://www.buymeacoffee.com/aaronmurniadi"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=aaronmurniadi&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee"></a>
 
-A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) **plugin host**. Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through one or more OFX filter plugins, preview the result, and export to PNG or JPEG — no video NLE required.
+A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) **plugin host**.
+Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through one or more OFX filter plugins, preview the result,
+and export to PNG or JPEG — no video NLE required.
 
-Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts, on still photos and a simple processing chain.
-
-> **v0.3.11** fixes OFX Metal GPU render (upload input to the Metal buffer and synchronize the GPU before readback) so spektrafilm no longer renders blank, and adds click-to-step −/+ buttons to numeric parameter sliders. **v0.3.10** adds OFX Metal GPU render support (spektrafilm diffuse/flow), plus selftest validation and performance instrumentation. **v0.3.9** improves preview display (cached sRGB upload, Output tag recolor without re-render), OFX multi-thread pool, and open-dialog filtering (sidecars excluded). **v0.3.8** reorganized the source tree and fixed JPEG/PNG passthrough preview color. Packaged installers are still macOS-only for now.
+Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts,
+on still photos and a simple processing chain.
 
 ![OFX Raw Host](docs/screenshot.png)
-
-## Demo
-
-![OFX Raw Host demo](docs/demo.gif)
 
 ---
 
 ## Tested OFX plugins
 
-| Plugin              | What it does                                                    | Link                                                                                                                         |
-| ------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **spektrafilm-ofx** | Film simulation (film, print, scan, grain, halation, diffusion) | [chaert-s/spektrafilm-ofx](https://github.com/chaert-s/spektrafilm-ofx) · [spektrafilm.114c.de](https://spektrafilm.114c.de) |
-| **ntsc-rs**         | Analog video / VHS-style effects                                | [valadaptive/ntsc-rs](https://github.com/valadaptive/ntsc-rs)                                                                |
+| Plugin              | What it does                                                                                                                                                                                                    | Link                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **spektrafilm-ofx** | Film simulation (film, print, scan, grain, halation, diffusion)                                                                                                                                                 | [chaert-s/spektrafilm-ofx](https://github.com/chaert-s/spektrafilm-ofx) / [spektrafilm.114c.de](https://spektrafilm.114c.de) |
+| **ntsc-rs**         | Analog video / VHS-style effects                                                                                                                                                                                | [valadaptive/ntsc-rs](https://github.com/valadaptive/ntsc-rs)                                                                |
+| **purzOS**          | A collection of 64 native OpenFX video plugins for DaVinci Resolve, Natron, and any other OFX host — retro/analog looks, pixelart, glitch, datamosh, CRT/VHS signal artifacts, colour grades and optical warps. | [purzbeats/purzos-ofx](https://github.com/purzbeats/purzos-ofx)                                                              |
 
-Other OFX filter plugins may work. If you confirm one, a PR to this table is welcome.
+Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table is welcome.
 
 ---
 
@@ -42,7 +40,8 @@ Download the DMG for your Mac from [Releases](https://github.com/aaronmurniadi/o
 - **Apple Silicon (M1 and later):** `OfxRawHost-macOS-arm64.dmg`
 - **Intel:** `OfxRawHost-macOS-x86_64.dmg`
 
-Open it and drag **OfxRawHost** onto **Applications**. The app is ad-hoc signed, so on first launch right-click it and choose **Open**, or run:
+Open it and drag **OfxRawHost** onto **Applications**.
+The app is ad-hoc signed, so on first launch right-click it and choose **Open**, or run:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
@@ -60,14 +59,16 @@ OFX Raw Host loads plugins from the platform default OFX directory plus any path
 | Linux    | `/usr/OFX/Plugins`                          |
 | Windows  | `C:\Program Files\Common Files\OFX\Plugins` |
 
-Install plugins the way their authors recommend (installer, package, or copy `*.ofx.bundle` into the directory above). For example on macOS:
+Install plugins the way their authors recommend (installer, package, or copy `*.ofx.bundle`
+into the directory above). For example on macOS:
 
 ```sh
 sudo mkdir -p /Library/OFX/Plugins
 sudo cp -R path/to/*.ofx.bundle /Library/OFX/Plugins/
 ```
 
-Or point the host at a build directory without copying (apps launched from Finder don't see shell variables, so start it from the terminal):
+Or point the host at a build directory without copying (apps launched from Finder
+don't see shell variables, so start it from the terminal):
 
 ```sh
 OFX_PLUGIN_PATH=/path/to/plugins /Applications/OfxRawHost.app/Contents/MacOS/OfxRawHost
@@ -79,7 +80,10 @@ Restart OFX Raw Host after installing plugins. If none are found, the status bar
 
 ## Build
 
-Requires CMake 3.16+, a C++17 compiler, [LibRaw](https://www.libraw.org/), [libtiff](https://libtiff.gitlab.io/libtiff/), and [Little CMS 2](https://www.littlecms.com/). GLFW and Dear ImGui are fetched automatically by CMake.
+Requires CMake 3.16+, a C++17 compiler, [LibRaw](https://www.libraw.org/),
+[libtiff](https://libtiff.gitlab.io/libtiff/), and
+[Little CMS 2](https://www.littlecms.com/).
+GLFW and Dear ImGui are fetched automatically by CMake.
 
 ```sh
 # macOS
@@ -108,30 +112,30 @@ build/OfxRawHost --selftest
 
 ---
 
-## Roadmap
+## Development Roadmap
 
-| Feature                                                             | Status        |
-| ------------------------------------------------------------------- | ------------- |
-| C++17 + Dear ImGui UI (cross-platform codebase)                     | Done (v0.2)   |
-| Plugin chaining with reorder / bypass                               | Done (v0.3)   |
-| Preview zoom / pan                                                  | Done (v0.3.2) |
-| TIFF open via libtiff (incl. half float)                            | Done (v0.3.3) |
-| Selectable ImGui themes (Photoshop default)                         | Done (v0.3.4) |
-| Performance: ICC caching, LTO, multithreaded resize, pooled buffers | Done (v0.3.5) |
-| Auto-detect input color space (ICC / RAW policy)                    | Done (v0.3.6) |
-| Workspace folder + filmstrip thumbnails                             | Done (v0.3.7) |
-| Project / sidecar JSON (reproducible chain + export metadata)       | Done (v0.3.7) |
-| ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7) |
-| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)          | Done (v0.3.8) |
-| Correct JPEG/PNG passthrough preview color                          | Done (v0.3.8) |
-| Cached display buffer + Output tag recolor without re-render        | Done (v0.3.9) |
-| OFX multi-thread worker pool                                        | Done (v0.3.9) |
-| Open dialog / workspace filters (exclude sidecar JSON)              | Done (v0.3.9) |
-| OFX Metal GPU render support (spektrafilm diffuse/flow)        | Done (v0.3.10) |
-| Selftest validation + performance instrumentation             | Done (v0.3.10) |
+| Feature                                                             | Status         |
+| ------------------------------------------------------------------- | -------------- |
+| C++17 + Dear ImGui UI (cross-platform codebase)                     | Done (v0.2)    |
+| Plugin chaining with reorder / bypass                               | Done (v0.3)    |
+| Preview zoom / pan                                                  | Done (v0.3.2)  |
+| TIFF open via libtiff (incl. half float)                            | Done (v0.3.3)  |
+| Selectable ImGui themes (Photoshop default)                         | Done (v0.3.4)  |
+| Performance: ICC caching, LTO, multithreaded resize, pooled buffers | Done (v0.3.5)  |
+| Auto-detect input color space (ICC / RAW policy)                    | Done (v0.3.6)  |
+| Workspace folder + filmstrip thumbnails                             | Done (v0.3.7)  |
+| Project / sidecar JSON (reproducible chain + export metadata)       | Done (v0.3.7)  |
+| ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7)  |
+| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)          | Done (v0.3.8)  |
+| Correct JPEG/PNG passthrough preview color                          | Done (v0.3.8)  |
+| Cached display buffer + Output tag recolor without re-render        | Done (v0.3.9)  |
+| OFX multi-thread worker pool                                        | Done (v0.3.9)  |
+| Open dialog / workspace filters (exclude sidecar JSON)              | Done (v0.3.9)  |
+| OFX Metal GPU render support (spektrafilm diffuse/flow)             | Done (v0.3.10) |
+| Selftest validation + performance instrumentation                   | Done (v0.3.10) |
 | Fix OFX Metal render readback (blank spektrafilm output)            | Done (v0.3.11) |
 | Click-to-step −/+ buttons on numeric parameter sliders              | Done (v0.3.11) |
-| Packaged Windows and Linux releases                             | Planned       |
+| Packaged Windows and Linux releases                                 | Planned        |
 
 ---
 
