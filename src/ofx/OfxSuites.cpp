@@ -1,5 +1,6 @@
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "ofx/OfxMetal.h"
 
 #include "ofxGPURender.h"
 #include "ofxMemory.h"
@@ -295,7 +296,9 @@ static OfxStatus clipGetPropertySet(OfxImageClipHandle c, OfxPropertySetHandle *
 static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, OfxPropertySetHandle *out) {
   Clip *c = C(ch);
   Effect *e = c->owner;
-  float *data = c->name == kOfxImageEffectOutputClipName ? e->dst : e->src;
+  const bool isOutput = c->name == kOfxImageEffectOutputClipName;
+  OfxMetalBuffer *mbuf = e->metalEnabled ? (isOutput ? (OfxMetalBuffer *)e->dstMtl : (OfxMetalBuffer *)e->srcMtl) : nullptr;
+  void *data = mbuf ? ofxMetalBufferHandle(mbuf) : (isOutput ? (void *)e->dst : (void *)e->src);
   if (!data) return kOfxStatFailed;
   // Reuse the clip's pooled PropSet instead of heap-allocating per request.
   c->imgProps.m.clear();
@@ -595,7 +598,7 @@ static PropSet gHostProps = [] {
   propSetInt(h, kOfxPropVersion, 0, 0);
   propSetInt(h, kOfxPropVersion, 1, 3);
   propSetInt(h, kOfxPropVersion, 2, 8);
-  propSetString(h, kOfxPropVersionLabel, 0, "0.3.9");
+  propSetString(h, kOfxPropVersionLabel, 0, "0.3.10");
   propSetInt(h, kOfxImageEffectHostPropIsBackground, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsOverlays, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsMultiResolution, 0, 0);
@@ -612,7 +615,12 @@ static PropSet gHostProps = [] {
   propSetString(h, kOfxImageEffectPropOpenGLRenderSupported, 0, "false");
   propSetString(h, kOfxImageEffectPropCudaRenderSupported, 0, "false");
   propSetString(h, kOfxImageEffectPropCudaStreamSupported, 0, "false");
+#if defined(__APPLE__)
+  propSetString(h, kOfxImageEffectPropMetalRenderSupported, 0, "true");
+  propSetString(h, kOfxImageEffectPropCPURenderSupported, 0, "true");
+#else
   propSetString(h, kOfxImageEffectPropMetalRenderSupported, 0, "false");
+#endif
   propSetString(h, kOfxImageEffectPropOpenCLRenderSupported, 0, "false");
   propSetString(h, kOfxImageEffectHostPropNativeOrigin, 0, kOfxHostNativeOriginBottomLeft);
   propSetInt(h, kOfxParamHostPropSupportsCustomInteract, 0, 0);

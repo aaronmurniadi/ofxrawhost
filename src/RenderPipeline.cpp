@@ -1,7 +1,11 @@
 #include "RenderPipeline.h"
+#include "perf.h"
 
 #include <GLFW/glfw3.h>
 
+#include <chrono>
+#include <cstring>
+#include <cstdio>
 #include <vector>
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
@@ -47,6 +51,7 @@ void rebuildPreview(App &app) {
 }
 
 static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h) {
+  PerfScope _ps("uploadTextureRGBA");
   if (!rgba || w <= 0 || h <= 0) return;
   if (!app.tex) glGenTextures(1, &app.tex);
   glBindTexture(GL_TEXTURE_2D, app.tex);
@@ -87,8 +92,21 @@ void pumpDisplayUpload(App &app) {
   }
 }
 
+
+static bool anyEnabledNode(const App &app) {
+  for (const auto &n : app.nodes)
+    if (n.enabled) return true;
+  return false;
+}
+
 OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
   static thread_local Image cur, next;
+
+  if (!anyEnabledNode(app)) {
+    out = src;
+    return kOfxStatOK;
+  }
+
   cur.w = src.w;
   cur.h = src.h;
   cur.px = src.px;
@@ -99,8 +117,12 @@ OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
     next.w = cur.w;
     next.h = cur.h;
     if (next.px.size() != cur.px.size()) next.px.resize(cur.px.size());
+    const auto t0 = std::chrono::steady_clock::now();
     const OfxStatus st =
         renderEffect(gPlugins[n.pluginIndex].plugin, n.instance.get(), cur.px.data(), next.px.data(), cur.w, cur.h, gen);
+    const auto t1 = std::chrono::steady_clock::now();
+    perfLog(("node: " + gPlugins[n.pluginIndex].label).c_str(),
+            std::chrono::duration<double, std::milli>(t1 - t0).count());
     if (st != kOfxStatOK) return st;
     if (gen != 0 && gen != gLatestGen) return kOfxStatFailed;
     cur.swap(next);

@@ -1,5 +1,7 @@
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "ofx/OfxMetal.h"
+#include "ofxGPURender.h"
 
 #include "ofxParam.h"
 
@@ -105,9 +107,11 @@ static void loadBundle(const fs::path &bundle) {
     if (!p || !p->setHost || !p->mainEntry || strcmp(p->pluginApi, kOfxImageEffectPluginApi) != 0) continue;
     p->setHost(&gOfxHost);
     if (!ofxActionOk(callAction(p, kOfxActionLoad, nullptr))) continue;
-    auto base = std::make_unique<Effect>();
-    propSetString(H(&base->props), kOfxPropType, 0, kOfxTypeImageEffect);
-    if (!ofxActionOk(callAction(p, kOfxActionDescribe, base.get()))) continue;
+     auto base = std::make_unique<Effect>();
+     propSetString(H(&base->props), kOfxPropType, 0, kOfxTypeImageEffect);
+     if (!ofxActionOk(callAction(p, kOfxActionDescribe, base.get()))) continue;
+    const bool metalCapable = sprop(base->props, kOfxImageEffectPropMetalRenderSupported) == "true";
+    if (metalCapable) std::fprintf(stderr, "[metal] plugin '%s' declares Metal render support\n", p->pluginIdentifier);
     bool filter = false;
     for (auto &v : base->props.m[kOfxImageEffectPropSupportedContexts]) filter |= v.s == kOfxImageEffectContextFilter;
     if (!filter) continue;
@@ -117,7 +121,7 @@ static void loadBundle(const fs::path &bundle) {
     if (!ofxActionOk(callAction(p, kOfxImageEffectActionDescribeInContext, ctx.get(), &in))) continue;
     const std::string label = sprop(base->props, kOfxPropLabel);
     const std::string author = pluginAuthor(p, *base);
-    gPlugins.push_back({p, label.empty() ? p->pluginIdentifier : label, author, std::move(ctx)});
+    gPlugins.push_back({p, label.empty() ? p->pluginIdentifier : label, author, std::move(ctx), metalCapable});
   }
 }
 
@@ -161,6 +165,7 @@ void loadPlugins() {
 
 std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
   auto e = cloneEffect(*pe.descriptor);
+  e->metalCapable = pe.metalCapable;
   OfxPropertySetHandle ep = H(&e->props);
   propSetString(ep, kOfxPropType, 0, kOfxTypeImageEffectInstance);
   propSetString(ep, kOfxImageEffectPropContext, 0, kOfxImageEffectContextFilter);
@@ -208,8 +213,28 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   propSetInt(a, kOfxImageEffectPropSequentialRenderStatus, 0, 0);
   propSetInt(a, kOfxImageEffectPropInteractiveRenderStatus, 0, gen != 0);
   propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 0);
+  e->metalEnabled = e->metalCapable && ofxMetalAvailable();
+  if (e->metalEnabled) {
+    propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 1);
+    propSetPointer(a, kOfxImageEffectPropMetalCommandQueue, 0, ofxMetalCommandQueue());
+    if (!e->srcMtl) e->srcMtl = ofxMetalBufferCreate((size_t)w * h * 4 * sizeof(float));
+    if (!e->dstMtl) e->dstMtl = ofxMetalBufferCreate((size_t)w * h * 4 * sizeof(float));
+  } else {
+    propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 0);
+  }
   const OfxStatus st = callAction(plugin, kOfxImageEffectActionRender, e, &in);
+  if (e->metalEnabled && st == kOfxStatOK && e->dstMtl) {
+    float *d = static_cast<float *>(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl)));
+    if (d && e->dst) std::memcpy(e->dst, d, (size_t)w * h * 4 * sizeof(float));
+  }
+  if (st != kOfxStatOK && e->metalCapable) {
+    std::fprintf(stderr, "[metal] render failed: status=%d (0x%08x) metal=%d plugin=%p\n", (int)st, (unsigned int)st, (int)e->metalEnabled, (void*)plugin);
+  }
   e->src = e->dst = nullptr;
+  if (e->srcMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(e->srcMtl));
+  if (e->dstMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl));
+  e->srcMtl = e->dstMtl = nullptr;
+  e->metalEnabled = false;
   return st;
 }
 

@@ -105,7 +105,7 @@ add_executable(OfxRawHost
 )
 
 if(APPLE)
-  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m)
+  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm)
 endif()
 
 # Link-time optimization (cross-TU inlining, dead-code elimination).
@@ -178,7 +178,7 @@ endif()
 target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB)
 
 if(APPLE)
-  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo")
+  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
 elseif(WIN32)
   target_link_libraries(OfxRawHost PRIVATE opengl32)
 else()

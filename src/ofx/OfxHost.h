@@ -57,6 +57,9 @@ struct Effect {
   std::vector<std::unique_ptr<Param>> params;
   std::vector<std::unique_ptr<Clip>> clips;
   float *src = nullptr, *dst = nullptr;
+  void *srcMtl = nullptr, *dstMtl = nullptr;  // id<MTLBuffer> when metalEnabled
+  bool metalEnabled = false;                  // this render passes MTLBuffer images
+  bool metalCapable = false;                  // plugin declared Metal render support
   int w = 0, h = 0, renderGen = 0;
 };
 
@@ -75,6 +78,7 @@ struct PluginEntry {
   std::string label;
   std::string author;
   std::unique_ptr<Effect> descriptor;  // filter-context descriptor
+  bool metalCapable = false;           // plugin declared kOfxImageEffectPropMetalRenderSupported
 };
 extern std::vector<PluginEntry> gPlugins;
 

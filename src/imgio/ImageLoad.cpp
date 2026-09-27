@@ -1,5 +1,6 @@
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
+#include "perf.h"
 
 #include <libraw/libraw.h>
 #include <tiffio.h>
@@ -372,6 +373,7 @@ static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::
 }
 
 bool makePreview(const Image &src, int maxEdge, Image &out) {
+  PerfScope _ps("makePreview");
   if (src.w <= 0 || src.h <= 0 || src.px.empty()) return false;
   const int longEdge = std::max(src.w, src.h);
   if (maxEdge <= 0 || longEdge <= maxEdge) {
@@ -406,6 +408,7 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
 }
 
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
+  PerfScope _ps("loadImage");
   out = {};
   detected = ColorSpace::sRGB;
   std::string e = fs::path(path).extension().string();

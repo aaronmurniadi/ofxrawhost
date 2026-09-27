@@ -1,5 +1,6 @@
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
+#include "perf.h"
 
 #include <lcms2.h>
 #include <zlib.h>
@@ -350,6 +351,7 @@ ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
 }
 
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {
+  PerfScope _ps("toDisplayRGBA8");
   out.assign((size_t)img.w * img.h * 4, 0);
   if (img.w <= 0 || img.h <= 0) return;
 
