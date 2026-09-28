@@ -33,6 +33,22 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 
 ---
 
+## Bundled plugins
+
+### Crop
+
+A bundled OFX plugin that simply crops the image. Intended at the **beginning of a plugin chain**
+so downstream plugins process fewer pixels, it implements `getRegionOfDefinition` to report the
+cropped output dimensions directly to the host.
+
+**Parameters:**
+
+- **Crop** — 0 = full image (identity), 100 = 2% of the original area.
+- **Aspect** — crop window aspect ratio: *Original* (source ratio), *16:9*, *4:3*, *3:2*, *4:5*, *3:4*, *9:16*.
+- **Offset X / Offset Y** — pan the crop window. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a 4:5 aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge, and the out-of-bounds area is filled with **black pixels**.
+
+---
+
 ## Install (macOS)
 
 Download the DMG for your Mac from [Releases](https://github.com/aaronmurniadi/ofxrawhost/releases/latest):

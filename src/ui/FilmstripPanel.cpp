@@ -6,9 +6,18 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 namespace fs = std::filesystem;
+
+static bool isRawImagePath(const std::string &path) {
+  std::string e = fs::path(path).extension().string();
+  for (char &c : e) c = (char)tolower((unsigned char)c);
+  return e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" ||
+         e == ".raf" || e == ".orf" || e == ".rw2" || e == ".pef" || e == ".srw" ||
+         e == ".raw";
+}
 
 void drawFilmstripPanel(App &app) {
   if (app.workspaceDir.empty() || app.filmstrip.empty()) {
@@ -16,11 +25,28 @@ void drawFilmstripPanel(App &app) {
     return;
   }
 
+  static const char *tabLabels[] = {"All", "RAW", "Compressed"};
+  if (ImGui::BeginTabBar("##filmstripTabs")) {
+    for (int t = 0; t < 3; ++t) {
+      if (ImGui::BeginTabItem(tabLabels[t])) {
+        app.filmstripTab = t;
+        ImGui::EndTabItem();
+      }
+    }
+    ImGui::EndTabBar();
+  }
+
+  const float thumbH = std::max(24.0f, ImGui::GetContentRegionAvail().y - ImGui::GetStyle().FramePadding.y * 2.0f);
+  const float fbScale = std::max(1.0f, ImGui::GetIO().DisplayFramebufferScale.y);
+  const int wantEdge = snapFilmstripThumbEdge(thumbH * fbScale);
+  if (app.filmstripThumbEdge.exchange(wantEdge) != wantEdge) invalidateFilmstripThumbs(app);
+
   pumpFilmstripThumbs(app);
   if (app.filmstripIndex >= 0) requestFilmstripThumb(app, app.filmstripIndex, true);
 
-  const float thumbH = std::max(24.0f, ImGui::GetContentRegionAvail().y - ImGui::GetStyle().FramePadding.y * 2.0f);
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
+    if (app.filmstripTab == 1 && !isRawImagePath(app.filmstrip[i].path)) continue;
+    if (app.filmstripTab == 2 && isRawImagePath(app.filmstrip[i].path)) continue;
     FilmstripEntry &e = app.filmstrip[i];
     const float aspect = (e.th && e.tw) ? (float)e.tw / (float)e.th : 1.0f;
     const ImVec2 btnSize(thumbH * aspect, thumbH);

@@ -114,12 +114,16 @@ OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
     Node &n = app.nodes[i];
     if (!n.enabled) continue;
     if (!n.instance) return kOfxStatFailed;
-    next.w = cur.w;
-    next.h = cur.h;
-    if (next.px.size() != cur.px.size()) next.px.resize(cur.px.size());
+    OfxPlugin *plugin = gPlugins[n.pluginIndex].plugin;
+    int ow = cur.w, oh = cur.h;
+    queryOutputSize(plugin, n.instance.get(), cur.w, cur.h, &ow, &oh);
+    next.w = ow;
+    next.h = oh;
+    const size_t need = (size_t)ow * oh * 4;
+    if (next.px.size() < need) next.px.resize(need);
     const auto t0 = std::chrono::steady_clock::now();
     const OfxStatus st =
-        renderEffect(gPlugins[n.pluginIndex].plugin, n.instance.get(), cur.px.data(), next.px.data(), cur.w, cur.h, gen);
+        renderEffect(plugin, n.instance.get(), cur.px.data(), next.px.data(), cur.w, cur.h, ow, oh, gen);
     const auto t1 = std::chrono::steady_clock::now();
     perfLog(("node: " + gPlugins[n.pluginIndex].label).c_str(),
             std::chrono::duration<double, std::milli>(t1 - t0).count());
@@ -170,12 +174,13 @@ void renderWorker(App *app) {
       const ColorSpace space = outputSpace(app->outputIndex);
       std::vector<unsigned char> rgba;
       toDisplayRGBA8(out, space, rgba);
+      const int ow = out.w, oh = out.h;
       std::lock_guard<std::mutex> lock(app->displayMutex);
       app->display = std::move(out);
       app->displayRGBA = std::move(rgba);
       app->displayDirty = true;
       app->displayGen = gen;
-      app->setStatus(std::to_string(pw) + "×" + std::to_string(ph) + " preview");
+      app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
       app->setStatus("Render failed (OFX status " + std::to_string(st) + ")");
     }

@@ -102,14 +102,97 @@ static int selfTest() {
 
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
-  for (auto &pe : gPlugins) {
-    auto e = createInstance(pe);
-    if (!e) return fail(("createInstance: " + pe.label).c_str());
+
+  // Bundled Crop plugin: defaults must be an identity pass-through with a
+  // full-size RoD; the crop slider must shrink the RoD and change the rendered
+  // output. Checked first so a flaky third-party plugin later in the list
+  // cannot mask a regression here.
+  {
+    auto it = std::find_if(gPlugins.begin(), gPlugins.end(),
+                           [](const PluginEntry &pe) { return pe.label == "Crop"; });
+    if (it == gPlugins.end()) return fail("bundled Crop plugin not found");
+    auto e = createInstance(*it);
+    if (!e) return fail("createInstance: Crop");
+
+    // At default (crop=0): RoD matches source size and render is identity.
+    int ow = src.w, oh = src.h;
+    queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
+    if (ow != src.w || oh != src.h) return fail("crop RoD at default != source size");
     Image out;
     out.w = src.w;
     out.h = src.h;
     out.px.assign(src.px.size(), -1.0f);
-    const OfxStatus st = renderEffect(pe.plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, 0);
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, src.w, src.h, 0) != kOfxStatOK)
+      return fail("render: Crop (defaults)");
+    if (out.px != src.px) return fail("crop defaults are not identity");
+
+    // At crop=80: RoD should shrink and render to the smaller output should differ.
+    Param *crop = findParam(e.get(), "crop");
+    if (!crop || crop->v.empty()) return fail("crop param missing");
+    crop->v[0] = 80;
+    ow = src.w; oh = src.h;
+    queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
+    if (ow >= src.w || oh >= src.h) return fail("crop RoD did not shrink at 80%");
+    out.w = ow;
+    out.h = oh;
+    out.px.assign((size_t)ow * oh * 4, -1.0f);
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
+      return fail("render: Crop (zoomed)");
+    bool finite = true, changed = false;
+    for (float v : out.px) {
+      finite &= std::isfinite(v);
+      changed |= v != -1.0f;
+    }
+    if (!finite || !changed) return fail("crop zoom output");
+    if (out.px == src.px) return fail("crop slider had no effect");
+
+    // At crop=0 the window fills the source, so both pan ranges must fall back
+    // to half the crop size (not zero). Panning ±100 should slide the window
+    // past the source edge, producing black where no source data exists.
+    crop->v[0] = 0;
+    Param *offsetX = findParam(e.get(), "offsetX");
+    Param *offsetY = findParam(e.get(), "offsetY");
+    if (!offsetX || offsetX->v.empty()) return fail("offsetX param missing");
+    if (!offsetY || offsetY->v.empty()) return fail("offsetY param missing");
+    ow = src.w; oh = src.h;
+    queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
+    out.w = ow; out.h = oh;
+    out.px.assign((size_t)ow * oh * 4, -1.0f);
+    offsetX->v[0] = 0; offsetY->v[0] = 0;
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
+      return fail("render: Crop (centered)");
+    for (float v : out.px)
+      if (v == 0.0f) return fail("centered crop should have no black pixels");
+    offsetY->v[0] = 100;
+    std::fill(out.px.begin(), out.px.end(), -1.0f);
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
+      return fail("render: Crop (Y offset)");
+    changed = false;
+    for (float v : out.px)
+      changed |= v == 0.0f;
+    if (!changed) return fail("Y offset produced no black fill");
+    offsetX->v[0] = 100; offsetY->v[0] = 0;
+    std::fill(out.px.begin(), out.px.end(), -1.0f);
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
+      return fail("render: Crop (X offset)");
+    changed = false;
+    for (float v : out.px)
+      changed |= v == 0.0f;
+    if (!changed) return fail("X offset produced no black fill");
+    callAction(it->plugin, kOfxActionDestroyInstance, e.get());
+    printf("ok  Crop zoom\n");
+  }
+
+  for (auto &pe : gPlugins) {
+    auto e = createInstance(pe);
+    if (!e) return fail(("createInstance: " + pe.label).c_str());
+    int ow = src.w, oh = src.h;
+    queryOutputSize(pe.plugin, e.get(), src.w, src.h, &ow, &oh);
+    Image out;
+    out.w = ow;
+    out.h = oh;
+    out.px.assign((size_t)ow * oh * 4, -1.0f);
+    const OfxStatus st = renderEffect(pe.plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0);
     callAction(pe.plugin, kOfxActionDestroyInstance, e.get());
     if (st != kOfxStatOK) return fail(("render: " + pe.label).c_str());
     bool finite = true, touched = false;

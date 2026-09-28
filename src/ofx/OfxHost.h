@@ -59,8 +59,10 @@ struct Effect {
   float *src = nullptr, *dst = nullptr;
   void *srcMtl = nullptr, *dstMtl = nullptr;  // id<MTLBuffer> when metalEnabled
   bool metalEnabled = false;                  // this render passes MTLBuffer images
-  bool metalCapable = false;                  // plugin declared Metal render support
-  int w = 0, h = 0, renderGen = 0;
+  bool metalCapable = false;                  // plugin declared kOfxImageEffectPropMetalRenderSupported
+  int w = 0, h = 0;                           // input/source clip dims
+  int outW = 0, outH = 0;                     // output clip dims (== w,h unless the plugin changes its RoD)
+  int renderGen = 0;
 };
 
 // Bumping gLatestGen aborts in-flight interactive renders. gValueMutex guards Param values.
@@ -82,8 +84,12 @@ struct PluginEntry {
 };
 extern std::vector<PluginEntry> gPlugins;
 
-OfxStatus callAction(OfxPlugin *p, const char *action, Effect *e, PropSet *in = nullptr);
+OfxStatus callAction(OfxPlugin *p, const char *action, Effect *e, PropSet *in = nullptr, PropSet *out = nullptr);
 void loadPlugins();
 std::unique_ptr<Effect> createInstance(PluginEntry &pe);
-// src/dst: bottom-up float RGBA, w*h pixels. gen 0 = never aborted.
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int gen);
+// Output size the plugin declares for input size inW×inH (kOfxImageEffectActionGetRegionOfDefinition).
+// Falls back to inW×inH when the plugin does not override its RoD.
+void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *outH);
+// src: bottom-up float RGBA w*h pixels. dst receives outW*outH pixels (capacity >= outW*outH).
+// gen 0 = never aborted.
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen);

@@ -23,13 +23,19 @@ static bool icontains(const std::string &hay, const std::string &needle) {
 }
 
 void drawLeftPanel(App &app) {
-  if (ImGui::Button("Open...")) {
+  if (ImGui::Button("Open image")) {
     auto f = pfd::open_file("Open image", "", openImageDialogFilters());
     auto r = f.result();
     if (!r.empty()) openPath(app, r[0]);
   }
   ImGui::SameLine();
-  if (ImGui::Button("Export...")) doExport(app);
+  if (ImGui::Button("Open Workspace")) {
+    auto f = pfd::select_folder("Open workspace folder");
+    auto r = f.result();
+    if (!r.empty()) app.pendingWorkspaceDir = r;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Export")) doExport(app);
 
   ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, 4);
   if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);

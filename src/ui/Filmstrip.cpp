@@ -34,6 +34,15 @@ static void releaseFilmstripTex(FilmstripEntry &e) {
   e.tw = e.th = 0;
 }
 
+void invalidateFilmstripThumbs(App &app) {
+  // Keep existing textures on screen; they reload at the new edge and swap in
+  // place when the fresh thumbnail arrives (no blank/flicker in between).
+  for (FilmstripEntry &e : app.filmstrip) {
+    e.thumbPending = true;
+    e.thumbFailed = false;
+  }
+}
+
 static int countFilmstripTextures(const App &app) {
   int n = 0;
   for (const FilmstripEntry &e : app.filmstrip)
@@ -81,7 +90,7 @@ static void finishFilmstripThumbJob(App &app, const std::string &path, bool fail
 void requestFilmstripThumb(App &app, int index, bool front) {
   if (index < 0 || index >= (int)app.filmstrip.size()) return;
   FilmstripEntry &e = app.filmstrip[index];
-  if (e.tex || e.thumbFailed || e.thumbLoading || !e.thumbPending) return;
+  if (e.thumbFailed || e.thumbLoading || !e.thumbPending) return;
   const std::string path = e.path;
   {
     std::lock_guard<std::mutex> lock(app.thumbMutex);
@@ -116,6 +125,7 @@ static void uploadFilmstripThumbData(App &app, int index, const std::vector<unsi
 }
 
 void pumpFilmstripThumbs(App &app) {
+  const int wantEdge = app.filmstripThumbEdge.load();
   for (int n = 0; n < kFilmstripUploadsPerFrame; ++n) {
     ThumbReady ready;
     {
@@ -130,6 +140,14 @@ void pumpFilmstripThumbs(App &app) {
     }
     const int index = filmstripIndexForPath(app, ready.path);
     if (index < 0) continue;
+    if (ready.edge != wantEdge) {
+      // Rendered at a stale resolution: drop it and re-queue at the current size.
+      finishFilmstripThumbJob(app, ready.path, false);
+      FilmstripEntry &e = app.filmstrip[index];
+      e.thumbFailed = false;
+      e.thumbPending = true;
+      continue;
+    }
     if (ready.kind == ThumbReady::Kind::Fail) {
       finishFilmstripThumbJob(app, ready.path, true);
       continue;
@@ -142,6 +160,7 @@ static void filmstripThumbWorker(App *app) {
   while (!app->quit) {
     std::string path;
     int gen = 0;
+    int edge = 0;
     {
       std::unique_lock<std::mutex> lock(app->thumbMutex);
       app->thumbCv.wait(lock, [&] { return app->quit || !app->thumbQueue.empty(); });
@@ -150,19 +169,20 @@ static void filmstripThumbWorker(App *app) {
       app->thumbQueue.pop_front();
       app->thumbQueued.erase(path);
       gen = app->filmstripGen.load();
+      edge = app->filmstripThumbEdge.load();
     }
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    const bool ok = loadThumbnailRGBA(path, kFilmstripThumbEdge, rgba, w, h);
+    const bool ok = loadThumbnailRGBA(path, edge, rgba, w, h);
     std::lock_guard<std::mutex> lock(app->thumbMutex);
     if (gen != app->filmstripGen.load()) {
-      app->thumbReady.push_back({path, {}, 0, 0, ThumbReady::Kind::Canceled});
+      app->thumbReady.push_back({path, {}, 0, 0, edge, ThumbReady::Kind::Canceled});
       continue;
     }
     if (!ok)
-      app->thumbReady.push_back({path, {}, 0, 0, ThumbReady::Kind::Fail});
+      app->thumbReady.push_back({path, {}, 0, 0, edge, ThumbReady::Kind::Fail});
     else
-      app->thumbReady.push_back({path, std::move(rgba), w, h, ThumbReady::Kind::Ok});
+      app->thumbReady.push_back({path, std::move(rgba), w, h, edge, ThumbReady::Kind::Ok});
   }
 }
 

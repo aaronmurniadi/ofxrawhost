@@ -28,6 +28,7 @@ struct ThumbReady {
   std::string path;
   std::vector<unsigned char> rgba;
   int w = 0, h = 0;
+  int edge = 0;  // long-edge cap the job was rendered at
   enum class Kind { Ok, Fail, Canceled } kind = Kind::Fail;
 };
 
@@ -107,8 +108,12 @@ struct App {
   int filmstripIndex = -1;
   bool showFilmstrip = true;
   float filmstripH = 96.0f;
+  int filmstripTab = 0;  // 0=All, 1=RAW, 2=Compressed
+  bool showAbout = false;
+  bool showDonate = false;
 
   std::atomic<int> filmstripGen{0};
+  std::atomic<int> filmstripThumbEdge{256};  // snapped long-edge cap (see kFilmstripThumbEdges)
   int thumbLruTick = 0;
   std::thread thumbThread;
   std::mutex thumbMutex;

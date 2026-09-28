@@ -313,10 +313,10 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   propSetN<double, propSetDouble>(h, kOfxImageEffectPropRenderScale, 2, scale);
   propSetDouble(h, kOfxImagePropPixelAspectRatio, 0, 1);
   propSetPointer(h, kOfxImagePropData, 0, data);
-  const int bounds[4] = {0, 0, e->w, e->h};
+  const int bounds[4] = {0, 0, isOutput ? e->outW : e->w, isOutput ? e->outH : e->h};
   propSetN<int, propSetInt>(h, kOfxImagePropBounds, 4, bounds);
   propSetN<int, propSetInt>(h, kOfxImagePropRegionOfDefinition, 4, bounds);
-  propSetInt(h, kOfxImagePropRowBytes, 0, e->w * 4 * (int)sizeof(float));
+  propSetInt(h, kOfxImagePropRowBytes, 0, bounds[2] * 4 * (int)sizeof(float));
   *out = h;
   return kOfxStatOK;
 }
@@ -325,7 +325,10 @@ static OfxStatus clipReleaseImage(OfxPropertySetHandle) {
   return kOfxStatOK;
 }
 static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle c, OfxTime, OfxRectD *rod) {
-  *rod = {0, 0, (double)C(c)->owner->w, (double)C(c)->owner->h};
+  Clip *clip = C(c);
+  const bool isOutput = clip->name == kOfxImageEffectOutputClipName;
+  Effect *e = clip->owner;
+  *rod = {0, 0, (double)(isOutput ? e->outW : e->w), (double)(isOutput ? e->outH : e->h)};
   return kOfxStatOK;
 }
 static int effectAbort(OfxImageEffectHandle e) { return E(e)->renderGen && E(e)->renderGen != gLatestGen; }

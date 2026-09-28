@@ -6,6 +6,7 @@
 #include "ofxParam.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -13,7 +14,11 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <dlfcn.h>
 #else
+#include <unistd.h>
 #include <dlfcn.h>
 #endif
 
@@ -47,8 +52,8 @@ static const char *loadErr() {
 
 std::vector<PluginEntry> gPlugins;
 
-OfxStatus callAction(OfxPlugin *p, const char *action, Effect *e, PropSet *in) {
-  return p->mainEntry(action, e, in ? H(in) : nullptr, nullptr);
+OfxStatus callAction(OfxPlugin *p, const char *action, Effect *e, PropSet *in, PropSet *out) {
+  return p->mainEntry(action, e, in ? H(in) : nullptr, out ? H(out) : nullptr);
 }
 bool ofxActionOk(OfxStatus s) { return s == kOfxStatOK || s == kOfxStatReplyDefault; }
 
@@ -125,6 +130,29 @@ static void loadBundle(const fs::path &bundle) {
   }
 }
 
+// Directory containing the running executable, for finding bundled plugins.
+static fs::path exeDir() {
+#ifdef _WIN32
+  wchar_t buf[MAX_PATH];
+  const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+  if (n == 0 || n >= MAX_PATH) return {};
+  return fs::path(buf).parent_path();
+#elif defined(__APPLE__)
+  char buf[4096];
+  uint32_t sz = sizeof(buf);
+  if (_NSGetExecutablePath(buf, &sz) != 0) return {};
+  std::error_code ec;
+  fs::path p = fs::weakly_canonical(fs::path(buf), ec);
+  return (ec ? fs::path(buf) : p).parent_path();
+#else
+  char buf[4096];
+  const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+  if (n <= 0) return {};
+  buf[n] = '\0';
+  return fs::path(buf).parent_path();
+#endif
+}
+
 void loadPlugins() {
   std::vector<std::string> dirs;
   if (const char *env = getenv("OFX_PLUGIN_PATH")) {
@@ -147,6 +175,13 @@ void loadPlugins() {
   dirs.push_back("/usr/OFX/Plugins");
   dirs.push_back("/usr/local/OFX/Plugins");
 #endif
+  // Bundled plugins shipped with the app: <exe>/Plugins (dev build tree) and
+  // <exe>/../PlugIns (macOS app bundle Contents/PlugIns).
+  const fs::path exe = exeDir();
+  if (!exe.empty()) {
+    dirs.push_back((exe / "Plugins").string());
+    dirs.push_back((exe / ".." / "PlugIns").string());
+  }
   for (auto &d : dirs) {
     std::error_code ec;
     for (auto it = fs::recursive_directory_iterator(d, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
@@ -196,15 +231,44 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
   return e;
 }
 
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int gen) {
+void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *outH) {
+  *outW = inW;
+  *outH = inH;
+  if (!p || !e || inW <= 0 || inH <= 0) return;
+  // The plugin may query clip RoDs while answering; give it the input size.
+  e->w = inW;
+  e->h = inH;
+  e->outW = inW;
+  e->outH = inH;
+  PropSet in, out;
+  OfxPropertySetHandle a = H(&in);
+  propSetDouble(a, kOfxPropTime, 0, 0);
+  const double scale[2] = {1, 1};
+  propSetN<double, propSetDouble>(a, kOfxImageEffectPropRenderScale, 2, scale);
+  const OfxStatus st = callAction(p, kOfxImageEffectActionGetRegionOfDefinition, e, &in, &out);
+  if (st != kOfxStatOK) return;
+  auto it = out.m.find(kOfxImageEffectPropRegionOfDefinition);
+  if (it == out.m.end() || it->second.size() < 4) return;
+  const double x1 = it->second[0].d, y1 = it->second[1].d;
+  const double x2 = it->second[2].d, y2 = it->second[3].d;
+  if (!std::isfinite(x1) || !std::isfinite(y1) || !std::isfinite(x2) || !std::isfinite(y2)) return;
+  const double dw = x2 - x1, dh = y2 - y1;
+  if (dw < 1 || dh < 1 || dw > 32768 || dh > 32768) return;
+  *outW = (int)std::lround(dw);
+  *outH = (int)std::lround(dh);
+}
+
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen) {
   e->src = src;
   e->dst = dst;
   e->w = w;
   e->h = h;
+  e->outW = outW;
+  e->outH = outH;
   e->renderGen = gen;
   PropSet in;
   OfxPropertySetHandle a = H(&in);
-  const int window[4] = {0, 0, w, h};
+  const int window[4] = {0, 0, outW, outH};
   const double scale[2] = {1, 1};
   propSetDouble(a, kOfxPropTime, 0, 0);
   propSetString(a, kOfxImageEffectPropFieldToRender, 0, kOfxImageFieldNone);
@@ -218,7 +282,7 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 1);
     propSetPointer(a, kOfxImageEffectPropMetalCommandQueue, 0, ofxMetalCommandQueue());
     if (!e->srcMtl) e->srcMtl = ofxMetalBufferCreate((size_t)w * h * 4 * sizeof(float));
-    if (!e->dstMtl) e->dstMtl = ofxMetalBufferCreate((size_t)w * h * 4 * sizeof(float));
+    if (!e->dstMtl) e->dstMtl = ofxMetalBufferCreate((size_t)outW * outH * 4 * sizeof(float));
     if (e->srcMtl && src)
       std::memcpy(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->srcMtl)), src, (size_t)w * h * 4 * sizeof(float));
   } else {
@@ -228,7 +292,7 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   if (e->metalEnabled) ofxMetalSync();
   if (e->metalEnabled && st == kOfxStatOK && e->dstMtl) {
     float *d = static_cast<float *>(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl)));
-    if (d && e->dst) std::memcpy(e->dst, d, (size_t)w * h * 4 * sizeof(float));
+    if (d && e->dst) std::memcpy(e->dst, d, (size_t)outW * outH * 4 * sizeof(float));
   }
   if (st != kOfxStatOK && e->metalCapable) {
     std::fprintf(stderr, "[metal] render failed: status=%d (0x%08x) metal=%d plugin=%p\n", (int)st, (unsigned int)st, (int)e->metalEnabled, (void*)plugin);

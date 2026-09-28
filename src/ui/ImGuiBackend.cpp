@@ -57,6 +57,30 @@ bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
   fontCfg.OversampleV = 2;
   io.Fonts->Clear();
   io.Fonts->AddFontDefault(&fontCfg);
+#if defined(__APPLE__)
+  {
+    // Merge the ⌘ glyph so macOS menu shortcuts can render it.
+    ImFontConfig symbolsCfg;
+    symbolsCfg.MergeMode = true;
+    symbolsCfg.PixelSnapH = true;
+    symbolsCfg.OversampleH = 2;
+    symbolsCfg.OversampleV = 2;
+    static const ImWchar symbolRanges[] = {0x2318, 0x2318, 0};
+    const char *symCands[] = {
+        "/System/Library/Fonts/Apple Symbols.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    };
+    bool symLoaded = false;
+    for (const char *path : symCands) {
+      if (!path || !fs::exists(path)) continue;
+      if (io.Fonts->AddFontFromFileTTF(path, fontCfg.SizePixels, &symbolsCfg, symbolRanges)) {
+        symLoaded = true;
+        break;
+      }
+    }
+    if (!symLoaded) std::fprintf(stderr, "warning: could not load symbol font for shortcut glyphs\n");
+  }
+#endif
   {
     ImFontConfig iconsCfg;
     iconsCfg.MergeMode = true;

@@ -17,7 +17,7 @@ cmake --build "$BUILD" -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null |
 
 if [ "$(uname)" = Darwin ]; then
   APP="$BUILD/OfxRawHost.app"
-  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/PlugIns"
   BIN="$BUILD/OfxRawHost"
   [ -x "$BIN" ] || BIN="$BUILD/Release/OfxRawHost"
   cp "$BIN" "$APP/Contents/MacOS/OfxRawHost"
@@ -48,6 +48,10 @@ if [ "$(uname)" = Darwin ]; then
   </dict></array>
 </dict></plist>
 EOF
+  if [ -d "$BUILD/Plugins/OfxRawHost.ofx.bundle" ]; then
+    rm -rf "$APP/Contents/PlugIns/OfxRawHost.ofx.bundle"
+    cp -R "$BUILD/Plugins/OfxRawHost.ofx.bundle" "$APP/Contents/PlugIns/"
+  fi
   codesign --force --sign - "$APP" 2>/dev/null || true
   echo "Built $(pwd)/$APP"
 else
