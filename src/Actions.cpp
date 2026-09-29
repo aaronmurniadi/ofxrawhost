@@ -43,13 +43,13 @@ void openWorkspace(App &app, const std::string &dir) {
   }
   if (toOpen.empty() && !app.filmstrip.empty()) toOpen = app.filmstrip[0].path;
   if (!toOpen.empty())
-    openPath(app, toOpen, true);
+    openPath(app, toOpen);
   else
     app.setStatus("Workspace: " + fs::path(app.workspaceDir).filename().string() + " (no images)");
   persistWorkspace(app);
 }
 
-void openPath(App &app, const std::string &path, bool applySidecar) {
+void openPath(App &app, const std::string &path) {
   if (isHostMetadataPath(path)) {
     app.setStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
     return;
@@ -76,12 +76,7 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
       break;
     }
   }
-  if (applySidecar)
-    loadSidecarForPath(app, path);
-  else {
-    for (auto &node : app.nodes)
-      if (node.instance) applyColorDefaults(app, node);
-  }
+  loadSidecarForPath(app, path);
   rebuildPreview(app);
   persistWorkspace(app);
 }

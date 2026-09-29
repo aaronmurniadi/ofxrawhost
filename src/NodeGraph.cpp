@@ -97,8 +97,7 @@ const std::vector<Val> &choiceOptions(Param *p) {
   return it != p->props.m.end() ? it->second : none;
 }
 
-void notifyChanged(App &app, Node &node, Param *p) {
-  (void)app;
+void notifyChanged(Node &node, Param *p) {
   PropSet in;
   OfxPropertySetHandle a = H(&in);
   const double scale[2] = {1, 1};
@@ -128,7 +127,7 @@ void applyColorDefaults(App &app, Node &node) {
         std::lock_guard<std::mutex> lock(gValueMutex);
         p->v[0] = (double)i;
       }
-      notifyChanged(app, node, p);
+      notifyChanged(node, p);
       break;
     }
   }

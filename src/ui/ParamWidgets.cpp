@@ -233,7 +233,7 @@ static void drawParam(App &app, Param *p) {
   if (changed) {
     Node *node = selectedNode(app);
     if (node) {
-      notifyChanged(app, *node, p);
+      notifyChanged(*node, p);
       syncOutputTag(app);
       scheduleRender(app);
     }

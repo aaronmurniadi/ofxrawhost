@@ -10,7 +10,7 @@ void destroyNode(App &app, int index);
 void moveNode(App &app, int from, int to);
 
 void syncOutputTag(App &app);
-void notifyChanged(App &app, Node &node, Param *p);
+void notifyChanged(Node &node, Param *p);
 void applyColorDefaults(App &app, Node &node);
 const std::vector<Val> &choiceOptions(Param *p);
 

@@ -4,6 +4,6 @@
 
 #include <string>
 
-void openPath(App &app, const std::string &path, bool applySidecar = true);
+void openPath(App &app, const std::string &path);
 void openWorkspace(App &app, const std::string &dir);
 void doExport(App &app);

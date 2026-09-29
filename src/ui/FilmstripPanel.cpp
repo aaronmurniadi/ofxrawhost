@@ -69,7 +69,7 @@ void drawFilmstripPanel(App &app) {
       ImGui::Button(e.thumbFailed ? "?" : "…", btnSize);
     if (ImGui::IsItemVisible()) requestFilmstripThumb(app, i, selected);
     if (selected) ImGui::PopStyleColor();
-    if (ImGui::IsItemClicked()) openPath(app, e.path, true);
+    if (ImGui::IsItemClicked()) openPath(app, e.path);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
       ImGui::SetTooltip("%s", fs::path(e.path).filename().string().c_str());
     ImGui::PopID();
