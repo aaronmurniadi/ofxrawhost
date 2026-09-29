@@ -8,15 +8,18 @@
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
-static void showSourcePreview(App &app) {
-  if (app.preview.px.empty()) return;
-  const ColorSpace space = linearWorkingSpace(app.inputSpace);
+static void publishDisplay(App &app, Image img, ColorSpace space) {
   std::vector<unsigned char> rgba;
-  toDisplayRGBA8(app.preview, space, rgba);
+  toDisplayRGBA8(img, space, rgba);
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  app.display = app.preview;
+  app.display = std::move(img);
   app.displayRGBA = std::move(rgba);
   app.displayDirty = true;
+}
+
+static void showSourcePreview(App &app) {
+  if (app.preview.px.empty()) return;
+  publishDisplay(app, app.preview, linearWorkingSpace(app.inputSpace));
 }
 
 void waitRenderIdle(App &app) {
@@ -145,30 +148,19 @@ void renderWorker(App *app) {
         img = app->display;
         space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : app->outputTag;
       }
-      std::vector<unsigned char> rgba;
-      toDisplayRGBA8(img, space, rgba);
-      std::lock_guard<std::mutex> lock(app->displayMutex);
-      app->displayRGBA = std::move(rgba);
-      app->displayDirty = true;
+      publishDisplay(*app, std::move(img), space);
       continue;
     }
     if (app->nodes.empty() || app->preview.px.empty()) continue;
     const int gen = ++gLatestGen;
-    const int pw = app->preview.w;
-    const int ph = app->preview.h;
     app->setStatus("Rendering...");
     Image out;
     const OfxStatus st = renderChain(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
       const ColorSpace space = app->outputTag;
-      std::vector<unsigned char> rgba;
-      toDisplayRGBA8(out, space, rgba);
       const int ow = out.w, oh = out.h;
-      std::lock_guard<std::mutex> lock(app->displayMutex);
-      app->display = std::move(out);
-      app->displayRGBA = std::move(rgba);
-      app->displayDirty = true;
+      publishDisplay(*app, std::move(out), space);
       app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
       app->setStatus("Render failed (OFX status " + std::to_string(st) + ")");
