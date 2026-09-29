@@ -14,6 +14,7 @@ inline int snapFilmstripThumbEdge(float devicePx) {
 }
 
 void freeFilmstripTextures(std::vector<FilmstripEntry> &entries);
+int filmstripIndexForPath(const App &app, const std::string &path);
 void invalidateFilmstripThumbs(App &app);
 void requestFilmstripThumb(App &app, int index, bool front);
 void pumpFilmstripThumbs(App &app);

@@ -68,14 +68,7 @@ void openPath(App &app, const std::string &path) {
   app.previewPanX = 0.0f;
   app.previewPanY = 0.0f;
   app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
-  app.filmstripIndex = -1;
-  for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
-    std::error_code ec;
-    if (fs::equivalent(app.filmstrip[i].path, path, ec)) {
-      app.filmstripIndex = i;
-      break;
-    }
-  }
+  app.filmstripIndex = filmstripIndexForPath(app, path);
   loadSidecarForPath(app, path);
   rebuildPreview(app);
   persistWorkspace(app);

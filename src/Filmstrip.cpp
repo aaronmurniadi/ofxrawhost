@@ -63,7 +63,7 @@ static void evictFilmstripLru(App &app, int protectA, int protectB) {
   e.thumbLoading = false;
 }
 
-static int filmstripIndexForPath(const App &app, const std::string &path) {
+int filmstripIndexForPath(const App &app, const std::string &path) {
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     std::error_code ec;
     if (fs::equivalent(app.filmstrip[i].path, path, ec)) return i;
@@ -231,14 +231,5 @@ void refreshFilmstrip(App &app) {
     e.path = p;
     app.filmstrip.push_back(std::move(e));
   }
-  app.filmstripIndex = -1;
-  if (!app.path.empty()) {
-    for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
-      std::error_code ec;
-      if (fs::equivalent(app.filmstrip[i].path, app.path, ec)) {
-        app.filmstripIndex = i;
-        break;
-      }
-    }
-  }
+  app.filmstripIndex = filmstripIndexForPath(app, app.path);
 }
