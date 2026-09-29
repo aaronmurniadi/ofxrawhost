@@ -14,18 +14,13 @@
 
 namespace fs = std::filesystem;
 
+constexpr int kMaxFilmstripTextures = 64;
+constexpr int kFilmstripUploadsPerFrame = 2;
+
 void freeFilmstripTextures(std::vector<FilmstripEntry> &entries) {
   for (FilmstripEntry &e : entries)
     if (e.tex) glDeleteTextures(1, &e.tex);
   entries.clear();
-}
-
-void clearFilmstripThumbJobs(App &app) {
-  ++app.filmstripGen;
-  std::lock_guard<std::mutex> lock(app.thumbMutex);
-  app.thumbQueue.clear();
-  app.thumbQueued.clear();
-  app.thumbReady.clear();
 }
 
 static void releaseFilmstripTex(FilmstripEntry &e) {
@@ -217,7 +212,13 @@ std::thread startFilmstripThumbThread(App *app) { return std::thread(filmstripTh
 #endif
 
 void refreshFilmstrip(App &app) {
-  clearFilmstripThumbJobs(app);
+  ++app.filmstripGen;
+  {
+    std::lock_guard<std::mutex> lock(app.thumbMutex);
+    app.thumbQueue.clear();
+    app.thumbQueued.clear();
+    app.thumbReady.clear();
+  }
   freeFilmstripTextures(app.filmstrip);
   if (app.workspaceDir.empty()) {
     app.filmstripIndex = -1;

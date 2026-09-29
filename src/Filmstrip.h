@@ -13,11 +13,7 @@ inline int snapFilmstripThumbEdge(float devicePx) {
   return kFilmstripThumbEdges[sizeof(kFilmstripThumbEdges) / sizeof(kFilmstripThumbEdges[0]) - 1];
 }
 
-constexpr int kMaxFilmstripTextures = 64;
-constexpr int kFilmstripUploadsPerFrame = 2;
-
 void freeFilmstripTextures(std::vector<FilmstripEntry> &entries);
-void clearFilmstripThumbJobs(App &app);
 void invalidateFilmstripThumbs(App &app);
 void requestFilmstripThumb(App &app, int index, bool front);
 void pumpFilmstripThumbs(App &app);
