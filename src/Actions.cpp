@@ -15,13 +15,6 @@
 
 namespace fs = std::filesystem;
 
-static void loadSidecarForPath(App &app, const std::string &imagePath) {
-  PersistSidecar sc;
-  if (!loadSidecarFile(inputSidecarPath(imagePath), sc)) return;
-  applyGui(app, sc.gui);
-  applyChain(app, sc.chain);
-}
-
 void openWorkspace(App &app, const std::string &dir) {
   std::error_code ec;
   if (!fs::is_directory(dir, ec)) {
@@ -69,7 +62,11 @@ void openPath(App &app, const std::string &path) {
   app.previewPanY = 0.0f;
   app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
   app.filmstripIndex = filmstripIndexForPath(app, path);
-  loadSidecarForPath(app, path);
+  PersistSidecar sc;
+  if (loadSidecarFile(inputSidecarPath(path), sc)) {
+    applyGui(app, sc.gui);
+    applyChain(app, sc.chain);
+  }
   rebuildPreview(app);
   persistWorkspace(app);
 }
