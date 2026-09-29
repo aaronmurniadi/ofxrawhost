@@ -7,8 +7,6 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 
-#include "portable-file-dialogs.h"
-
 #include <filesystem>
 #include <thread>
 
@@ -70,16 +68,20 @@ void openPath(App &app, const std::string &path) {
   persistWorkspace(app);
 }
 
-void doExport(App &app) {
-  if (app.full.px.empty() || app.nodes.empty()) return;
-  const char *exts[] = {".png", ".jpg"};
-  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
-  const int fmt = static_cast<int>(app.exportFormat);
-  std::string def = fs::path(app.path).stem().string() + exts[fmt];
-  auto sel = pfd::save_file("Export", def, {filters[fmt * 2], filters[fmt * 2 + 1]});
-  std::string outPath = sel.result();
-  if (outPath.empty()) return;
-  if (fs::path(outPath).extension().empty()) outPath += exts[fmt];
+static const char *exportExtension(ExportFormat fmt) {
+  return fmt == ExportFormat::PNG ? ".png" : ".jpg";
+}
+
+bool canExport(const App &app) { return !app.full.px.empty() && !app.nodes.empty(); }
+
+std::string defaultExportName(const App &app) {
+  return fs::path(app.path).stem().string() + exportExtension(app.exportFormat);
+}
+
+void doExport(App &app, const std::string &path) {
+  if (!canExport(app)) return;
+  std::string outPath = path;
+  if (fs::path(outPath).extension().empty()) outPath += exportExtension(app.exportFormat);
 
   app.setStatus("Exporting full resolution...");
   waitRenderIdle(app);

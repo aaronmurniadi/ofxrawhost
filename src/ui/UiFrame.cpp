@@ -52,9 +52,9 @@ static void drawMenuBar(App &app) {
         app.setStatus("Saved project and sidecar");
       }
 #ifdef __APPLE__
-      if (ImGui::MenuItem("Export", "⌘+E")) doExport(app);
+      if (ImGui::MenuItem("Export", "⌘+E")) exportImage(app);
 #else
-      if (ImGui::MenuItem("Export", "Ctrl+E")) doExport(app);
+      if (ImGui::MenuItem("Export", "Ctrl+E")) exportImage(app);
 #endif
 #ifdef __APPLE__
       if (ImGui::MenuItem("Quit", "⌘+Q")) glfwSetWindowShouldClose(app.window, 1);
@@ -95,6 +95,16 @@ static void drawMenuBar(App &app) {
     }
     ImGui::EndMainMenuBar();
   }
+}
+
+void exportImage(App &app) {
+  if (!canExport(app)) return;
+  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
+  const int fmt = static_cast<int>(app.exportFormat);
+  auto sel = pfd::save_file("Export", defaultExportName(app), {filters[fmt * 2], filters[fmt * 2 + 1]});
+  const std::string outPath = sel.result();
+  if (outPath.empty()) return;
+  doExport(app, outPath);
 }
 
 void drawUiFrame(App &app) {

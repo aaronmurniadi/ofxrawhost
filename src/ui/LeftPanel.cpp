@@ -109,7 +109,7 @@ void drawLeftPanel(App &app) {
     if (!r.empty()) app.pendingWorkspaceDir = r;
   }
   ImGui::SameLine();
-  if (ImGui::Button("Export")) doExport(app);
+  if (ImGui::Button("Export")) exportImage(app);
 
   int outTag = static_cast<int>(app.outputTag);
   if (ImGui::Combo("Output tag", &outTag, kOutputSpaces, kOutputSpaceCount)) app.outputTag = outputSpace(outTag);
