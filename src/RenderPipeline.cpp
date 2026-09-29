@@ -4,8 +4,6 @@
 #include <GLFW/glfw3.h>
 
 #include <chrono>
-#include <cstring>
-#include <cstdio>
 #include <vector>
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
@@ -66,14 +64,6 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
   } else {
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
   }
-}
-
-void uploadTexture(App &app, const Image &img) {
-  const ColorSpace space =
-      app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : app.outputTag;
-  std::vector<unsigned char> rgba;
-  toDisplayRGBA8(img, space, rgba);
-  uploadTextureRGBA(app, rgba.data(), img.w, img.h);
 }
 
 void scheduleDisplayRecolor(App &app) {
