@@ -1,4 +1,4 @@
-#include "ui/Filmstrip.h"
+#include "Filmstrip.h"
 
 #include "imgio/ImageIO.h"
 #include "persist/ProjectPersist.h"

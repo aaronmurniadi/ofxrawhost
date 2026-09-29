@@ -1,4 +1,4 @@
-#include "ui/UiContext.h"
+#include "ui/UiFrame.h"
 
 #include "imgui.h"
 
@@ -44,8 +44,6 @@ void drawPreviewPanel(App &app) {
 
 #if defined(__APPLE__)
   const float pinch = MacPinch_Consume();
-#else
-  const float pinch = 0.0f;
 #endif
   if (canvasHovered) {
     float zoomFactor = 1.0f;

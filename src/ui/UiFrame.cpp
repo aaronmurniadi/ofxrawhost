@@ -1,5 +1,6 @@
-#include "ui/UiContext.h"
+#include "ui/UiFrame.h"
 
+#include "Actions.h"
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "ui/Themes.h"
@@ -23,17 +24,7 @@ static void openUrl(const std::string &url) {
   std::system(cmd.c_str());
 }
 
-void DrawUiFrame(App &app) {
-  if (app.themeApplyPending) {
-    applyTheme(app.themeIndex);
-    app.themeApplyPending = false;
-  }
-  if (!app.pendingWorkspaceDir.empty()) {
-    const std::string dir = std::move(app.pendingWorkspaceDir);
-    app.pendingWorkspaceDir.clear();
-    openWorkspace(app, dir);
-  }
-
+static void drawMenuBar(App &app) {
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
 #ifdef __APPLE__
@@ -103,6 +94,20 @@ void DrawUiFrame(App &app) {
     }
     ImGui::EndMainMenuBar();
   }
+}
+
+void drawUiFrame(App &app) {
+  if (app.themeApplyPending) {
+    applyTheme(app.themeIndex);
+    app.themeApplyPending = false;
+  }
+  if (!app.pendingWorkspaceDir.empty()) {
+    const std::string dir = std::move(app.pendingWorkspaceDir);
+    app.pendingWorkspaceDir.clear();
+    openWorkspace(app, dir);
+  }
+
+  drawMenuBar(app);
 
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_LeftBracket))

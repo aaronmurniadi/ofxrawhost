@@ -2,12 +2,12 @@
 
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
+#include "ui/Widgets.h"
 
 #include "ofxParam.h"
 #include "imgui.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -63,12 +63,19 @@ static void drawPlusIcon(ImVec2 a, ImVec2 b) {
   dl->AddLine(ImVec2(cx, a.y + pad), ImVec2(cx, b.y - pad), col, 1.4f);
 }
 
-static bool paramResetButton() {
+static bool resetParamButton(Param *p) {
   const float h = ImGui::GetFrameHeight();
   const bool clicked = ImGui::Button("##reset", ImVec2(h, h));
   drawResetIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Reset to default");
-  return clicked;
+  if (!clicked) return false;
+  std::lock_guard<std::mutex> lock(gValueMutex);
+  if (p->type == kOfxParamTypeString || p->type == kOfxParamTypeCustom) {
+    p->s = sprop(p->props, kOfxParamPropDefault);
+    return true;
+  }
+  for (size_t i = 0; i < p->v.size(); ++i) p->v[i] = dprop(p->props, kOfxParamPropDefault, (int)i, 0);
+  return true;
 }
 
 static bool paramStepButton(bool plus) {
@@ -104,15 +111,6 @@ static bool paramEditButton(double &v, bool asInt, double lo, double hi) {
   return commit;
 }
 
-static void resetParamValues(Param *p) {
-  std::lock_guard<std::mutex> lock(gValueMutex);
-  if (p->type == kOfxParamTypeString || p->type == kOfxParamTypeCustom) {
-    p->s = sprop(p->props, kOfxParamPropDefault);
-    return;
-  }
-  for (size_t i = 0; i < p->v.size(); ++i) p->v[i] = dprop(p->props, kOfxParamPropDefault, (int)i, 0);
-}
-
 static void drawParam(App &app, Param *p) {
   const std::string &t = p->type;
   const std::string label = sprop(p->props, kOfxPropLabel);
@@ -142,10 +140,7 @@ static void drawParam(App &app, Param *p) {
       changed = true;
     };
 
-    if (paramResetButton()) {
-      resetParamValues(p);
-      changed = true;
-    }
+    if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
     double typed = p->v[0];
     if (paramEditButton(typed, t == kOfxParamTypeInteger, hardLo, hardHi)) {
@@ -166,10 +161,7 @@ static void drawParam(App &app, Param *p) {
       changed = true;
     }
   } else if (t == kOfxParamTypeBoolean) {
-    if (paramResetButton()) {
-      resetParamValues(p);
-      changed = true;
-    }
+    if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
     bool v = p->v[0] != 0;
     if (ImGui::Checkbox(idLabel.c_str(), &v)) {
@@ -178,10 +170,7 @@ static void drawParam(App &app, Param *p) {
       changed = true;
     }
   } else if (t == kOfxParamTypeChoice) {
-    if (paramResetButton()) {
-      resetParamValues(p);
-      changed = true;
-    }
+    if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
     const auto &opts = choiceOptions(p);
     int cur = (int)p->v[0];
@@ -201,10 +190,7 @@ static void drawParam(App &app, Param *p) {
     std::snprintf(buf, sizeof buf, "%s", p->s.c_str());
     const bool editable = sprop(p->props, kOfxParamPropStringMode) != kOfxParamStringIsLabel;
     if (editable) {
-      if (paramResetButton()) {
-        resetParamValues(p);
-        changed = true;
-      }
+      if (resetParamButton(p)) changed = true;
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(valueWidth());
       if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf)) {
@@ -217,10 +203,7 @@ static void drawParam(App &app, Param *p) {
     }
   } else if (dims(t) > 1) {
     const float rowW = ImGui::CalcItemWidth();
-    if (paramResetButton()) {
-      resetParamValues(p);
-      changed = true;
-    }
+    if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
     ImGui::TextUnformatted(label.c_str());
     ImGui::Indent();
@@ -255,14 +238,6 @@ static void drawParam(App &app, Param *p) {
       scheduleRender(app);
     }
   }
-}
-
-static bool icontains(const std::string &hay, const std::string &needle) {
-  if (needle.empty()) return true;
-  auto lower = [](unsigned char c) { return (char)std::tolower(c); };
-  auto it = std::search(hay.begin(), hay.end(), needle.begin(), needle.end(),
-                        [&](char a, char b) { return lower((unsigned char)a) == lower((unsigned char)b); });
-  return it != hay.end();
 }
 
 static bool paramMatches(Param *p, const std::string &q) {

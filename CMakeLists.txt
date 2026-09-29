@@ -87,11 +87,12 @@ add_executable(OfxRawHost
   src/UI.cpp
   src/NodeGraph.cpp
   src/RenderPipeline.cpp
+  src/Actions.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
   src/ui/Themes.cpp
-  src/ui/Filmstrip.cpp
+  src/Filmstrip.cpp
   src/ui/ImGuiBackend.cpp
   src/ui/DockLayout.cpp
   src/ui/UiFrame.cpp

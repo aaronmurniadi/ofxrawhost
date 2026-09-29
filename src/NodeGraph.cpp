@@ -144,9 +144,9 @@ void syncOutputTag(App &app) {
       const auto &options = choiceOptions(p);
       const size_t index = (size_t)p->v[0];
       if (index < options.size()) {
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < kOutputSpaceCount; ++i)
           if (options[index].s == kOutputSpaces[i]) {
-            app.outputIndex = i;
+            app.outputTag = outputSpace(i);
             return;
           }
       }

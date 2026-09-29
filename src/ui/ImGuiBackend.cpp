@@ -19,7 +19,7 @@ namespace fs = std::filesystem;
 
 static std::string gIniPath = "ofxrawhost.ini";
 
-void ImGuiBackend_SetDefaultIni() {
+static void ImGuiBackend_SetDefaultIni() {
   gIniPath = "ofxrawhost.ini";
   if (ImGui::GetCurrentContext()) ImGui::GetIO().IniFilename = gIniPath.c_str();
 }
@@ -40,7 +40,7 @@ bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir) {
   return false;
 }
 
-bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
+void ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
@@ -88,7 +88,7 @@ bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
     iconsCfg.GlyphMinAdvanceX = fontCfg.SizePixels;
     iconsCfg.OversampleH = 2;
     iconsCfg.OversampleV = 2;
-    static const ImWchar iconRanges[] = {0xf00d, 0xf00d, 0xf053, 0xf055, 0xf062, 0xf063, 0xf077, 0xf078, 0xf06e, 0xf070, 0};
+    static const ImWchar iconRanges[] = {0xf00d, 0xf00d, 0xf062, 0xf063, 0xf06e, 0xf06e, 0xf070, 0xf070, 0};
     const char *cands[] = {
         OFX_ICON_FONT_PATH,
         "fa-solid-900.ttf",
@@ -112,7 +112,6 @@ bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
 #else
   ImGui_ImplOpenGL3_Init("#version 330");
 #endif
-  return true;
 }
 
 void ImGuiBackend_NewFrame() {

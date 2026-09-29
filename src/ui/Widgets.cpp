@@ -2,8 +2,18 @@
 
 #include "imgui.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
+
+bool icontains(const std::string &hay, const std::string &needle) {
+  if (needle.empty()) return true;
+  auto lower = [](unsigned char c) { return (char)std::tolower(c); };
+  auto it = std::search(hay.begin(), hay.end(), needle.begin(), needle.end(),
+                        [&](char a, char b) { return lower((unsigned char)a) == lower((unsigned char)b); });
+  return it != hay.end();
+}
 
 static ImWchar utf8Codepoint(const char *s) {
   const unsigned char *u = (const unsigned char *)s;

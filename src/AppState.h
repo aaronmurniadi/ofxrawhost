@@ -43,6 +43,13 @@ struct FilmstripEntry {
 };
 
 inline constexpr const char *kOutputSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
+inline constexpr int kOutputSpaceCount = 4;
+
+enum class ExportFormat { PNG = 0, JPEG = 1 };
+
+enum class PreviewRes { R720p = 0, R1080p, R1440p, Full };
+
+enum class FilmstripTab { All = 0, RAW, Compressed };
 
 // Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
@@ -85,10 +92,10 @@ struct App {
   Image full, preview;
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
   ColorSpace inputSpace = ColorSpace::LinearRec2020;
-  int outputIndex = 0;
-  int exportFormat = 1;  // JPEG
+  ColorSpace outputTag = ColorSpace::sRGB;
+  ExportFormat exportFormat = ExportFormat::JPEG;
   int jpegQuality = 92;
-  int previewRes = 1;  // 1080p
+  PreviewRes previewRes = PreviewRes::R1080p;
   bool showLeft = true;
   bool showRight = true;
   // Legacy layout sizes (read from old JSON; DockBuilder uses them once if no .ini).
@@ -108,7 +115,7 @@ struct App {
   int filmstripIndex = -1;
   bool showFilmstrip = true;
   float filmstripH = 96.0f;
-  int filmstripTab = 0;  // 0=All, 1=RAW, 2=Compressed
+  FilmstripTab filmstripTab = FilmstripTab::All;
   bool showAbout = false;
   bool showDonate = false;
 
@@ -135,7 +142,6 @@ struct App {
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;
-  int displayGen = 0;
   bool displayRecolorPending = false;
 
   std::mutex statusMutex;

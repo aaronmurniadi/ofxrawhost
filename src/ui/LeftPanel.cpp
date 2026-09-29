@@ -1,6 +1,6 @@
-#include "ui/UiContext.h"
+#include "ui/UiFrame.h"
 
-#include "persist/DocumentActions.h"
+#include "Actions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
@@ -10,48 +10,9 @@
 #include "imgui.h"
 #include "portable-file-dialogs.h"
 
-#include <algorithm>
-#include <cctype>
 #include <string>
 
-static bool icontains(const std::string &hay, const std::string &needle) {
-  if (needle.empty()) return true;
-  auto lower = [](unsigned char c) { return (char)std::tolower(c); };
-  auto it = std::search(hay.begin(), hay.end(), needle.begin(), needle.end(),
-                        [&](char a, char b) { return lower(a) == lower((unsigned char)b); });
-  return it != hay.end();
-}
-
-void drawLeftPanel(App &app) {
-  if (ImGui::Button("Open image")) {
-    auto f = pfd::open_file("Open image", "", openImageDialogFilters());
-    auto r = f.result();
-    if (!r.empty()) openPath(app, r[0]);
-  }
-  ImGui::SameLine();
-  if (ImGui::Button("Open Workspace")) {
-    auto f = pfd::select_folder("Open workspace folder");
-    auto r = f.result();
-    if (!r.empty()) app.pendingWorkspaceDir = r;
-  }
-  ImGui::SameLine();
-  if (ImGui::Button("Export")) doExport(app);
-
-  ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, 4);
-  if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
-  {
-    const char *items[kPreviewResCount];
-    for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
-    if (ImGui::Combo("Preview", &app.previewRes, items, kPreviewResCount)) rebuildPreview(app);
-  }
-  ImGui::Combo("Export format", &app.exportFormat, "PNG (8-bit)\0JPEG\0");
-  if (app.exportFormat == 1) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
-  ImGui::Separator();
-  const std::string status = app.getStatus();
-  ImGui::TextWrapped("%s", status.c_str());
-  ImGui::Separator();
-
-  ImGui::TextUnformatted("OFX Plugin Nodes");
+static void drawPluginPicker(App &app) {
   if (ImGui::Button("Add plugin…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
@@ -84,7 +45,9 @@ void drawLeftPanel(App &app) {
     }
     ImGui::EndPopup();
   }
+}
 
+static void drawNodeList(App &app) {
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
   if (app.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a plugin to build a chain.");
   const float btnH = ImGui::GetFrameHeight();
@@ -131,4 +94,44 @@ void drawLeftPanel(App &app) {
   }
   if (removeAt >= 0) destroyNode(app, removeAt);
   ImGui::EndChild();
+}
+
+void drawLeftPanel(App &app) {
+  if (ImGui::Button("Open image")) {
+    auto f = pfd::open_file("Open image", "", openImageDialogFilters());
+    auto r = f.result();
+    if (!r.empty()) openPath(app, r[0]);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Open Workspace")) {
+    auto f = pfd::select_folder("Open workspace folder");
+    auto r = f.result();
+    if (!r.empty()) app.pendingWorkspaceDir = r;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Export")) doExport(app);
+
+  int outTag = static_cast<int>(app.outputTag);
+  if (ImGui::Combo("Output tag", &outTag, kOutputSpaces, kOutputSpaceCount)) app.outputTag = outputSpace(outTag);
+  if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
+  {
+    const char *items[kPreviewResCount];
+    for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
+    int res = static_cast<int>(app.previewRes);
+    if (ImGui::Combo("Preview", &res, items, kPreviewResCount)) {
+      app.previewRes = static_cast<PreviewRes>(res);
+      rebuildPreview(app);
+    }
+  }
+  int fmt = static_cast<int>(app.exportFormat);
+  if (ImGui::Combo("Export format", &fmt, "PNG (8-bit)\0JPEG\0")) app.exportFormat = static_cast<ExportFormat>(fmt);
+  if (app.exportFormat == ExportFormat::JPEG) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
+  ImGui::Separator();
+  const std::string status = app.getStatus();
+  ImGui::TextWrapped("%s", status.c_str());
+  ImGui::Separator();
+
+  ImGui::TextUnformatted("OFX Plugin Nodes");
+  drawPluginPicker(app);
+  drawNodeList(app);
 }

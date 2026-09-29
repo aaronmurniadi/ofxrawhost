@@ -1,13 +1,14 @@
 #include "UI.h"
 
+#include "Actions.h"
 #include "AppState.h"
 #include "persist/DocumentActions.h"
-#include "ui/Filmstrip.h"
+#include "Filmstrip.h"
 #include "NodeGraph.h"
 #include "ofx/OfxHost.h"
 #include "RenderPipeline.h"
 #include "ui/ImGuiBackend.h"
-#include "ui/UiContext.h"
+#include "ui/UiFrame.h"
 
 #include <GLFW/glfw3.h>
 
@@ -66,7 +67,7 @@ int runApp(const std::string &optionalPath) {
     pumpDisplayUpload(app);
 
     ImGuiBackend_NewFrame();
-    DrawUiFrame(app);
+    drawUiFrame(app);
 
     int dw, dh;
     glfwGetFramebufferSize(app.window, &dw, &dh);

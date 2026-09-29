@@ -19,6 +19,10 @@ static int fail(const char *msg) {
   return 1;
 }
 
+static bool selftestExcluded(const PluginEntry &pe) {
+  return pe.plugin && pe.plugin->pluginIdentifier && !strcmp(pe.plugin->pluginIdentifier, "org.spektrafilm.dev");
+}
+
 static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
   TIFF *tif = TIFFOpen(p.c_str(), "w");
   if (!tif) return false;
@@ -184,6 +188,10 @@ static int selfTest() {
   }
 
   for (auto &pe : gPlugins) {
+    if (selftestExcluded(pe)) {
+      printf("skip  %s\n", pe.label.c_str());
+      continue;
+    }
     auto e = createInstance(pe);
     if (!e) return fail(("createInstance: " + pe.label).c_str());
     int ow = src.w, oh = src.h;

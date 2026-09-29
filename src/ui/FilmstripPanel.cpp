@@ -1,7 +1,7 @@
-#include "ui/UiContext.h"
+#include "ui/UiFrame.h"
 
-#include "persist/DocumentActions.h"
-#include "ui/Filmstrip.h"
+#include "Actions.h"
+#include "Filmstrip.h"
 
 #include "imgui.h"
 
@@ -10,6 +10,17 @@
 #include <filesystem>
 
 namespace fs = std::filesystem;
+
+struct FilmstripTabItem {
+  FilmstripTab tab;
+  const char *label;
+};
+
+static const FilmstripTabItem kFilmstripTabs[] = {
+    {FilmstripTab::All, "All"},
+    {FilmstripTab::RAW, "RAW"},
+    {FilmstripTab::Compressed, "Compressed"},
+};
 
 static bool isRawImagePath(const std::string &path) {
   std::string e = fs::path(path).extension().string();
@@ -25,11 +36,10 @@ void drawFilmstripPanel(App &app) {
     return;
   }
 
-  static const char *tabLabels[] = {"All", "RAW", "Compressed"};
   if (ImGui::BeginTabBar("##filmstripTabs")) {
-    for (int t = 0; t < 3; ++t) {
-      if (ImGui::BeginTabItem(tabLabels[t])) {
-        app.filmstripTab = t;
+    for (const FilmstripTabItem &t : kFilmstripTabs) {
+      if (ImGui::BeginTabItem(t.label)) {
+        app.filmstripTab = t.tab;
         ImGui::EndTabItem();
       }
     }
@@ -45,8 +55,8 @@ void drawFilmstripPanel(App &app) {
   if (app.filmstripIndex >= 0) requestFilmstripThumb(app, app.filmstripIndex, true);
 
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
-    if (app.filmstripTab == 1 && !isRawImagePath(app.filmstrip[i].path)) continue;
-    if (app.filmstripTab == 2 && isRawImagePath(app.filmstrip[i].path)) continue;
+    if (app.filmstripTab == FilmstripTab::RAW && !isRawImagePath(app.filmstrip[i].path)) continue;
+    if (app.filmstripTab == FilmstripTab::Compressed && isRawImagePath(app.filmstrip[i].path)) continue;
     FilmstripEntry &e = app.filmstrip[i];
     const float aspect = (e.th && e.tw) ? (float)e.tw / (float)e.th : 1.0f;
     const ImVec2 btnSize(thumbH * aspect, thumbH);

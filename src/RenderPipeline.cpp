@@ -45,7 +45,7 @@ void scheduleRender(App &app) {
 
 void rebuildPreview(App &app) {
   if (app.full.px.empty()) return;
-  const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
+  const int maxEdge = kPreviewRes[static_cast<int>(app.previewRes)].maxEdge;
   makePreview(app.full, maxEdge, app.preview);
   scheduleRender(app);
 }
@@ -70,7 +70,7 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
 
 void uploadTexture(App &app, const Image &img) {
   const ColorSpace space =
-      app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
+      app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : app.outputTag;
   std::vector<unsigned char> rgba;
   toDisplayRGBA8(img, space, rgba);
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
@@ -153,7 +153,7 @@ void renderWorker(App *app) {
         std::lock_guard<std::mutex> lock(app->displayMutex);
         if (app->display.px.empty()) continue;
         img = app->display;
-        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : outputSpace(app->outputIndex);
+        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : app->outputTag;
       }
       std::vector<unsigned char> rgba;
       toDisplayRGBA8(img, space, rgba);
@@ -171,7 +171,7 @@ void renderWorker(App *app) {
     const OfxStatus st = renderChain(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
-      const ColorSpace space = outputSpace(app->outputIndex);
+      const ColorSpace space = app->outputTag;
       std::vector<unsigned char> rgba;
       toDisplayRGBA8(out, space, rgba);
       const int ow = out.w, oh = out.h;
@@ -179,7 +179,6 @@ void renderWorker(App *app) {
       app->display = std::move(out);
       app->displayRGBA = std::move(rgba);
       app->displayDirty = true;
-      app->displayGen = gen;
       app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
       app->setStatus("Render failed (OFX status " + std::to_string(st) + ")");
