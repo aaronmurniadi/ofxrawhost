@@ -5,5 +5,6 @@
 #include <string>
 
 void openPath(App &app, const std::string &path);
-void openWorkspace(App &app, const std::string &dir);
+// Opens dir as the workspace; returns false if it is not a directory.
+bool openWorkspace(App &app, const std::string &dir);
 void doExport(App &app);

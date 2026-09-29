@@ -6,7 +6,6 @@
 #include "imgio/ImageIO.h"
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
-#include "ui/ImGuiBackend.h"
 
 #include "portable-file-dialogs.h"
 
@@ -15,16 +14,15 @@
 
 namespace fs = std::filesystem;
 
-void openWorkspace(App &app, const std::string &dir) {
+bool openWorkspace(App &app, const std::string &dir) {
   std::error_code ec;
   if (!fs::is_directory(dir, ec)) {
     app.setStatus("Not a directory");
-    return;
+    return false;
   }
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
   app.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
-  if (!ImGuiBackend_SetWorkspaceIni(app.workspaceDir)) app.layoutApplyPending = true;
   refreshFilmstrip(app);
   PersistGui wg;
   std::string activeRel;
@@ -40,6 +38,7 @@ void openWorkspace(App &app, const std::string &dir) {
   else
     app.setStatus("Workspace: " + fs::path(app.workspaceDir).filename().string() + " (no images)");
   persistWorkspace(app);
+  return true;
 }
 
 void openPath(App &app, const std::string &path) {

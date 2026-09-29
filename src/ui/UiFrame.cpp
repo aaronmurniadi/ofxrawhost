@@ -5,6 +5,7 @@
 #include "persist/ProjectPersist.h"
 #include "ui/Themes.h"
 #include "ui/DockLayout.h"
+#include "ui/ImGuiBackend.h"
 
 #include "imgui.h"
 #include "portable-file-dialogs.h"
@@ -104,7 +105,8 @@ void drawUiFrame(App &app) {
   if (!app.pendingWorkspaceDir.empty()) {
     const std::string dir = std::move(app.pendingWorkspaceDir);
     app.pendingWorkspaceDir.clear();
-    openWorkspace(app, dir);
+    if (openWorkspace(app, dir) && !ImGuiBackend_SetWorkspaceIni(app.workspaceDir))
+      app.layoutApplyPending = true;
   }
 
   drawMenuBar(app);
