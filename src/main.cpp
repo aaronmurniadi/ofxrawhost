@@ -242,6 +242,12 @@ static int selfTest() {
     for (int i = 0; i < 200; ++i) {
       scheduleRender(app);
       if (i % 11 == 0) scheduleDisplayRecolor(app);
+      if (i % 13 == 0) {
+        // UI keeps writing outputTag while renders run (ParamWidgets/output combo).
+        app.outputTag = app.outputTag.load() == ColorSpace::sRGB ? ColorSpace::LinearRec709 : ColorSpace::sRGB;
+        syncOutputTag(app);
+      }
+      if (i % 17 == 0) rebuildPreview(app);  // preview rewrite must wait out the worker
       if (i == 50) {
         doExport(app, out.string());
         // Mutating the graph right after an export must wait it out, not race it.
