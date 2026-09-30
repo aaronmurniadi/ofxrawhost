@@ -92,7 +92,7 @@ struct App {
   Image full, preview;
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
   ColorSpace inputSpace = ColorSpace::LinearRec2020;
-  ColorSpace outputTag = ColorSpace::sRGB;
+  std::atomic<ColorSpace> outputTag{ColorSpace::sRGB};  // written on the UI thread while renders are in flight
   ExportFormat exportFormat = ExportFormat::JPEG;
   int jpegQuality = 92;
   PreviewRes previewRes = PreviewRes::R1080p;

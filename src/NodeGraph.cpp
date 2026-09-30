@@ -134,6 +134,7 @@ void applyColorDefaults(App &app, Node &node) {
 }
 
 void syncOutputTag(App &app) {
+  std::lock_guard<std::mutex> lock(gValueMutex);  // p->v may be written by an in-flight render
   for (int n = (int)app.nodes.size() - 1; n >= 0; --n) {
     for (auto &up : app.nodes[n].instance->params) {
       Param *p = up.get();
