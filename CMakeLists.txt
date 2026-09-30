@@ -190,11 +190,21 @@ endif()
 # --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Crop) ---
 find_package(Threads REQUIRED)
 
+# The support lib's log-indent counter is a process-global int (upstream calls it
+# "not MP sane"); action dispatches from the render and UI threads race on it.
+# Patch a private copy to thread_local so the submodule stays pristine.
+file(READ third_party/openfx/Support/Library/ofxsLog.cpp _ofxsLog)
+string(REPLACE "static int gIndent = 0;" "static thread_local int gIndent = 0;" _ofxsLog "${_ofxsLog}")
+if(NOT _ofxsLog MATCHES "static thread_local int gIndent = 0;")
+  message(FATAL_ERROR "ofxsLog.cpp gIndent patch anchor not found; update the CMakeLists.txt patch")
+endif()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ofxsLog.cpp" "${_ofxsLog}")
+
 add_library(OfxSupport STATIC
   third_party/openfx/Support/Library/ofxsCore.cpp
   third_party/openfx/Support/Library/ofxsImageEffect.cpp
   third_party/openfx/Support/Library/ofxsInteract.cpp
-  third_party/openfx/Support/Library/ofxsLog.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/ofxsLog.cpp
   third_party/openfx/Support/Library/ofxsMultiThread.cpp
   third_party/openfx/Support/Library/ofxsParams.cpp
   third_party/openfx/Support/Library/ofxsProperty.cpp
