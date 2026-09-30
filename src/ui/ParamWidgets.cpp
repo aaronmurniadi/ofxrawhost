@@ -63,6 +63,17 @@ static void drawPlusIcon(ImVec2 a, ImVec2 b) {
   dl->AddLine(ImVec2(cx, a.y + pad), ImVec2(cx, b.y - pad), col, 1.4f);
 }
 
+// Param values are shared with in-flight renders; snapshot them under the value lock.
+static double paramValue(const Param *p, size_t i) {
+  std::lock_guard<std::mutex> lock(gValueMutex);
+  return p->v[i];
+}
+
+static std::string paramString(const Param *p) {
+  std::lock_guard<std::mutex> lock(gValueMutex);
+  return p->s;
+}
+
 static bool resetParamButton(Param *p) {
   const float h = ImGui::GetFrameHeight();
   const bool clicked = ImGui::Button("##reset", ImVec2(h, h));
@@ -142,7 +153,7 @@ static void drawParam(App &app, Param *p) {
 
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
-    double typed = p->v[0];
+    double typed = paramValue(p, 0);
     if (paramEditButton(typed, t == kOfxParamTypeInteger, hardLo, hardHi)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = typed;
@@ -154,7 +165,7 @@ static void drawParam(App &app, Param *p) {
     if (paramStepButton(true)) nudge(step);
     ImGui::SameLine(0, gap);
     ImGui::SetNextItemWidth(valueWidth());
-    float fv = (float)p->v[0];
+    float fv = (float)paramValue(p, 0);
     if (ImGui::SliderFloat(idLabel.c_str(), &fv, (float)lo, (float)hi)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = t == kOfxParamTypeInteger ? std::round(fv) : fv;
@@ -163,7 +174,7 @@ static void drawParam(App &app, Param *p) {
   } else if (t == kOfxParamTypeBoolean) {
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
-    bool v = p->v[0] != 0;
+    bool v = paramValue(p, 0) != 0;
     if (ImGui::Checkbox(idLabel.c_str(), &v)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = v ? 1 : 0;
@@ -173,7 +184,7 @@ static void drawParam(App &app, Param *p) {
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
     const auto &opts = choiceOptions(p);
-    int cur = (int)p->v[0];
+    int cur = (int)paramValue(p, 0);
     std::vector<const char *> items;
     items.reserve(opts.size());
     for (auto &o : opts) items.push_back(o.s.c_str());
@@ -187,7 +198,7 @@ static void drawParam(App &app, Param *p) {
     if (ImGui::Button(idLabel.c_str())) changed = true;
   } else if (t == kOfxParamTypeString) {
     char buf[512];
-    std::snprintf(buf, sizeof buf, "%s", p->s.c_str());
+    std::snprintf(buf, sizeof buf, "%s", paramString(p).c_str());
     const bool editable = sprop(p->props, kOfxParamPropStringMode) != kOfxParamStringIsLabel;
     if (editable) {
       if (resetParamButton(p)) changed = true;
@@ -199,7 +210,7 @@ static void drawParam(App &app, Param *p) {
         changed = true;
       }
     } else {
-      ImGui::Text("%s: %s", label.c_str(), p->s.c_str());
+      ImGui::Text("%s: %s", label.c_str(), paramString(p).c_str());
     }
   } else if (dims(t) > 1) {
     const float rowW = ImGui::CalcItemWidth();
@@ -208,9 +219,10 @@ static void drawParam(App &app, Param *p) {
     ImGui::TextUnformatted(label.c_str());
     ImGui::Indent();
     for (int i = 0; i < dims(t); ++i) {
-      float fv = (float)p->v[i];
+      const double val = paramValue(p, i);
+      float fv = (float)val;
       ImGui::PushID(i);
-      double typed = p->v[i];
+      double typed = val;
       if (paramEditButton(typed, isIntType(t), -1e7, 1e7)) {
         std::lock_guard<std::mutex> lock(gValueMutex);
         p->v[i] = typed;
