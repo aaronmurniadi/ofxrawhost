@@ -78,6 +78,17 @@ std::string defaultExportName(const App &app) {
   return fs::path(app.path).stem().string() + exportExtension(app.exportFormat);
 }
 
+// Clears exportBusy and wakes waitRenderIdle when the export thread finishes.
+struct ExportBusyGuard {
+  explicit ExportBusyGuard(App *a) : app(a) {}
+  ~ExportBusyGuard() {
+    std::lock_guard<std::mutex> lock(app->renderMutex);
+    app->exportBusy = false;
+    app->renderCv.notify_all();
+  }
+  App *app;
+};
+
 void doExport(App &app, const std::string &path) {
   if (!canExport(app)) return;
   std::string outPath = path;
@@ -85,6 +96,10 @@ void doExport(App &app, const std::string &path) {
 
   app.setStatus("Exporting full resolution...");
   waitRenderIdle(app);
+  {
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    app.exportBusy = true;
+  }
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
   const ColorSpace space = app.outputTag;
@@ -94,6 +109,7 @@ void doExport(App &app, const std::string &path) {
   const PersistChain persistChain = captureChain(app);
   const std::string sourcePath = app.path;
   std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace]() mutable {
+    ExportBusyGuard busy(&app);
     for (auto &n : app.nodes)
       if (n.instance) {
         n.instance->w = src.w;

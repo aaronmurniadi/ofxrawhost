@@ -27,7 +27,7 @@ void waitRenderIdle(App &app) {
   std::unique_lock<std::mutex> lock(app.renderMutex);
   app.renderPending = false;
   app.displayRecolorPending = false;
-  app.renderCv.wait(lock, [&] { return !app.renderBusy; });
+  app.renderCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
 }
 
 void scheduleRender(App &app) {
@@ -37,7 +37,7 @@ void scheduleRender(App &app) {
   }
   ++gLatestGen;
   std::lock_guard<std::mutex> lock(app.renderMutex);
-  if (!app.renderBusy) {
+  if (!app.renderBusy && !app.exportBusy) {
     for (auto &n : app.nodes) {
       if (n.instance) {
         n.instance->w = app.preview.w;
@@ -149,7 +149,8 @@ void renderWorker(App *app) {
     bool recolorOnly = false;
     {
       std::unique_lock<std::mutex> lock(app->renderMutex);
-      app->renderCv.wait(lock, [&] { return app->quit || app->renderPending.load(); });
+      app->renderCv.wait(lock,
+                         [&] { return app->quit || (app->renderPending.load() && !app->exportBusy); });
       if (app->quit) break;
       recolorOnly = app->displayRecolorPending;
       app->displayRecolorPending = false;
