@@ -313,7 +313,13 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   propSetN<double, propSetDouble>(h, kOfxImageEffectPropRenderScale, 2, scale);
   propSetDouble(h, kOfxImagePropPixelAspectRatio, 0, 1);
   propSetPointer(h, kOfxImagePropData, 0, data);
-  const int bounds[4] = {0, 0, isOutput ? e->outW : e->w, isOutput ? e->outH : e->h};
+  int bw = 0, bh = 0;
+  {
+    std::lock_guard<std::mutex> lock(e->dimMutex);
+    bw = isOutput ? e->outW : e->w;
+    bh = isOutput ? e->outH : e->h;
+  }
+  const int bounds[4] = {0, 0, bw, bh};
   propSetN<int, propSetInt>(h, kOfxImagePropBounds, 4, bounds);
   propSetN<int, propSetInt>(h, kOfxImagePropRegionOfDefinition, 4, bounds);
   propSetInt(h, kOfxImagePropRowBytes, 0, bounds[2] * 4 * (int)sizeof(float));
@@ -328,6 +334,7 @@ static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle c, OfxTime, OfxRec
   Clip *clip = C(c);
   const bool isOutput = clip->name == kOfxImageEffectOutputClipName;
   Effect *e = clip->owner;
+  std::lock_guard<std::mutex> lock(e->dimMutex);
   *rod = {0, 0, (double)(isOutput ? e->outW : e->w), (double)(isOutput ? e->outH : e->h)};
   return kOfxStatOK;
 }

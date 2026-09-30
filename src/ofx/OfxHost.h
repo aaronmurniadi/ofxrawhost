@@ -63,6 +63,7 @@ struct Effect {
   int w = 0, h = 0;                           // input/source clip dims
   int outW = 0, outH = 0;                     // output clip dims (== w,h unless the plugin changes its RoD)
   int renderGen = 0;
+  std::mutex dimMutex;                        // guards w/h/outW/outH: renders write them, suite actions read them
 };
 
 // Bumping gLatestGen aborts in-flight interactive renders. gValueMutex guards Param values.

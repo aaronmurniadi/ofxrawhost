@@ -236,10 +236,13 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
   *outH = inH;
   if (!p || !e || inW <= 0 || inH <= 0) return;
   // The plugin may query clip RoDs while answering; give it the input size.
-  e->w = inW;
-  e->h = inH;
-  e->outW = inW;
-  e->outH = inH;
+  {
+    std::lock_guard<std::mutex> lock(e->dimMutex);
+    e->w = inW;
+    e->h = inH;
+    e->outW = inW;
+    e->outH = inH;
+  }
   PropSet in, out;
   OfxPropertySetHandle a = H(&in);
   propSetDouble(a, kOfxPropTime, 0, 0);
@@ -261,10 +264,13 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
 OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen) {
   e->src = src;
   e->dst = dst;
-  e->w = w;
-  e->h = h;
-  e->outW = outW;
-  e->outH = outH;
+  {
+    std::lock_guard<std::mutex> lock(e->dimMutex);
+    e->w = w;
+    e->h = h;
+    e->outW = outW;
+    e->outH = outH;
+  }
   e->renderGen = gen;
   PropSet in;
   OfxPropertySetHandle a = H(&in);

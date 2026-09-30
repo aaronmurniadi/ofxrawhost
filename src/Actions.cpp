@@ -113,6 +113,7 @@ void doExport(App &app, const std::string &path) {
     ExportBusyGuard busy(&app);
     for (auto &n : app.nodes)
       if (n.instance) {
+        std::lock_guard<std::mutex> lock(n.instance->dimMutex);
         n.instance->w = src.w;
         n.instance->h = src.h;
       }
@@ -120,6 +121,7 @@ void doExport(App &app, const std::string &path) {
     OfxStatus st = renderChain(app, src, out, 0);
     for (auto &n : app.nodes)
       if (n.instance) {
+        std::lock_guard<std::mutex> lock(n.instance->dimMutex);
         n.instance->w = pw;
         n.instance->h = ph;
       }
