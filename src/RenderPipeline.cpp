@@ -51,6 +51,7 @@ void scheduleRender(App &app) {
 
 void rebuildPreview(App &app) {
   if (app.full.px.empty()) return;
+  waitRenderIdle(app);  // makePreview rewrites app.preview, which the worker may be reading
   const int maxEdge = kPreviewRes[static_cast<int>(app.previewRes)].maxEdge;
   makePreview(app.full, maxEdge, app.preview);
   scheduleRender(app);

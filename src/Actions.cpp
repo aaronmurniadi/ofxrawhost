@@ -51,6 +51,7 @@ void openPath(App &app, const std::string &path) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
+  waitRenderIdle(app);  // worker reads inputSpace; stop it before swapping the image
   app.path = path;
   app.full = std::move(img);
   app.inputSpace = detected;
