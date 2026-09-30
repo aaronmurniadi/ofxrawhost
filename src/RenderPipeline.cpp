@@ -26,6 +26,8 @@ void waitRenderIdle(App &app) {
   ++gLatestGen;
   std::unique_lock<std::mutex> lock(app.renderMutex);
   app.renderPending = false;
+  app.displayRecolorPending = false;
+  app.renderCv.wait(lock, [&] { return !app.renderBusy; });
 }
 
 void scheduleRender(App &app) {
@@ -33,13 +35,16 @@ void scheduleRender(App &app) {
     showSourcePreview(app);
     return;
   }
-  for (auto &n : app.nodes) {
-    if (n.instance) {
-      n.instance->w = app.preview.w;
-      n.instance->h = app.preview.h;
+  ++gLatestGen;
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  if (!app.renderBusy) {
+    for (auto &n : app.nodes) {
+      if (n.instance) {
+        n.instance->w = app.preview.w;
+        n.instance->h = app.preview.h;
+      }
     }
   }
-  ++gLatestGen;
   app.renderPending = true;
   app.renderCv.notify_one();
 }
@@ -128,6 +133,17 @@ OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
   return kOfxStatOK;
 }
 
+// Clears renderBusy and wakes waitRenderIdle when the worker leaves its work section.
+struct RenderBusyGuard {
+  explicit RenderBusyGuard(App *a) : app(a) {}
+  ~RenderBusyGuard() {
+    std::lock_guard<std::mutex> lock(app->renderMutex);
+    app->renderBusy = false;
+    app->renderCv.notify_all();
+  }
+  App *app;
+};
+
 void renderWorker(App *app) {
   while (!app->quit) {
     bool recolorOnly = false;
@@ -138,7 +154,9 @@ void renderWorker(App *app) {
       recolorOnly = app->displayRecolorPending;
       app->displayRecolorPending = false;
       app->renderPending = false;
+      app->renderBusy = true;
     }
+    RenderBusyGuard busy(app);
     if (recolorOnly) {
       Image img;
       ColorSpace space;

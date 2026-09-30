@@ -137,6 +137,8 @@ struct App {
   std::condition_variable renderCv;
   std::atomic<bool> quit{false};
   std::atomic<bool> renderPending{false};
+  bool renderBusy = false;  // guarded by renderMutex: worker is in its render/publish section
+  bool exportBusy = false;  // guarded by renderMutex: a full-res export thread is running
   std::thread renderThread;
   Image display;  // latest rendered (bottom-up float), guarded by displayMutex
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
