@@ -1,5 +1,8 @@
 // Minimal still-image OpenFX host: decode RAW/raster, run one OFX filter, preview, export.
 
+#include "Actions.h"
+#include "NodeGraph.h"
+#include "RenderPipeline.h"
 #include "imgio/ImageIO.h"
 #include "ofx/OfxHost.h"
 #include "UI.h"
@@ -218,6 +221,50 @@ static int selfTest() {
     }
     if (!written) return fail("export");
     printf("ok  %s\n", pe.label.c_str());
+  }
+
+  // Concurrency smoke: render worker vs. graph mutation vs. a full-res export
+  // on its detached thread. No window/GL: preview display stays in memory.
+  {
+    std::vector<int> usable;
+    for (int i = 0; i < (int)gPlugins.size(); ++i)
+      if (!selftestExcluded(gPlugins[i])) usable.push_back(i);
+    if (usable.empty()) return fail("concurrency: no usable plugins");
+
+    App app;
+    app.full = src;
+    app.preview = src;
+    app.renderThread = std::thread(renderWorker, &app);
+    if (!addNode(app, usable[0])) return fail("concurrency addNode 1");
+    if (usable.size() > 1 && !addNode(app, usable[1])) return fail("concurrency addNode 2");
+
+    const fs::path out = fs::temp_directory_path() / "ofxrawhost-selftest-export.png";
+    for (int i = 0; i < 200; ++i) {
+      scheduleRender(app);
+      if (i % 11 == 0) scheduleDisplayRecolor(app);
+      if (i == 50) {
+        doExport(app, out.string());
+        // Mutating the graph right after an export must wait it out, not race it.
+        if (app.nodes.size() > 1) destroyNode(app, 0);
+        else addNode(app, usable[i % (int)usable.size()]);
+      }
+      if (i % 7 == 0) {
+        waitRenderIdle(app);
+        if (app.nodes.size() > 1) destroyNode(app, 0);
+        else addNode(app, usable[i % (int)usable.size()]);
+        if (app.nodes.size() > 1) moveNode(app, 0, (int)app.nodes.size() - 1);
+      }
+    }
+    waitRenderIdle(app);  // also waits out the export thread
+    app.quit = true;
+    app.renderCv.notify_one();
+    if (app.renderThread.joinable()) app.renderThread.join();
+    if (!fs::exists(out) || fs::file_size(out) == 0) return fail("concurrent export output");
+    fs::remove(out);
+    const fs::path side = exportSidecarPath(out.string());
+    if (fs::exists(side)) fs::remove(side);
+    clearNodes(app);
+    printf("ok  concurrency\n");
   }
   return 0;
 }
