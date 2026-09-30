@@ -215,6 +215,7 @@ void moveNode(App &app, int from, int to) {
 }
 
 PersistChain captureChain(const App &app) {
+  std::lock_guard<std::mutex> lock(gValueMutex);
   PersistChain chain;
   chain.selectedNode = app.selectedNode;
   for (const Node &n : app.nodes) {
