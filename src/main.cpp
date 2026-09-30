@@ -231,12 +231,29 @@ static int selfTest() {
       if (!selftestExcluded(gPlugins[i])) usable.push_back(i);
     if (usable.empty()) return fail("concurrency: no usable plugins");
 
+    int cropPi = -1;
+    for (int pi = 0; pi < (int)gPlugins.size(); ++pi)
+      if (gPlugins[pi].label == "Crop") cropPi = pi;
+    if (cropPi < 0) return fail("concurrency: Crop plugin missing");
+
     App app;
     app.full = src;
     app.preview = src;
     app.renderThread = std::thread(renderWorker, &app);
-    if (!addNode(app, usable[0])) return fail("concurrency addNode 1");
-    if (usable.size() > 1 && !addNode(app, usable[1])) return fail("concurrency addNode 2");
+    if (!addNode(app, cropPi)) return fail("concurrency addNode 1");
+    for (int pi : usable)
+      if (pi != cropPi && !addNode(app, pi)) return fail("concurrency addNode 2");
+
+    // UI-side queryOutputSize runs Crop's getRoD, whose clip-RoD suite reads must
+    // not race the worker's dim writes in renderEffect/queryOutputSize.
+    for (int k = 0; k < 8; ++k) {
+      scheduleRender(app);
+      int ow = 0, oh = 0;
+      queryOutputSize(gPlugins[app.nodes[0].pluginIndex].plugin, app.nodes[0].instance.get(), app.preview.w,
+                      app.preview.h, &ow, &oh);
+      if (ow != app.preview.w || oh != app.preview.h) return fail("concurrent queryOutputSize");
+    }
+    waitRenderIdle(app);
 
     const fs::path out = fs::temp_directory_path() / "ofxrawhost-selftest-export.png";
     for (int i = 0; i < 200; ++i) {
