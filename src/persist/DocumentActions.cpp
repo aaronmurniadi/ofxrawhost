@@ -7,7 +7,7 @@
 
 PersistGui captureGui(const App &app) {
   PersistGui g;
-  g.outputIndex = static_cast<int>(app.outputTag);
+  g.outputIndex = static_cast<int>(app.outputTag.load());
   g.exportFormat = static_cast<int>(app.exportFormat);
   g.jpegQuality = app.jpegQuality;
   g.previewRes = static_cast<int>(app.previewRes);

@@ -165,7 +165,7 @@ void renderWorker(App *app) {
         std::lock_guard<std::mutex> lock(app->displayMutex);
         if (app->display.px.empty()) continue;
         img = app->display;
-        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : app->outputTag;
+        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : app->outputTag.load();
       }
       publishDisplay(*app, std::move(img), space);
       continue;

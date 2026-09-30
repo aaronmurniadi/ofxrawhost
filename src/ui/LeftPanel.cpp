@@ -112,7 +112,7 @@ void drawLeftPanel(App &app) {
   ImGui::SameLine();
   if (ImGui::Button("Export")) exportImage(app);
 
-  int outTag = static_cast<int>(app.outputTag);
+  int outTag = static_cast<int>(app.outputTag.load());
   if (ImGui::Combo("Output tag", &outTag, kOutputSpaces, kOutputSpaceCount)) app.outputTag = outputSpace(outTag);
   if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
   {
