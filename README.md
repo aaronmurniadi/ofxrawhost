@@ -151,6 +151,9 @@ build/OfxRawHost --selftest
 | Selftest validation + performance instrumentation                   | Done (v0.3.10) |
 | Fix OFX Metal render readback (blank spektrafilm output)            | Done (v0.3.11) |
 | Click-to-step −/+ buttons on numeric parameter sliders              | Done (v0.3.11) |
+| Code cleanup: dedupe helpers, split Actions module, drop dead code  | Done (v0.3.12) |
+| Race fixes: idle wait, export gate, atomic tag, locked dims/params  | Done (v0.3.12) |
+| ThreadSanitizer-clean concurrency + concurrency selftest            | Done (v0.3.12) |
 | Packaged Windows and Linux releases                                 | Planned        |
 
 ---

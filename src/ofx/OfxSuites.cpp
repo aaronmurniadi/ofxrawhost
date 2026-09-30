@@ -607,8 +607,8 @@ static PropSet gHostProps = [] {
   propSetInt(h, kOfxPropAPIVersion, 1, 4);
   propSetInt(h, kOfxPropVersion, 0, 0);
   propSetInt(h, kOfxPropVersion, 1, 3);
-  propSetInt(h, kOfxPropVersion, 2, 11);
-  propSetString(h, kOfxPropVersionLabel, 0, "0.3.11");
+  propSetInt(h, kOfxPropVersion, 2, 12);
+  propSetString(h, kOfxPropVersionLabel, 0, "0.3.12");
   propSetInt(h, kOfxImageEffectHostPropIsBackground, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsOverlays, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsMultiResolution, 0, 0);
