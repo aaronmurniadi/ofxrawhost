@@ -1,6 +1,0 @@
-{
-  "rules": {
-    "no-bit-fields": { "disable": ["**", "**/*", "*", "src/**", "**/*.h", "**/*.cpp"] },
-    "non-case-label-in-switch": { "disable": ["**", "**/*", "*", "src/**", "**/*.h", "**/*.cpp"] }
-  }
-}
