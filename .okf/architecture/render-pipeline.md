@@ -4,7 +4,7 @@ title: Render pipeline
 description: The path from a decoded image to the preview texture and the export file.
 tags: [architecture, render, concurrency]
 status: draft
-generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T15:08:56Z }
+generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T16:45:00Z }
 sources:
   - id: render
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/RenderPipeline.cpp
@@ -24,16 +24,17 @@ sources:
 
 1. `loadImage` decodes the file into `app.full`. See [Image formats](/product/image-formats.md).
 2. `rebuildPreview` waits for render idle, downscales `app.full` into `app.preview`, and schedules a render.
-3. The render worker calls `renderChain` for the preview.
-4. `renderChain` applies each enabled node in order and calls the plugin render action.
+3. The render worker renders the preview with its `ChainRenderer`.
+4. `ChainRenderer::render` applies each enabled node in order and calls the plugin render action.
 5. `publishDisplay` converts the result to sRGB 8-bit RGBA and marks the display dirty.
 6. `pumpDisplayUpload` uploads the texture on the UI thread.
 
 # Chain execution
 
-`renderChain` keeps two thread-local buffers, `cur` and `next`.[^render]
+`ChainRenderer` keeps two ping-pong buffers, `cur` and `next`.[^render]
 The buffers grow when a plugin reports a larger region of definition.
 The buffers never shrink, so a large intermediate result stays allocated.
+Each rendering thread owns one `ChainRenderer`, so two threads never share a buffer.
 
 Each node queries its output size with `kOfxImageEffectActionGetRegionOfDefinition` before the render.[^plugins]
 A plugin that does not override the region of definition returns the input size.
@@ -46,7 +47,7 @@ An empty chain or a fully bypassed chain returns the source unchanged.
 
 `gLatestGen` invalidates work that is already in flight.[^render]
 An interactive render passes its generation to `renderEffect`.
-`renderChain` stops when the generation changes.
+`ChainRenderer::render` stops when the generation changes.
 An export passes generation 0, so an export never aborts.
 
 # Preview resolution
@@ -74,7 +75,7 @@ When only the output tag changes, the worker recolors the cached display buffer 
 
 `doExport` appends `.png` or `.jpg` when the destination path has no extension.[^actions]
 The export renders `app.full` at full resolution on a detached thread.
-The thread sets `exportBusy`, so the worker waits and no second render overlaps.
+The thread sets `exporting` on the `RenderSchedule`, so the worker waits and no second render overlaps.
 The export writes the [export sidecar](/formats/export-sidecar.md) after a successful write.
 
 The status bar reports the output dimensions of the preview render, or the OFX status when the render fails.

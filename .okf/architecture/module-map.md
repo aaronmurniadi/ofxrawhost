@@ -4,7 +4,7 @@ title: Module map
 description: Source layout, module responsibilities, and build targets.
 tags: [architecture, source]
 status: draft
-generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T15:08:56Z }
+generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T16:45:00Z }
 sources:
   - id: cmake
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/CMakeLists.txt
@@ -15,8 +15,10 @@ sources:
 
 | Path | Responsibility |
 | ---- | -------------- |
-| `src/main.cpp` | Entry point and the `--selftest` harness |
+| `src/main.cpp` | Entry point and the `--selftest` argument |
+| `src/selftest/` | Self-test cases for decode, color, Crop, every plugin, and concurrency |
 | `src/AppState.h` | `App` state, `Node`, filmstrip entries, and the enums |
+| `src/RenderSchedule.h` | Render mutex, condition variable, and request flags |
 | `src/Actions.cpp` | Open image, open workspace, export, and sidecar writes |
 | `src/NodeGraph.cpp` | Chain mutation, parameter changes, and chain capture and apply |
 | `src/RenderPipeline.cpp` | Render worker, preview rebuild, and display upload |
@@ -25,8 +27,8 @@ sources:
 | `src/perf.h` | Stage timing that logs to stderr |
 | `src/imgio/` | Decode, preview downscale, color conversion, and export |
 | `src/ofx/` | Host properties, suites, plugin loading, CPU and Metal render |
-| `src/persist/` | Workspace file and sidecar load and save |
-| `src/ui/` | Dock panels, widgets, themes, ImGui backend, and macOS pinch |
+| `src/persist/` | Workspace file, sidecar load and save, and the shared `JsonValue` |
+| `src/ui/` | Dock panels, widgets, themes, ImGui backend, GL textures, and macOS pinch |
 | `plugins/Crop.cpp` | Bundled OFX plugin |
 | `third_party/` | OpenFX SDK submodule, stb, tinyexr, dialogs, and icons |
 

@@ -4,14 +4,14 @@ title: Crop plugin
 description: Bundled crop plugin with aspect, crop amount, and pan parameters.
 tags: [ofx, plugins, bundled]
 status: draft
-generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T15:08:56Z }
+generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T16:45:00Z }
 sources:
   - id: crop
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/plugins/Crop.cpp
     title: Crop.cpp at v0.3.12
-  - id: main
-    resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/main.cpp
-    title: main.cpp at v0.3.12
+  - id: selftest
+    resource: https://github.com/aaronmurniadi/ofxrawhost/blob/main/src/selftest/Selftest.cpp
+    title: Selftest.cpp
   - id: cmake
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/CMakeLists.txt
     title: CMakeLists.txt at v0.3.12
@@ -37,7 +37,7 @@ The plugin overrides its region of definition, so the host allocates a smaller o
 Downstream plugins therefore process fewer pixels.
 Place Crop at the front of a chain for the best effect.[^readme]
 
-At the default parameters the region of definition equals the source size and the render is an identity pass-through.[^main]
+At the default parameters the region of definition equals the source size and the render is an identity pass-through.[^selftest]
 
 # Parameters
 
@@ -77,9 +77,7 @@ The plugin links the OpenFX support library.[^cmake]
 The build names the binary `OfxRawHost.ofx` and assembles `OfxRawHost.ofx.bundle`.
 See [Plugin loading](/architecture/plugin-loading.md).
 
-See [Plugin loading](/architecture/plugin-loading.md).
-
 [^crop]: Crop.cpp at v0.3.12
-[^main]: main.cpp at v0.3.12
+[^selftest]: Selftest.cpp
 [^cmake]: CMakeLists.txt at v0.3.12
 [^readme]: README.md at v0.3.12

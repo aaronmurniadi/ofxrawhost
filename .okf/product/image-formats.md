@@ -4,7 +4,7 @@ title: Image formats
 description: Accepted input formats, decoders, and export formats.
 tags: [formats, imgio]
 status: draft
-generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T15:08:56Z }
+generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T16:45:00Z }
 sources:
   - id: persist
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/persist/ProjectPersistSave.cpp
@@ -19,7 +19,8 @@ sources:
 
 # Accepted input
 
-The open dialog and the filmstrip accept these extensions:[^persist]
+The open dialog and the filmstrip accept these extensions.[^load]
+One table in `ImageLoad.cpp` holds the list, so the dialog filter and the filmstrip tabs cannot drift apart.
 
 | Group | Extensions |
 | ----- | ---------- |

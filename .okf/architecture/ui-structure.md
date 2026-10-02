@@ -4,7 +4,7 @@ title: UI structure
 description: Dock panels, layout persistence, themes, preview navigation, and filmstrip thumbnails.
 tags: [architecture, ui]
 status: draft
-generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T15:08:56Z }
+generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T16:45:00Z }
 sources:
   - id: dock
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/ui/DockLayout.h
@@ -75,6 +75,8 @@ The host keeps a least-recently-used tick per entry and frees the textures when 
 
 A thumbnail job decodes the source file.
 For a RAW file the host prefers the embedded thumbnail.[^load]
+
+The UI thread uploads ready thumbnails in the frame loop, at most two per frame.
 
 [^dock]: DockLayout.h at v0.3.12
 [^backend]: ImGuiBackend.cpp at v0.3.12

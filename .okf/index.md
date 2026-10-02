@@ -19,4 +19,6 @@ The host opens a RAW or raster photo, runs the photo through a chain of OFX filt
 ## Bundle state
 
 Every concept carries `status: draft` and no `verified` entry.
-The content is agent-generated from the source tree at tag `v0.3.12`.
+The content is agent-generated.
+The architecture, product, and build concepts describe the working tree after the abstraction refactor.
+That refactor is not committed, so source URLs that cite tag `v0.3.12` predate it.

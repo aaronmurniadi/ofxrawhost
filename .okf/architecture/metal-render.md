@@ -4,7 +4,7 @@ title: Metal render
 description: GPU render path for Apple systems and the OFX_HOST_METAL switch.
 tags: [ofx, metal, render]
 status: draft
-generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T15:08:56Z }
+generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T16:45:00Z }
 sources:
   - id: suites
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/ofx/OfxSuites.cpp
@@ -40,14 +40,15 @@ The host records the declaration at load time and logs this line:
 The host does the following for a Metal render:[^plugins]
 
 1. Set `kOfxImageEffectPropMetalEnabled` to 1 and pass the host command queue.
-2. Create shared-storage buffers for the source and destination images.
+2. Obtain shared-storage buffers for the source and destination images.
 3. Copy the source pixels into the source buffer.
 4. Call the render action.
 5. Wait for the GPU with `ofxMetalSync`.
 6. Copy the destination buffer back into the float output.
 
-Buffer creation happens per render.
-The host releases both buffers after the render.
+The instance keeps both buffers for its lifetime.
+A buffer grows when a larger one is needed, and is otherwise reused.
+`Effect::~Effect` releases them.
 
 # Failure reporting
 

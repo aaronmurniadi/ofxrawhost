@@ -4,11 +4,14 @@ title: Threading model
 description: Threads, mutexes, and generation counters that keep renders race-free.
 tags: [architecture, concurrency, invariants]
 status: draft
-generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T15:08:56Z }
+generated: { by: pi/deepseek-v4.1-flash, at: 2026-10-02T16:45:00Z }
 sources:
   - id: appstate
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/AppState.h
     title: AppState.h at v0.3.12
+  - id: schedule
+    resource: https://github.com/aaronmurniadi/ofxrawhost/blob/main/src/RenderSchedule.h
+    title: RenderSchedule.h
   - id: render
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/RenderPipeline.cpp
     title: RenderPipeline.cpp at v0.3.12
@@ -21,9 +24,9 @@ sources:
   - id: cmake
     resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/CMakeLists.txt
     title: CMakeLists.txt at v0.3.12
-  - id: main
-    resource: https://github.com/aaronmurniadi/ofxrawhost/blob/v0.3.12/src/main.cpp
-    title: main.cpp at v0.3.12
+  - id: selftest
+    resource: https://github.com/aaronmurniadi/ofxrawhost/blob/main/src/selftest/Selftest.cpp
+    title: Selftest.cpp
 ---
 
 # Threads
@@ -38,11 +41,15 @@ sources:
 
 # Render state
 
-`renderMutex` and `renderCv` guard four flags: `renderPending`, `renderBusy`, `exportBusy`, and `displayRecolorPending`.[^appstate]
-`waitRenderIdle` clears the pending flags and waits until no render and no export is active.
+`RenderSchedule` owns one mutex, one condition variable, and three flags: `busy`, `exporting`, and `recolorPending`.[^schedule]
+The mutex guards those three flags.
+`pending` is a separate atomic, so the worker can test an outstanding request without the lock.
+`RenderSchedule::Guard` sets `busy` or `exporting` under the mutex and clears it with a notify on the way out.
+The render worker and the export thread both use that guard.
+`waitRenderIdle` calls `RenderSchedule::waitIdle`, which clears the pending flags and waits until no render and no export is active.
 
 Call `waitRenderIdle` before any operation that rewrites state the worker reads.[^render]
-Such operations are preview rebuilds, node graph mutations, image swaps, and exports.
+Such operations are preview rebuilds, node graph mutations, node enable and disable, image swaps, and exports.
 
 # Generation guard
 
@@ -66,6 +73,10 @@ Clip region-of-definition reads happen through the suite on the UI thread.
 The render writes the same dimensions.
 `dimMutex` therefore covers both sides.[^host][^plugins]
 
+An `Effect` keeps its Metal scratch buffers, `srcMtl` and `dstMtl`, for the life of the instance.[^plugins]
+A buffer grows when a larger one is needed, and is otherwise reused.
+`Effect::~Effect` releases them.
+
 # OpenFX support library patch
 
 The OpenFX support library keeps a process-global log indent counter.[^cmake]
@@ -75,12 +86,13 @@ The build fails when the patch anchor is missing.
 
 # Verification
 
-The `--selftest` concurrency case exercises the worker, graph mutation, and an export at the same time.[^main]
+The `--selftest` concurrency case exercises the worker, graph mutation, and an export at the same time.[^selftest]
 See [Run the self-test](/build/selftest.md).
 
 [^appstate]: AppState.h at v0.3.12
+[^schedule]: RenderSchedule.h
 [^render]: RenderPipeline.cpp at v0.3.12
 [^host]: OfxHost.h at v0.3.12
 [^plugins]: OfxPlugins.cpp at v0.3.12
 [^cmake]: CMakeLists.txt at v0.3.12
-[^main]: main.cpp at v0.3.12
+[^selftest]: Selftest.cpp
