@@ -163,6 +163,9 @@ build/OfxRawHost --selftest
 | Performance: chained Metal GPU render skips per-node copies         | Done (v0.3.14) |
 | Performance: parameter panel uses cached metadata                   | Done (v0.3.14) |
 | Performance: filmstrip clips off-screen entries, O(1) lookup        | Done (v0.3.14) |
+| Performance: progressive preview draws a draft then full res        | Done (v0.3.15) |
+| Performance: async PBO display texture upload                       | Done (v0.3.15) |
+| Performance: parallel display color conversion                      | Done (v0.3.15) |
 | Packaged Windows and Linux releases                                 | Planned        |
 
 ---

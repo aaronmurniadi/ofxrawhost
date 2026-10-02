@@ -287,7 +287,7 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
 bool effectUsesMetal(const Effect *e) { return e && e->metalCapable && ofxMetalAvailable(); }
 
 OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen,
-                       void *srcMtl, void *dstMtl) {
+                       void *srcMtl, void *dstMtl, bool draft) {
   e->src = src;
   e->dst = dst;
   {
@@ -308,7 +308,10 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   propSetN<double, propSetDouble>(a, kOfxImageEffectPropRenderScale, 2, scale);
   propSetInt(a, kOfxImageEffectPropSequentialRenderStatus, 0, 0);
   propSetInt(a, kOfxImageEffectPropInteractiveRenderStatus, 0, gen != 0);
-  propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 0);
+  if (draft)
+    propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 1);
+  else
+    propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 0);
   e->metalEnabled = e->metalCapable && ofxMetalAvailable();
   e->curSrcMtl = nullptr;
   e->curDstMtl = nullptr;

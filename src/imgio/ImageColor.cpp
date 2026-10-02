@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 const char *colorSpaceName(ColorSpace cs) {
@@ -352,23 +353,82 @@ ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
 
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {
   PerfScope _ps("toDisplayRGBA8");
-  out.assign((size_t)img.w * img.h * 4, 0);
-  if (img.w <= 0 || img.h <= 0) return;
+  if (img.w <= 0 || img.h <= 0) {
+    out.clear();
+    return;
+  }
+
+  const size_t n = (size_t)img.w * img.h * 4;
+  if (out.size() != n) out.resize(n);
 
   cmsHTRANSFORM xform = cachedTransform(space);
   const int rowFloats = img.w * 4;
+
+  unsigned int nThreads = std::min(std::max(1u, std::thread::hardware_concurrency()), 4u);
+  if ((size_t)img.h < nThreads) nThreads = (unsigned int)img.h;
+  const size_t totalPx = (size_t)img.w * (size_t)img.h;
+  bool parallel = false;
+  if (nThreads > 1 && totalPx >= ((size_t)1 << 20)) parallel = true;
+
+  if (!parallel) {
+    if (xform) {
+      for (int y = 0; y < img.h; ++y) {
+        const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+        unsigned char *dst = out.data() + (size_t)y * rowFloats;
+        cmsDoTransform(xform, src, dst, (cmsUInt32Number)img.w);
+      }
+    } else {
+      for (int y = 0; y < img.h; ++y) {
+        const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+        unsigned char *dst = out.data() + (size_t)y * rowFloats;
+        for (int i = 0; i < rowFloats; ++i)
+          dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
+      }
+    }
+    return;
+  }
+
+  // cmsDoTransform is not safe to call concurrently on one shared handle, so
+  // build an independent transform per worker from the same cached profiles.
+  std::vector<cmsHTRANSFORM> xforms;
   if (xform) {
-    for (int y = 0; y < img.h; ++y) {
-      const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-      unsigned char *dst = out.data() + (size_t)y * rowFloats;
-      cmsDoTransform(xform, src, dst, (cmsUInt32Number)img.w);
+    xforms.resize(nThreads);
+    for (unsigned int t = 0; t < nThreads; ++t) {
+      xforms[t] = cmsCreateTransform(cachedProfile(space), TYPE_RGBA_FLT, srgbProfile(), TYPE_RGBA_8,
+                                     INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
     }
-  } else {
-    for (int y = 0; y < img.h; ++y) {
-      const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-      unsigned char *dst = out.data() + (size_t)y * rowFloats;
-      for (int i = 0; i < rowFloats; ++i)
-        dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
+  }
+
+  std::vector<std::thread> threads;
+  threads.reserve(nThreads);
+  const int rowsPerThread = (img.h + (int)nThreads - 1) / (int)nThreads;
+  for (unsigned int t = 0; t < nThreads; ++t) {
+    const int y0 = (int)t * rowsPerThread;
+    if (y0 >= img.h) break;
+    int y1 = y0 + rowsPerThread;
+    if (y1 > img.h) y1 = img.h;
+    if (xform) {
+      cmsHTRANSFORM xf = xforms[t];
+      threads.emplace_back([&img, &out, xf, y0, y1, rowFloats] {
+        for (int y = y0; y < y1; ++y) {
+          const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+          unsigned char *dst = out.data() + (size_t)y * rowFloats;
+          cmsDoTransform(xf, src, dst, (cmsUInt32Number)img.w);
+        }
+      });
+    } else {
+      threads.emplace_back([&img, &out, y0, y1, rowFloats] {
+        for (int y = y0; y < y1; ++y) {
+          const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+          unsigned char *dst = out.data() + (size_t)y * rowFloats;
+          for (int i = 0; i < rowFloats; ++i)
+            dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
+        }
+      });
     }
+  }
+  for (auto &th : threads) th.join();
+  for (cmsHTRANSFORM t : xforms) {
+    if (t) cmsDeleteTransform(t);
   }
 }

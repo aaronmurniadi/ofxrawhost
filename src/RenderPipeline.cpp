@@ -4,9 +4,14 @@
 
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <vector>
+
+// Long-edge cap for the fast interactive draft pass. The full pass runs at the
+// preview size, so a draft is only built when the preview is larger than this.
+static constexpr int kDraftMaxEdge = 1280;
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
@@ -95,7 +100,7 @@ ChainRenderer::~ChainRenderer() {
     if (mtl[i]) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(mtl[i]));
 }
 
-OfxStatus ChainRenderer::render(App &app, const Image &src, Image &out, int gen) {
+OfxStatus ChainRenderer::render(App &app, const Image &src, Image &out, int gen, bool draft) {
   if (!anyEnabledNode(app)) {
     out = src;
     return kOfxStatOK;
@@ -103,7 +108,8 @@ OfxStatus ChainRenderer::render(App &app, const Image &src, Image &out, int gen)
 
   cur.w = src.w;
   cur.h = src.h;
-  cur.px = src.px;
+  if (cur.px.size() != src.px.size()) cur.px.resize(src.px.size());
+  if (!src.px.empty()) std::memcpy(cur.px.data(), src.px.data(), src.px.size() * sizeof(float));
   int cw = src.w, ch = src.h;
   float *cpuIn = cur.px.data();
   void *gpuIn = nullptr;  // when set, the pixels live in this MTLBuffer (cw x ch)
@@ -127,7 +133,7 @@ OfxStatus ChainRenderer::render(App &app, const Image &src, Image &out, int gen)
       mtl[gpuDst] = dstBuf;
       if (!dstBuf) return kOfxStatErrMemory;
       float *srcCpu = gpuIn ? nullptr : cpuIn;
-      st = renderEffect(plugin, n.instance.get(), srcCpu, nullptr, cw, ch, ow, oh, gen, gpuIn, dstBuf);
+      st = renderEffect(plugin, n.instance.get(), srcCpu, nullptr, cw, ch, ow, oh, gen, gpuIn, dstBuf, draft);
       if (st != kOfxStatOK) break;
       gpuIn = dstBuf;
       cpuIn = nullptr;
@@ -151,7 +157,7 @@ OfxStatus ChainRenderer::render(App &app, const Image &src, Image &out, int gen)
       next.h = oh;
       const size_t need = (size_t)ow * oh * 4;
       if (next.px.size() < need) next.px.resize(need);
-      st = renderEffect(plugin, n.instance.get(), cpuIn, next.px.data(), cw, ch, ow, oh, gen);
+      st = renderEffect(plugin, n.instance.get(), cpuIn, next.px.data(), cw, ch, ow, oh, gen, nullptr, nullptr, draft);
       if (st != kOfxStatOK) break;
       cur.swap(next);
       cpuIn = cur.px.data();
@@ -218,7 +224,20 @@ void renderWorker(App *app) {
     const int gen = ++gLatestGen;
     app->setStatus("Rendering...");
     Image out;
-    const OfxStatus st = renderer.render(*app, app->preview, out, gen);
+    const int longEdge = std::max(app->preview.w, app->preview.h);
+    if (longEdge > kDraftMaxEdge) {
+      Image draftInput;
+      if (makePreview(app->preview, kDraftMaxEdge, draftInput)) {
+        const OfxStatus draftSt = renderer.render(*app, draftInput, out, gen, true);
+        if (gen != gLatestGen) continue;
+        if (draftSt == kOfxStatOK) {
+          const ColorSpace space = app->outputTag;
+          publishDisplay(*app, std::move(out), space);
+        }
+      }
+    }
+    if (gen != gLatestGen) continue;
+    const OfxStatus st = renderer.render(*app, app->preview, out, gen, false);
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
       const ColorSpace space = app->outputTag;

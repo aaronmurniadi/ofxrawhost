@@ -138,8 +138,9 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
 // copies the result back to dst, so single-node callers keep the old behavior. The
 // caller owns the sync when dstMtl is given, and must call ofxMetalSync() before it
 // reads that buffer on the CPU.
+// draft selects kOfxImageEffectPropRenderQualityDraft for reduced-quality interactive passes.
 OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen,
-                       void *srcMtl = nullptr, void *dstMtl = nullptr);
+                       void *srcMtl = nullptr, void *dstMtl = nullptr, bool draft = false);
 
 // True when the node renders through Metal on this machine.
 bool effectUsesMetal(const Effect *e);

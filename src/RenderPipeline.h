@@ -13,7 +13,7 @@ struct ChainRenderer {
   ~ChainRenderer();
   ChainRenderer(const ChainRenderer &) = delete;
   ChainRenderer &operator=(const ChainRenderer &) = delete;
-  OfxStatus render(App &app, const Image &src, Image &out, int gen);
+  OfxStatus render(App &app, const Image &src, Image &out, int gen, bool draft = false);
 };
 
 void waitRenderIdle(App &app);
