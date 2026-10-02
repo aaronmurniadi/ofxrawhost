@@ -9,6 +9,7 @@
 #include "ofxParam.h"
 #include "ofxParametricParam.h"
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <cstdarg>
@@ -182,6 +183,46 @@ Param *findParam(Effect *e, const char *name) {
     if (p->name == name) return p.get();
   return nullptr;
 }
+
+void refreshParamUiCache(Effect *e) {
+  for (auto &up : e->params) {
+    Param *p = up.get();
+    ParamUiCache &ui = p->ui;
+    ui.label = sprop(p->props, kOfxPropLabel);
+    ui.hint = sprop(p->props, kOfxParamPropHint);
+    ui.parent = sprop(p->props, kOfxParamPropParent);
+    const std::string base = ui.label.empty() ? std::string("param") : ui.label;
+    ui.idLabel = base + "##" + p->name;
+    ui.enabled = dprop(p->props, kOfxParamPropEnabled, 0, 1) != 0;
+    ui.secret = dprop(p->props, kOfxParamPropSecret, 0, 0) != 0;
+    ui.stringIsLabel = sprop(p->props, kOfxParamPropStringMode) == kOfxParamStringIsLabel;
+    const int dim = paramDimension(p->kind);
+    ui.defaults.resize(dim > 0 ? (size_t)dim : 0);
+    for (int i = 0; i < dim; ++i) ui.defaults[i] = dprop(p->props, kOfxParamPropDefault, i, 0);
+    if (paramIsString(p->kind)) ui.defaultString = sprop(p->props, kOfxParamPropDefault);
+    ui.choiceLabels.clear();
+    ui.choicePtrs.clear();
+    if (p->kind == ParamType::Choice) {
+      auto it = p->props.m.find(kOfxParamPropChoiceOption);
+      if (it != p->props.m.end())
+        for (const Val &v : it->second) ui.choiceLabels.push_back(v.s);
+      ui.choicePtrs.reserve(ui.choiceLabels.size());
+      for (const std::string &s : ui.choiceLabels) ui.choicePtrs.push_back(s.c_str());
+    }
+    if (p->kind == ParamType::Double || p->kind == ParamType::Integer) {
+      double lo = dprop(p->props, kOfxParamPropDisplayMin, 0, dprop(p->props, kOfxParamPropMin, 0, 0));
+      double hi = dprop(p->props, kOfxParamPropDisplayMax, 0,
+                        dprop(p->props, kOfxParamPropMax, 0, p->kind == ParamType::Integer ? 100 : 1));
+      if (!(std::fabs(lo) < 1e7)) lo = 0;
+      if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + (p->kind == ParamType::Integer ? 100 : 1);
+      ui.displayMin = lo;
+      ui.displayMax = hi;
+      ui.hardMin = dprop(p->props, kOfxParamPropMin, 0, lo);
+      ui.hardMax = dprop(p->props, kOfxParamPropMax, 0, hi);
+      ui.step = p->kind == ParamType::Integer ? 1.0 : std::max((hi - lo) / 100.0, 1e-6);
+    }
+  }
+}
 static Clip *findClip(Effect *e, const char *name) {
   for (auto &c : e->clips)
     if (c->name == name) return c.get();
@@ -346,7 +387,8 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   Clip *c = C(ch);
   Effect *e = c->owner;
   const bool isOutput = c->name == kOfxImageEffectOutputClipName;
-  OfxMetalBuffer *mbuf = e->metalEnabled ? (isOutput ? (OfxMetalBuffer *)e->dstMtl : (OfxMetalBuffer *)e->srcMtl) : nullptr;
+  OfxMetalBuffer *mbuf =
+      e->metalEnabled ? (isOutput ? (OfxMetalBuffer *)e->curDstMtl : (OfxMetalBuffer *)e->curSrcMtl) : nullptr;
   void *data = mbuf ? ofxMetalBufferHandle(mbuf) : (isOutput ? (void *)e->dst : (void *)e->src);
   if (!data) return kOfxStatFailed;
   // Reuse the clip's pooled PropSet instead of heap-allocating per request.
@@ -656,8 +698,8 @@ static PropSet gHostProps = [] {
   propSetInt(h, kOfxPropAPIVersion, 1, 4);
   propSetInt(h, kOfxPropVersion, 0, 0);
   propSetInt(h, kOfxPropVersion, 1, 3);
-  propSetInt(h, kOfxPropVersion, 2, 12);
-  propSetString(h, kOfxPropVersionLabel, 0, "0.3.12");
+  propSetInt(h, kOfxPropVersion, 2, 14);
+  propSetString(h, kOfxPropVersionLabel, 0, "0.3.14");
   propSetInt(h, kOfxImageEffectHostPropIsBackground, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsOverlays, 0, 0);
   propSetInt(h, kOfxImageEffectPropSupportsMultiResolution, 0, 0);

@@ -160,6 +160,9 @@ build/OfxRawHost --selftest
 | Refactor: self-test cases move to `src/selftest/Selftest.cpp`       | Done (v0.3.13) |
 | Metal scratch buffers reused per instance across renders            | Done (v0.3.13) |
 | Correct Crop parameter docs: aspect list, amount, offsets           | Done (v0.3.13) |
+| Performance: chained Metal GPU render skips per-node copies         | Done (v0.3.14) |
+| Performance: parameter panel uses cached metadata                   | Done (v0.3.14) |
+| Performance: filmstrip clips off-screen entries, O(1) lookup        | Done (v0.3.14) |
 | Packaged Windows and Linux releases                                 | Planned        |
 
 ---

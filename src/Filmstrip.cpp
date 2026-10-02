@@ -54,6 +54,9 @@ static void evictFilmstripLru(App &app, int protectA, int protectB) {
 }
 
 int filmstripIndexForPath(const App &app, const std::string &path) {
+  auto it = app.filmstripPathIndex.find(path);
+  if (it != app.filmstripPathIndex.end()) return it->second;
+  // Slow path for a path that differs in form (relative, symlink, trailing slash).
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     std::error_code ec;
     if (fs::equivalent(app.filmstrip[i].path, path, ec)) return i;
@@ -202,6 +205,7 @@ void refreshFilmstrip(App &app) {
     app.thumbReady.clear();
   }
   freeFilmstripTextures(app.filmstrip);
+  app.filmstripPathIndex.clear();
   if (app.workspaceDir.empty()) {
     app.filmstripIndex = -1;
     return;
@@ -211,7 +215,9 @@ void refreshFilmstrip(App &app) {
   for (const std::string &p : paths) {
     FilmstripEntry e;
     e.path = p;
+    e.isRaw = isRawImageExtension(lowerFileExtension(p));
     app.filmstrip.push_back(std::move(e));
   }
+  for (int i = 0; i < (int)app.filmstrip.size(); ++i) app.filmstripPathIndex.emplace(app.filmstrip[i].path, i);
   app.filmstripIndex = filmstripIndexForPath(app, app.path);
 }

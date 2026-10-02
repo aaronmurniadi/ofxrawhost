@@ -4,14 +4,12 @@
 #include "RenderPipeline.h"
 #include "ui/Widgets.h"
 
-#include "ofxParam.h"
 #include "imgui.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
-#include <vector>
 
 static void drawPencilIcon(ImVec2 a, ImVec2 b) {
   ImDrawList *dl = ImGui::GetWindowDrawList();
@@ -81,11 +79,11 @@ static bool resetParamButton(Param *p) {
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Reset to default");
   if (!clicked) return false;
   std::lock_guard<std::mutex> lock(gValueMutex);
-  if (p->type == kOfxParamTypeString || p->type == kOfxParamTypeCustom) {
-    p->s = sprop(p->props, kOfxParamPropDefault);
+  if (paramIsString(p->kind)) {
+    p->s = p->ui.defaultString;
     return true;
   }
-  for (size_t i = 0; i < p->v.size(); ++i) p->v[i] = dprop(p->props, kOfxParamPropDefault, (int)i, 0);
+  for (size_t i = 0; i < p->v.size() && i < p->ui.defaults.size(); ++i) p->v[i] = p->ui.defaults[i];
   return true;
 }
 
@@ -123,38 +121,34 @@ static bool paramEditButton(double &v, bool asInt, double lo, double hi) {
 }
 
 static void drawParam(App &app, Param *p) {
-  const std::string &t = p->type;
-  const std::string label = sprop(p->props, kOfxPropLabel);
-  const std::string idLabel = (label.empty() ? std::string("param") : label) + "##" + p->name;
-  const bool enabled = dprop(p->props, kOfxParamPropEnabled, 0, 1) != 0;
+  const ParamUiCache &ui = p->ui;
   ImGui::PushID(p->name.c_str());
-  if (!enabled) ImGui::BeginDisabled();
+  if (!ui.enabled) ImGui::BeginDisabled();
 
   const float btn = ImGui::GetFrameHeight();
   const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
-  const float labelW = ImGui::CalcTextSize(label.c_str()).x;
+  const float labelW = ImGui::CalcTextSize(ui.label.c_str()).x;
   auto valueWidth = [&] { return std::max(40.0f, ImGui::GetContentRegionAvail().x - gap - labelW); };
 
   bool changed = false;
-  if (t == kOfxParamTypeDouble || t == kOfxParamTypeInteger) {
-    double lo = dprop(p->props, kOfxParamPropDisplayMin, 0, dprop(p->props, kOfxParamPropMin, 0, 0));
-    double hi = dprop(p->props, kOfxParamPropDisplayMax, 0, dprop(p->props, kOfxParamPropMax, 0, t == kOfxParamTypeInteger ? 100 : 1));
-    if (!(std::fabs(lo) < 1e7)) lo = 0;
-    if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + (t == kOfxParamTypeInteger ? 100 : 1);
-    const double hardLo = dprop(p->props, kOfxParamPropMin, 0, lo);
-    const double hardHi = dprop(p->props, kOfxParamPropMax, 0, hi);
-    const double step = t == kOfxParamTypeInteger ? 1.0 : std::max((hi - lo) / 100.0, 1e-6);
+  if (p->kind == ParamType::Double || p->kind == ParamType::Integer) {
+    const bool isInt = p->kind == ParamType::Integer;
+    const double lo = ui.displayMin;
+    const double hi = ui.displayMax;
+    const double hardLo = ui.hardMin;
+    const double hardHi = ui.hardMax;
+    const double step = ui.step;
     auto nudge = [&](double d) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       const double v = std::clamp(p->v[0] + d, lo, hi);
-      p->v[0] = t == kOfxParamTypeInteger ? std::round(v) : v;
+      p->v[0] = isInt ? std::round(v) : v;
       changed = true;
     };
 
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
     double typed = paramValue(p, 0);
-    if (paramEditButton(typed, t == kOfxParamTypeInteger, hardLo, hardHi)) {
+    if (paramEditButton(typed, isInt, hardLo, hardHi)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = typed;
       changed = true;
@@ -166,73 +160,70 @@ static void drawParam(App &app, Param *p) {
     ImGui::SameLine(0, gap);
     ImGui::SetNextItemWidth(valueWidth());
     float fv = (float)paramValue(p, 0);
-    if (ImGui::SliderFloat(idLabel.c_str(), &fv, (float)lo, (float)hi)) {
+    if (ImGui::SliderFloat(ui.idLabel.c_str(), &fv, (float)lo, (float)hi)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
-      p->v[0] = t == kOfxParamTypeInteger ? std::round(fv) : fv;
+      p->v[0] = isInt ? std::round(fv) : fv;
       changed = true;
     }
-  } else if (t == kOfxParamTypeBoolean) {
+  } else if (p->kind == ParamType::Boolean) {
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
     bool v = paramValue(p, 0) != 0;
-    if (ImGui::Checkbox(idLabel.c_str(), &v)) {
+    if (ImGui::Checkbox(ui.idLabel.c_str(), &v)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = v ? 1 : 0;
       changed = true;
     }
-  } else if (t == kOfxParamTypeChoice) {
+  } else if (p->kind == ParamType::Choice) {
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
-    const auto &opts = choiceOptions(p);
     int cur = (int)paramValue(p, 0);
-    std::vector<const char *> items;
-    items.reserve(opts.size());
-    for (auto &o : opts) items.push_back(o.s.c_str());
     ImGui::SetNextItemWidth(valueWidth());
-    if (!items.empty() && ImGui::Combo(idLabel.c_str(), &cur, items.data(), (int)items.size())) {
+    if (!ui.choicePtrs.empty() && ImGui::Combo(ui.idLabel.c_str(), &cur, ui.choicePtrs.data(), (int)ui.choicePtrs.size())) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = cur;
       changed = true;
     }
-  } else if (t == kOfxParamTypePushButton) {
-    if (ImGui::Button(idLabel.c_str())) changed = true;
-  } else if (t == kOfxParamTypeString) {
+  } else if (p->kind == ParamType::PushButton) {
+    if (ImGui::Button(ui.idLabel.c_str())) changed = true;
+  } else if (p->kind == ParamType::String) {
     char buf[512];
     std::snprintf(buf, sizeof buf, "%s", paramString(p).c_str());
-    const bool editable = sprop(p->props, kOfxParamPropStringMode) != kOfxParamStringIsLabel;
-    if (editable) {
+    if (!ui.stringIsLabel) {
       if (resetParamButton(p)) changed = true;
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(valueWidth());
-      if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf)) {
+      if (ImGui::InputText(ui.idLabel.c_str(), buf, sizeof buf)) {
         std::lock_guard<std::mutex> lock(gValueMutex);
         p->s = buf;
         changed = true;
       }
     } else {
-      ImGui::Text("%s: %s", label.c_str(), paramString(p).c_str());
+      ImGui::Text("%s: %s", ui.label.c_str(), paramString(p).c_str());
     }
-  } else if (dims(t) > 1) {
+  } else if (paramDimension(p->kind) > 1) {
+    const int dim = paramDimension(p->kind);
+    const bool isInt = paramIsInteger(p->kind);
     const float rowW = ImGui::CalcItemWidth();
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
-    ImGui::TextUnformatted(label.c_str());
+    ImGui::TextUnformatted(ui.label.c_str());
     ImGui::Indent();
-    for (int i = 0; i < dims(t); ++i) {
+    for (int i = 0; i < dim; ++i) {
       const double val = paramValue(p, i);
       float fv = (float)val;
       ImGui::PushID(i);
       double typed = val;
-      if (paramEditButton(typed, isIntType(t), -1e7, 1e7)) {
+      if (paramEditButton(typed, isInt, -1e7, 1e7)) {
         std::lock_guard<std::mutex> lock(gValueMutex);
         p->v[i] = typed;
         changed = true;
       }
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(std::max(40.0f, rowW - btn - gap));
-      if (ImGui::DragFloat("##v", &fv, isIntType(t) ? 1.0f : 0.01f)) {
+      if (ImGui::DragFloat("##v", &fv, isInt ? 1.0f : 0.01f)) {
         std::lock_guard<std::mutex> lock(gValueMutex);
-        p->v[i] = isIntType(t) ? std::round(fv) : fv;
+        p->v[i] = isInt ? std::round(fv) : fv;
         changed = true;
       }
       ImGui::PopID();
@@ -240,7 +231,7 @@ static void drawParam(App &app, Param *p) {
     ImGui::Unindent();
   }
 
-  if (!enabled) ImGui::EndDisabled();
+  if (!ui.enabled) ImGui::EndDisabled();
   ImGui::PopID();
   if (changed) {
     Node *node = selectedNode(app);
@@ -253,22 +244,15 @@ static void drawParam(App &app, Param *p) {
 }
 
 static bool paramMatches(Param *p, const std::string &q) {
-  return icontains(sprop(p->props, kOfxPropLabel), q) || icontains(p->name, q) ||
-         icontains(sprop(p->props, kOfxParamPropHint), q);
-}
-
-static bool ancestorsOpen(Node &node, const std::string &group) {
-  if (group.empty()) return true;
-  Param *g = findParam(node.instance.get(), group.c_str());
-  return g && node.groupOpen[group] && ancestorsOpen(node, sprop(g->props, kOfxParamPropParent));
+  return icontains(p->ui.label, q) || icontains(p->name, q) || icontains(p->ui.hint, q);
 }
 
 static bool subtreeMatches(Effect *e, const std::string &parent, const std::string &q) {
   for (auto &up : e->params) {
     Param *p = up.get();
-    if (sprop(p->props, kOfxParamPropParent) != parent || p->type == kOfxParamTypePage) continue;
-    if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
-    if (p->type == kOfxParamTypeGroup) {
+    if (p->ui.parent != parent || p->kind == ParamType::Page) continue;
+    if (p->ui.secret) continue;
+    if (p->kind == ParamType::Group) {
       if (paramMatches(p, q) || subtreeMatches(e, p->name, q)) return true;
     } else if (paramMatches(p, q)) {
       return true;
@@ -283,12 +267,11 @@ void drawParams(App &app, Node &node, const std::string &parent) {
   const bool filtering = filter[0] != '\0';
   for (auto &up : node.instance->params) {
     Param *p = up.get();
-    if (sprop(p->props, kOfxParamPropParent) != parent || p->type == kOfxParamTypePage) continue;
-    if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
-    if (p->type == kOfxParamTypeGroup) {
+    if (p->ui.parent != parent || p->kind == ParamType::Page) continue;
+    if (p->ui.secret) continue;
+    if (p->kind == ParamType::Group) {
       if (filtering && !subtreeMatches(node.instance.get(), p->name, filter) && !paramMatches(p, filter)) continue;
-      if (!filtering && !ancestorsOpen(node, parent) && parent != "") continue;
-      const std::string groupLabel = sprop(p->props, kOfxPropLabel) + "##" + p->name;
+      const std::string groupLabel = p->ui.label + "##" + p->name;
       if (filtering) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
       else ImGui::SetNextItemOpen(node.groupOpen[p->name], ImGuiCond_Once);
       if (ImGui::CollapsingHeader(groupLabel.c_str())) {
@@ -300,11 +283,7 @@ void drawParams(App &app, Node &node, const std::string &parent) {
         node.groupOpen[p->name] = false;
       }
     } else {
-      if (filtering) {
-        if (!paramMatches(p, filter)) continue;
-      } else if (!ancestorsOpen(node, parent)) {
-        continue;
-      }
+      if (filtering && !paramMatches(p, filter)) continue;
       drawParam(app, p);
     }
   }

@@ -54,12 +54,25 @@ int paramDimension(ParamType t);
 bool paramIsInteger(ParamType t);
 bool paramIsString(ParamType t);
 
+// UI metadata cached once per instance. The parameter panel rebuilds strings and
+// re-scans the property map every frame from Param::props; this holds the result.
+// Refresh it after a plugin may have changed its own properties (instance-changed).
+struct ParamUiCache {
+  std::string label, hint, parent, idLabel;
+  std::vector<std::string> choiceLabels;
+  std::vector<const char *> choicePtrs;
+  std::vector<double> defaults;
+  std::string defaultString;
+  double displayMin = 0, displayMax = 0, hardMin = 0, hardMax = 0, step = 1;
+  bool enabled = true, secret = false, stringIsLabel = false;
+};
 struct Param {
   std::string type, name;
   ParamType kind = ParamType::Unknown;
   PropSet props;
   std::vector<double> v;
   std::string s;
+  ParamUiCache ui;
 };
 struct Effect;
 struct Clip {
@@ -73,8 +86,9 @@ struct Effect {
   std::vector<std::unique_ptr<Param>> params;
   std::vector<std::unique_ptr<Clip>> clips;
   float *src = nullptr, *dst = nullptr;
-  void *srcMtl = nullptr, *dstMtl = nullptr;  // id<MTLBuffer> when metalEnabled
-  size_t srcMtlBytes = 0, dstMtlBytes = 0;    // capacities of the two buffers above
+  void *srcMtl = nullptr, *dstMtl = nullptr;  // owned scratch id<MTLBuffer>s when metalEnabled
+  size_t srcMtlBytes = 0, dstMtlBytes = 0;    // capacities of the two owned buffers
+  void *curSrcMtl = nullptr, *curDstMtl = nullptr;  // buffers for the in-flight render (may be chain-owned)
   bool metalEnabled = false;                  // this render passes MTLBuffer images
   bool metalCapable = false;                  // plugin declared kOfxImageEffectPropMetalRenderSupported
   int w = 0, h = 0;                           // input/source clip dims
@@ -98,6 +112,8 @@ extern std::function<void(const std::string &)> gOnMessage;
 int dims(const std::string &type);
 bool isIntType(const std::string &type);
 Param *findParam(Effect *e, const char *name);
+// Rebuilds every Param::ui in the effect from the current property values.
+void refreshParamUiCache(Effect *e);
 
 struct PluginEntry {
   OfxPlugin *plugin;
@@ -116,4 +132,14 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe);
 void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *outH);
 // src: bottom-up float RGBA w*h pixels. dst receives outW*outH pixels (capacity >= outW*outH).
 // gen 0 = never aborted.
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen);
+// srcMtl/dstMtl are optional id<MTLBuffer> handles for chained GPU renders. When a
+// handle is given, the image lives on the GPU and the matching CPU pointer may be
+// null. When dstMtl is null and the node renders on Metal, renderEffect syncs and
+// copies the result back to dst, so single-node callers keep the old behavior. The
+// caller owns the sync when dstMtl is given, and must call ofxMetalSync() before it
+// reads that buffer on the CPU.
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen,
+                       void *srcMtl = nullptr, void *dstMtl = nullptr);
+
+// True when the node renders through Metal on this machine.
+bool effectUsesMetal(const Effect *e);

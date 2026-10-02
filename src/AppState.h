@@ -16,6 +16,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -37,6 +38,7 @@ struct ThumbReady {
 struct FilmstripEntry {
   std::string path;
   GlTexture tex;
+  bool isRaw = false;
   bool thumbPending = true;
   bool thumbLoading = false;
   bool thumbFailed = false;
@@ -112,6 +114,7 @@ struct App {
 
   std::string workspaceDir;
   std::vector<FilmstripEntry> filmstrip;
+  std::unordered_map<std::string, int> filmstripPathIndex;  // path -> filmstrip index
   int filmstripIndex = -1;
   bool showFilmstrip = true;
   float filmstripH = 96.0f;

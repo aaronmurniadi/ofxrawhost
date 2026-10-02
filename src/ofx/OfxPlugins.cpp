@@ -228,6 +228,7 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
     propSetInt(cp, kOfxImageClipPropContinuousSamples, 0, 0);
   }
   if (!ofxActionOk(callAction(pe.plugin, kOfxActionCreateInstance, e.get()))) return nullptr;
+  refreshParamUiCache(e.get());
   return e;
 }
 
@@ -283,7 +284,10 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
   *outH = (int)std::lround(dh);
 }
 
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen) {
+bool effectUsesMetal(const Effect *e) { return e && e->metalCapable && ofxMetalAvailable(); }
+
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen,
+                       void *srcMtl, void *dstMtl) {
   e->src = src;
   e->dst = dst;
   {
@@ -306,26 +310,45 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   propSetInt(a, kOfxImageEffectPropInteractiveRenderStatus, 0, gen != 0);
   propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 0);
   e->metalEnabled = e->metalCapable && ofxMetalAvailable();
+  e->curSrcMtl = nullptr;
+  e->curDstMtl = nullptr;
   if (e->metalEnabled) {
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 1);
     propSetPointer(a, kOfxImageEffectPropMetalCommandQueue, 0, ofxMetalCommandQueue());
-    if (!ensureMetalBuffer(e->srcMtl, e->srcMtlBytes, (size_t)w * h * 4 * sizeof(float))) return kOfxStatErrMemory;
-    ensureMetalBuffer(e->dstMtl, e->dstMtlBytes, (size_t)outW * outH * 4 * sizeof(float));
-    if (e->srcMtl && src)
-      std::memcpy(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->srcMtl)), src, (size_t)w * h * 4 * sizeof(float));
+    void *useSrc = srcMtl;
+    void *useDst = dstMtl;
+    if (!useSrc) {
+      const size_t srcBytes = (size_t)w * h * 4 * sizeof(float);
+      useSrc = ensureMetalBuffer(e->srcMtl, e->srcMtlBytes, srcBytes);
+      if (!useSrc) return kOfxStatErrMemory;
+      if (src) std::memcpy(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(useSrc)), src, srcBytes);
+    }
+    if (!useDst) {
+      const size_t dstBytes = (size_t)outW * outH * 4 * sizeof(float);
+      useDst = ensureMetalBuffer(e->dstMtl, e->dstMtlBytes, dstBytes);
+      if (!useDst) return kOfxStatErrMemory;
+    }
+    e->curSrcMtl = useSrc;
+    e->curDstMtl = useDst;
   } else {
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 0);
   }
   const OfxStatus st = callAction(plugin, kOfxImageEffectActionRender, e, &in);
-  if (e->metalEnabled) ofxMetalSync();
-  if (e->metalEnabled && st == kOfxStatOK && e->dstMtl) {
-    float *d = static_cast<float *>(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl)));
-    if (d && e->dst) std::memcpy(e->dst, d, (size_t)outW * outH * 4 * sizeof(float));
+  // Chained GPU renders keep the buffers on the GPU: the chain owns the sync and
+  // the readback. A single-node caller (dstMtl null) keeps the old behavior and
+  // gets the GPU result copied back to the CPU dst here.
+  if (e->metalEnabled && !dstMtl && st == kOfxStatOK && e->dstMtl && dst) {
+    ofxMetalSync();
+    const void *d = ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl));
+    if (d) std::memcpy(dst, d, (size_t)outW * outH * 4 * sizeof(float));
   }
   if (st != kOfxStatOK && e->metalCapable) {
-    std::fprintf(stderr, "[metal] render failed: status=%d (0x%08x) metal=%d plugin=%p\n", (int)st, (unsigned int)st, (int)e->metalEnabled, (void*)plugin);
+    std::fprintf(stderr, "[metal] render failed: status=%d (0x%08x) metal=%d plugin=%p\n", (int)st, (unsigned int)st,
+                 (int)e->metalEnabled, (void *)plugin);
   }
   e->src = e->dst = nullptr;
+  e->curSrcMtl = nullptr;
+  e->curDstMtl = nullptr;
   e->metalEnabled = false;
   return st;
 }

@@ -115,6 +115,8 @@ void notifyChanged(Node &node, Param *p) {
   callAction(plugin, kOfxActionBeginInstanceChanged, node.instance.get(), &in);
   callAction(plugin, kOfxActionInstanceChanged, node.instance.get(), &in);
   callAction(plugin, kOfxActionEndInstanceChanged, node.instance.get(), &in);
+  // The plugin may have toggled enabled/secret/labels; keep the UI cache in sync.
+  refreshParamUiCache(node.instance.get());
 }
 
 void applyColorDefaults(App &app, Node &node) {
