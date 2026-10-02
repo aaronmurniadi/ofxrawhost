@@ -207,9 +207,9 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
   propSetInt(ep, kOfxPropIsInteractive, 0, 1);
   propSetPointer(ep, kOfxPropInstanceData, 0, nullptr);
   for (auto &p : e->params) {
-    p->v.resize(dims(p->type));
+    p->v.resize(paramDimension(p->kind));
     for (size_t i = 0; i < p->v.size(); ++i) p->v[i] = dprop(p->props, kOfxParamPropDefault, (int)i, 0);
-    if (isStringType(p->type)) p->s = sprop(p->props, kOfxParamPropDefault);
+    if (paramIsString(p->kind)) p->s = sprop(p->props, kOfxParamPropDefault);
   }
   const double range[2] = {0, 0};
   for (auto &c : e->clips) {
@@ -229,6 +229,28 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
   }
   if (!ofxActionOk(callAction(pe.plugin, kOfxActionCreateInstance, e.get()))) return nullptr;
   return e;
+}
+
+void Effect::setInputSize(int width, int height) {
+  std::lock_guard<std::mutex> lock(dimMutex);
+  w = width;
+  h = height;
+}
+
+// The descriptor effect holds no buffer, so a plain pointer copy stays safe.
+Effect::~Effect() {
+  if (srcMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(srcMtl));
+  if (dstMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(dstMtl));
+}
+
+// Returns a buffer of at least wantBytes, and reuses the slot when it is large
+// enough. The scratch buffer therefore survives across renders of one instance.
+static void *ensureMetalBuffer(void *&slot, size_t &haveBytes, size_t wantBytes) {
+  if (slot && haveBytes >= wantBytes) return slot;
+  if (slot) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(slot));
+  slot = ofxMetalBufferCreate(wantBytes);
+  haveBytes = slot ? wantBytes : 0;
+  return slot;
 }
 
 void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *outH) {
@@ -287,8 +309,8 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   if (e->metalEnabled) {
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 1);
     propSetPointer(a, kOfxImageEffectPropMetalCommandQueue, 0, ofxMetalCommandQueue());
-    if (!e->srcMtl) e->srcMtl = ofxMetalBufferCreate((size_t)w * h * 4 * sizeof(float));
-    if (!e->dstMtl) e->dstMtl = ofxMetalBufferCreate((size_t)outW * outH * 4 * sizeof(float));
+    if (!ensureMetalBuffer(e->srcMtl, e->srcMtlBytes, (size_t)w * h * 4 * sizeof(float))) return kOfxStatErrMemory;
+    ensureMetalBuffer(e->dstMtl, e->dstMtlBytes, (size_t)outW * outH * 4 * sizeof(float));
     if (e->srcMtl && src)
       std::memcpy(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->srcMtl)), src, (size_t)w * h * 4 * sizeof(float));
   } else {
@@ -304,9 +326,6 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
     std::fprintf(stderr, "[metal] render failed: status=%d (0x%08x) metal=%d plugin=%p\n", (int)st, (unsigned int)st, (int)e->metalEnabled, (void*)plugin);
   }
   e->src = e->dst = nullptr;
-  if (e->srcMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(e->srcMtl));
-  if (e->dstMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl));
-  e->srcMtl = e->dstMtl = nullptr;
   e->metalEnabled = false;
   return st;
 }

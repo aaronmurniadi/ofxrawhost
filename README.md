@@ -43,9 +43,9 @@ cropped output dimensions directly to the host.
 
 **Parameters:**
 
-- **Crop** — 0 = full image (identity), 100 = 2% of the original area.
-- **Aspect** — crop window aspect ratio: *Original* (source ratio), *16:9*, *4:3*, *3:2*, *4:5*, *3:4*, *9:16*.
-- **Offset X / Offset Y** — pan the crop window. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a 4:5 aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge, and the out-of-bounds area is filled with **black pixels**.
+- **Crop** — crop amount from 0 to 100, default 0. At 0 the plugin outputs the full image (identity). At 100 the region is 2% of the source in each dimension, which is 0.04% of the source area.
+- **Aspect Ratio** — crop window aspect ratio. Options: *Original* (source ratio), *1:1 (Square)*, *4:5 (Portrait)*, *3:4 (Portrait)*, *9:16 (Vertical Video)*, *16:9 (Widescreen)*, *4:3 (Classic TV)*, *3:2 (Film Landscape)*, *2:3 (Film Portrait)*, *1.85:1 (Cinema Flat)*, *2.39:1 (Anamorphic)*, *21:9 (Ultrawide)*. The default is *Original*.
+- **Offset X / Offset Y** — pan the crop window from -100 to 100, default 0. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a 4:5 aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge. The out-of-bounds area is filled with **black pixels**.
 
 ---
 
@@ -154,6 +154,12 @@ build/OfxRawHost --selftest
 | Code cleanup: dedupe helpers, split Actions module, drop dead code  | Done (v0.3.12) |
 | Race fixes: idle wait, export gate, atomic tag, locked dims/params  | Done (v0.3.12) |
 | ThreadSanitizer-clean concurrency + concurrency selftest            | Done (v0.3.12) |
+| Refactor: JsonValue, RenderSchedule, GlTexture, ChainRenderer       | Done (v0.3.13) |
+| Refactor: ParamType enum replaces repeated OFX type compares        | Done (v0.3.13) |
+| Refactor: one image format table; shared extension helpers          | Done (v0.3.13) |
+| Refactor: self-test cases move to `src/selftest/Selftest.cpp`       | Done (v0.3.13) |
+| Metal scratch buffers reused per instance across renders            | Done (v0.3.13) |
+| Correct Crop parameter docs: aspect list, amount, offsets           | Done (v0.3.13) |
 | Packaged Windows and Linux releases                                 | Planned        |
 
 ---

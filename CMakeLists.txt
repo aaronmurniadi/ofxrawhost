@@ -79,6 +79,7 @@ endif()
 
 add_executable(OfxRawHost
   src/main.cpp
+  src/selftest/Selftest.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
   src/imgio/ImageLoad.cpp

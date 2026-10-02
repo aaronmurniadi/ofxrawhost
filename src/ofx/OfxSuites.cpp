@@ -116,18 +116,66 @@ static Effect *E(OfxParamSetHandle h) { return reinterpret_cast<Effect *>(h); }
 static Param *PA(OfxParamHandle h) { return reinterpret_cast<Param *>(h); }
 static Clip *C(OfxImageClipHandle h) { return reinterpret_cast<Clip *>(h); }
 
-int dims(const std::string &t) {
-  if (t == kOfxParamTypeDouble || t == kOfxParamTypeInteger || t == kOfxParamTypeBoolean || t == kOfxParamTypeChoice) return 1;
-  if (t == kOfxParamTypeDouble2D || t == kOfxParamTypeInteger2D) return 2;
-  if (t == kOfxParamTypeDouble3D || t == kOfxParamTypeInteger3D || t == kOfxParamTypeRGB) return 3;
-  if (t == kOfxParamTypeRGBA) return 4;
-  return 0;
+ParamType paramTypeFromString(const std::string &type) {
+  // One table maps the OFX type string to its kind. Add a row here to teach the
+  // host a new parameter type.
+  static const struct {
+    const char *name;
+    ParamType type;
+  } kTypes[] = {
+      {kOfxParamTypeInteger, ParamType::Integer},
+      {kOfxParamTypeDouble, ParamType::Double},
+      {kOfxParamTypeBoolean, ParamType::Boolean},
+      {kOfxParamTypeChoice, ParamType::Choice},
+      {kOfxParamTypeString, ParamType::String},
+      {kOfxParamTypeCustom, ParamType::Custom},
+      {kOfxParamTypeStrChoice, ParamType::StrChoice},
+      {kOfxParamTypeBytes, ParamType::Bytes},
+      {kOfxParamTypePushButton, ParamType::PushButton},
+      {kOfxParamTypeGroup, ParamType::Group},
+      {kOfxParamTypePage, ParamType::Page},
+      {kOfxParamTypeInteger2D, ParamType::Integer2D},
+      {kOfxParamTypeDouble2D, ParamType::Double2D},
+      {kOfxParamTypeInteger3D, ParamType::Integer3D},
+      {kOfxParamTypeDouble3D, ParamType::Double3D},
+      {kOfxParamTypeRGB, ParamType::RGB},
+      {kOfxParamTypeRGBA, ParamType::RGBA},
+  };
+  for (const auto &row : kTypes)
+    if (type == row.name) return row.type;
+  return ParamType::Unknown;
 }
-bool isIntType(const std::string &t) {
-  return t == kOfxParamTypeInteger || t == kOfxParamTypeBoolean || t == kOfxParamTypeChoice ||
-         t == kOfxParamTypeInteger2D || t == kOfxParamTypeInteger3D;
+int paramDimension(ParamType t) {
+  switch (t) {
+    case ParamType::Integer:
+    case ParamType::Double:
+    case ParamType::Boolean:
+    case ParamType::Choice: return 1;
+    case ParamType::Integer2D:
+    case ParamType::Double2D: return 2;
+    case ParamType::Integer3D:
+    case ParamType::Double3D:
+    case ParamType::RGB: return 3;
+    case ParamType::RGBA: return 4;
+    default: return 0;
+  }
 }
-bool isStringType(const std::string &t) { return t == kOfxParamTypeString || t == kOfxParamTypeCustom; }
+bool paramIsInteger(ParamType t) {
+  switch (t) {
+    case ParamType::Integer:
+    case ParamType::Boolean:
+    case ParamType::Choice:
+    case ParamType::Integer2D:
+    case ParamType::Integer3D: return true;
+    default: return false;
+  }
+}
+bool paramIsString(ParamType t) { return t == ParamType::String || t == ParamType::Custom; }
+
+// Thin wrappers for the call sites that hold only the OFX type string.
+int dims(const std::string &t) { return paramDimension(paramTypeFromString(t)); }
+bool isIntType(const std::string &t) { return paramIsInteger(paramTypeFromString(t)); }
+bool isStringType(const std::string &t) { return paramIsString(paramTypeFromString(t)); }
 
 Param *findParam(Effect *e, const char *name) {
   for (auto &p : e->params)
@@ -160,6 +208,7 @@ static OfxStatus paramDefine(OfxParamSetHandle ps, const char *type, const char 
   if (findParam(e, name)) return kOfxStatErrExists;
   auto p = std::make_unique<Param>();
   p->type = type;
+  p->kind = paramTypeFromString(type);
   p->name = name;
   OfxPropertySetHandle h = H(&p->props);
   propSetString(h, kOfxPropType, 0, kOfxTypeParameter);
@@ -169,8 +218,8 @@ static OfxStatus paramDefine(OfxParamSetHandle ps, const char *type, const char 
   propSetString(h, kOfxParamPropParent, 0, "");
   propSetInt(h, kOfxParamPropEnabled, 0, 1);
   propSetInt(h, kOfxParamPropSecret, 0, 0);
-  for (int i = 0; i < dims(type); ++i) propSetDouble(h, kOfxParamPropDefault, i, 0);
-  if (isStringType(type)) propSetString(h, kOfxParamPropDefault, 0, "");
+  for (int i = 0; i < paramDimension(p->kind); ++i) propSetDouble(h, kOfxParamPropDefault, i, 0);
+  if (paramIsString(p->kind)) propSetString(h, kOfxParamPropDefault, 0, "");
   if (props) *props = h;
   e->params.push_back(std::move(p));
   return kOfxStatOK;
@@ -192,11 +241,11 @@ static OfxStatus paramGetPropertySet(OfxParamHandle p, OfxPropertySetHandle *pro
 }
 static OfxStatus getValue(Param *p, va_list ap) {
   std::lock_guard<std::mutex> lock(gValueMutex);
-  if (isStringType(p->type)) {
+  if (paramIsString(p->kind)) {
     *va_arg(ap, const char **) = p->s.c_str();
     return kOfxStatOK;
   }
-  const bool ints = isIntType(p->type);
+  const bool ints = paramIsInteger(p->kind);
   for (double v : p->v) {
     if (ints) *va_arg(ap, int *) = (int)v;
     else *va_arg(ap, double *) = v;
@@ -205,12 +254,12 @@ static OfxStatus getValue(Param *p, va_list ap) {
 }
 static OfxStatus setValue(Param *p, va_list ap) {
   std::lock_guard<std::mutex> lock(gValueMutex);
-  if (isStringType(p->type)) {
+  if (paramIsString(p->kind)) {
     const char *s = va_arg(ap, const char *);
     p->s = s ? s : "";
     return kOfxStatOK;
   }
-  const bool ints = isIntType(p->type);
+  const bool ints = paramIsInteger(p->kind);
   for (double &v : p->v) v = ints ? va_arg(ap, int) : va_arg(ap, double);
   return kOfxStatOK;
 }

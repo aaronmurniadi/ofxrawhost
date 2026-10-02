@@ -30,6 +30,14 @@ const char *colorSpaceName(ColorSpace cs);
 // detected: inferred Input Color Space (RAW / untagged float → Linear Rec.2020; untagged LDR → sRGB;
 // embedded ICC → nearest of the four tags). Does not convert pixels.
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected);
+// Lowercase file extension with the leading dot (for example ".cr2"). Empty when there is none.
+std::string lowerFileExtension(const std::string &path);
+// One table in ImageLoad.cpp lists the supported extensions. extLower includes the
+// leading dot and is lowercase.
+bool isRawImageExtension(const std::string &extLower);
+bool isSupportedImageExtension(const std::string &extLower);
+// Every supported extension, lowercase, with the leading dot, in table order.
+std::vector<std::string> supportedImageExtensions();
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
 // Format from path extension; PNG/JPEG embed ICC.

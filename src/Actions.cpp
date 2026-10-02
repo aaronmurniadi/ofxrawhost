@@ -79,17 +79,6 @@ std::string defaultExportName(const App &app) {
   return fs::path(app.path).stem().string() + exportExtension(app.exportFormat);
 }
 
-// Clears exportBusy and wakes waitRenderIdle when the export thread finishes.
-struct ExportBusyGuard {
-  explicit ExportBusyGuard(App *a) : app(a) {}
-  ~ExportBusyGuard() {
-    std::lock_guard<std::mutex> lock(app->renderMutex);
-    app->exportBusy = false;
-    app->renderCv.notify_all();
-  }
-  App *app;
-};
-
 void doExport(App &app, const std::string &path) {
   if (!canExport(app)) return;
   std::string outPath = path;
@@ -98,8 +87,8 @@ void doExport(App &app, const std::string &path) {
   app.setStatus("Exporting full resolution...");
   waitRenderIdle(app);
   {
-    std::lock_guard<std::mutex> lock(app.renderMutex);
-    app.exportBusy = true;
+    std::lock_guard<std::mutex> lock(app.render.mutex);
+    app.render.exporting = true;
   }
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
@@ -110,21 +99,14 @@ void doExport(App &app, const std::string &path) {
   const PersistChain persistChain = captureChain(app);
   const std::string sourcePath = app.path;
   std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace]() mutable {
-    ExportBusyGuard busy(&app);
+    RenderSchedule::Guard busy(&app.render, true);
     for (auto &n : app.nodes)
-      if (n.instance) {
-        std::lock_guard<std::mutex> lock(n.instance->dimMutex);
-        n.instance->w = src.w;
-        n.instance->h = src.h;
-      }
+      if (n.instance) n.instance->setInputSize(src.w, src.h);
+    ChainRenderer renderer;
     Image out;
-    OfxStatus st = renderChain(app, src, out, 0);
+    OfxStatus st = renderer.render(app, src, out, 0);
     for (auto &n : app.nodes)
-      if (n.instance) {
-        std::lock_guard<std::mutex> lock(n.instance->dimMutex);
-        n.instance->w = pw;
-        n.instance->h = ph;
-      }
+      if (n.instance) n.instance->setInputSize(pw, ph);
     bool ok = st == kOfxStatOK && writeImage(out, outPath, space, jpegQuality);
     if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
     app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +

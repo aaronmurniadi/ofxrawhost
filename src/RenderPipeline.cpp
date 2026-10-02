@@ -24,10 +24,7 @@ static void showSourcePreview(App &app) {
 
 void waitRenderIdle(App &app) {
   ++gLatestGen;
-  std::unique_lock<std::mutex> lock(app.renderMutex);
-  app.renderPending = false;
-  app.displayRecolorPending = false;
-  app.renderCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
+  app.render.waitIdle();
 }
 
 void scheduleRender(App &app) {
@@ -36,17 +33,15 @@ void scheduleRender(App &app) {
     return;
   }
   ++gLatestGen;
-  std::lock_guard<std::mutex> lock(app.renderMutex);
-  if (!app.renderBusy && !app.exportBusy) {
-    for (auto &n : app.nodes) {
-      if (n.instance) {
-        n.instance->w = app.preview.w;
-        n.instance->h = app.preview.h;
-      }
+  {
+    std::lock_guard<std::mutex> lock(app.render.mutex);
+    if (!app.render.busy && !app.render.exporting) {
+      for (auto &n : app.nodes)
+        if (n.instance) n.instance->setInputSize(app.preview.w, app.preview.h);
     }
+    app.render.pending = true;
   }
-  app.renderPending = true;
-  app.renderCv.notify_one();
+  app.render.cv.notify_one();
 }
 
 void rebuildPreview(App &app) {
@@ -59,28 +54,15 @@ void rebuildPreview(App &app) {
 
 static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h) {
   PerfScope _ps("uploadTextureRGBA");
-  if (!rgba || w <= 0 || h <= 0) return;
-  if (!app.tex) glGenTextures(1, &app.tex);
-  glBindTexture(GL_TEXTURE_2D, app.tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  if (app.texW != w || app.texH != h) {
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-    app.texW = w;
-    app.texH = h;
-  } else {
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-  }
+  app.tex.upload(rgba, w, h);
 }
 
 void scheduleDisplayRecolor(App &app) {
   ++gLatestGen;
-  std::lock_guard<std::mutex> lock(app.renderMutex);
-  app.displayRecolorPending = true;
-  app.renderPending = true;
-  app.renderCv.notify_one();
+  std::lock_guard<std::mutex> lock(app.render.mutex);
+  app.render.recolorPending = true;
+  app.render.pending = true;
+  app.render.cv.notify_one();
 }
 
 void pumpDisplayUpload(App &app) {
@@ -98,9 +80,7 @@ static bool anyEnabledNode(const App &app) {
   return false;
 }
 
-OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
-  static thread_local Image cur, next;
-
+OfxStatus ChainRenderer::render(App &app, const Image &src, Image &out, int gen) {
   if (!anyEnabledNode(app)) {
     out = src;
     return kOfxStatOK;
@@ -134,31 +114,21 @@ OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
   return kOfxStatOK;
 }
 
-// Clears renderBusy and wakes waitRenderIdle when the worker leaves its work section.
-struct RenderBusyGuard {
-  explicit RenderBusyGuard(App *a) : app(a) {}
-  ~RenderBusyGuard() {
-    std::lock_guard<std::mutex> lock(app->renderMutex);
-    app->renderBusy = false;
-    app->renderCv.notify_all();
-  }
-  App *app;
-};
-
 void renderWorker(App *app) {
+  ChainRenderer renderer;
   while (!app->quit) {
     bool recolorOnly = false;
     {
-      std::unique_lock<std::mutex> lock(app->renderMutex);
-      app->renderCv.wait(lock,
-                         [&] { return app->quit || (app->renderPending.load() && !app->exportBusy); });
+      std::unique_lock<std::mutex> lock(app->render.mutex);
+      app->render.cv.wait(lock,
+                          [&] { return app->quit || (app->render.pending.load() && !app->render.exporting); });
       if (app->quit) break;
-      recolorOnly = app->displayRecolorPending;
-      app->displayRecolorPending = false;
-      app->renderPending = false;
-      app->renderBusy = true;
+      recolorOnly = app->render.recolorPending;
+      app->render.recolorPending = false;
+      app->render.pending = false;
+      app->render.busy = true;
     }
-    RenderBusyGuard busy(app);
+    RenderSchedule::Guard busy(&app->render);
     if (recolorOnly) {
       Image img;
       ColorSpace space;
@@ -175,7 +145,7 @@ void renderWorker(App *app) {
     const int gen = ++gLatestGen;
     app->setStatus("Rendering...");
     Image out;
-    const OfxStatus st = renderChain(*app, app->preview, out, gen);
+    const OfxStatus st = renderer.render(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
       const ColorSpace space = app->outputTag;

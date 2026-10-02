@@ -3,8 +3,6 @@
 #include "imgio/ImageIO.h"
 #include "persist/ProjectPersist.h"
 
-#include <GLFW/glfw3.h>
-
 #if defined(__APPLE__)
 #include <pthread.h>
 #endif
@@ -17,17 +15,9 @@ namespace fs = std::filesystem;
 constexpr int kMaxFilmstripTextures = 64;
 constexpr int kFilmstripUploadsPerFrame = 2;
 
-void freeFilmstripTextures(std::vector<FilmstripEntry> &entries) {
-  for (FilmstripEntry &e : entries)
-    if (e.tex) glDeleteTextures(1, &e.tex);
-  entries.clear();
-}
+void freeFilmstripTextures(std::vector<FilmstripEntry> &entries) { entries.clear(); }
 
-static void releaseFilmstripTex(FilmstripEntry &e) {
-  if (e.tex) glDeleteTextures(1, &e.tex);
-  e.tex = 0;
-  e.tw = e.th = 0;
-}
+static void releaseFilmstripTex(FilmstripEntry &e) { e.tex.destroy(); }
 
 void invalidateFilmstripThumbs(App &app) {
   // Keep existing textures on screen; they reload at the new edge and swap in
@@ -41,7 +31,7 @@ void invalidateFilmstripThumbs(App &app) {
 static int countFilmstripTextures(const App &app) {
   int n = 0;
   for (const FilmstripEntry &e : app.filmstrip)
-    if (e.tex) ++n;
+    if (e.tex.id) ++n;
   return n;
 }
 
@@ -50,7 +40,7 @@ static void evictFilmstripLru(App &app, int protectA, int protectB) {
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     if (i == protectA || i == protectB) continue;
     const FilmstripEntry &e = app.filmstrip[i];
-    if (!e.tex) continue;
+    if (!e.tex.id) continue;
     if (e.thumbLru < oldest) {
       oldest = e.thumbLru;
       victim = i;
@@ -105,15 +95,7 @@ static void uploadFilmstripThumbData(App &app, int index, const std::vector<unsi
   while (countFilmstripTextures(app) >= kMaxFilmstripTextures)
     evictFilmstripLru(app, index, app.filmstripIndex);
   FilmstripEntry &e = app.filmstrip[index];
-  if (!e.tex) glGenTextures(1, &e.tex);
-  glBindTexture(GL_TEXTURE_2D, e.tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-  e.tw = w;
-  e.th = h;
+  e.tex.upload(rgba.data(), w, h);
   e.thumbPending = false;
   e.thumbLoading = false;
   e.thumbLru = ++app.thumbLruTick;

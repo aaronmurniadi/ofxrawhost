@@ -7,70 +7,48 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
-#include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
-std::string jsonEscape(const std::string &s) {
-  std::string o;
-  o.reserve(s.size() + 8);
-  for (unsigned char c : s) {
-    switch (c) {
-      case '"': o += "\\\""; break;
-      case '\\': o += "\\\\"; break;
-      case '\b': o += "\\b"; break;
-      case '\f': o += "\\f"; break;
-      case '\n': o += "\\n"; break;
-      case '\r': o += "\\r"; break;
-      case '\t': o += "\\t"; break;
-      default: o += (char)c;
-    }
-  }
-  return o;
+JsonValue makeGuiJson(const PersistGui &g) {
+  // Panel sizes (leftW/rightW/filmstripH) are legacy; layout lives in the ImGui .ini.
+  JsonValue gui = JsonValue::makeObject();
+  gui.set("outputIndex", JsonValue::makeInt(g.outputIndex));
+  gui.set("exportFormat", JsonValue::makeInt(g.exportFormat));
+  gui.set("jpegQuality", JsonValue::makeInt(g.jpegQuality));
+  gui.set("previewRes", JsonValue::makeInt(g.previewRes));
+  gui.set("themeIndex", JsonValue::makeInt(g.themeIndex));
+  gui.set("showLeft", JsonValue::makeBool(g.showLeft));
+  gui.set("showRight", JsonValue::makeBool(g.showRight));
+  gui.set("showFilmstrip", JsonValue::makeBool(g.showFilmstrip));
+  return gui;
 }
 
-void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
-  // Panel sizes (leftW/rightW/filmstripH) are legacy; layout lives in ImGui .ini.
-  o << "\"gui\":{"
-    << "\"outputIndex\":" << g.outputIndex << ","
-    << "\"exportFormat\":" << g.exportFormat << ","
-    << "\"jpegQuality\":" << g.jpegQuality << ","
-    << "\"previewRes\":" << g.previewRes << ","
-    << "\"themeIndex\":" << g.themeIndex << ","
-    << "\"showLeft\":" << (g.showLeft ? "true" : "false") << ","
-    << "\"showRight\":" << (g.showRight ? "true" : "false") << ","
-    << "\"showFilmstrip\":" << (g.showFilmstrip ? "true" : "false") << "}";
-}
-
-void appendChainJson(std::ostringstream &o, const PersistChain &chain) {
-  o << "\"chain\":{"
-    << "\"selectedNode\":" << chain.selectedNode << ","
-    << "\"nodes\":[";
-  for (size_t i = 0; i < chain.nodes.size(); ++i) {
-    const PersistNode &n = chain.nodes[i];
-    if (i) o << ',';
-    o << '{'
-      << "\"pluginIdentifier\":\"" << jsonEscape(n.pluginIdentifier) << "\","
-      << "\"pluginLabel\":\"" << jsonEscape(n.pluginLabel) << "\","
-      << "\"enabled\":" << (n.enabled ? "true" : "false") << ","
-      << "\"groupOpen\":{";
-    size_t gi = 0;
-    for (const auto &kv : n.groupOpen) {
-      if (gi++) o << ',';
-      o << '"' << jsonEscape(kv.first) << "\":" << (kv.second ? "true" : "false");
-    }
-    o << "},\"params\":{";
-    size_t pi = 0;
-    for (const auto &kv : n.paramsJson) {
-      if (pi++) o << ',';
-      o << '"' << jsonEscape(kv.first) << "\":" << kv.second;
-    }
-    o << "}}";
+JsonValue makeChainJson(const PersistChain &chain) {
+  JsonValue nodes = JsonValue::makeArray();
+  for (const PersistNode &n : chain.nodes) {
+    JsonValue node = JsonValue::makeObject();
+    node.set("pluginIdentifier", JsonValue::makeString(n.pluginIdentifier));
+    node.set("pluginLabel", JsonValue::makeString(n.pluginLabel));
+    node.set("enabled", JsonValue::makeBool(n.enabled));
+    JsonValue groups = JsonValue::makeObject();
+    for (const auto &kv : n.groupOpen) groups.set(kv.first, JsonValue::makeBool(kv.second));
+    node.set("groupOpen", std::move(groups));
+    JsonValue params = JsonValue::makeObject();
+    // Every value is already serialized JSON, so it is stored verbatim.
+    for (const auto &kv : n.paramsJson) params.set(kv.first, JsonValue::fromRaw(kv.second));
+    node.set("params", std::move(params));
+    nodes.arr.push_back(std::move(node));
   }
-  o << "]}";
+  JsonValue chainValue = JsonValue::makeObject();
+  chainValue.set("selectedNode", JsonValue::makeInt(chain.selectedNode));
+  chainValue.set("nodes", std::move(nodes));
+  return chainValue;
 }
 
 bool writeFile(const fs::path &path, const std::string &body) {
@@ -95,13 +73,7 @@ std::string exportSidecarPath(const std::string &exportPath) {
 
 bool isSupportedImagePath(const std::string &path) {
   if (isHostMetadataPath(path)) return false;
-  std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-  if (e == ".exr" || e == ".tif" || e == ".tiff" || e == ".png" || e == ".jpg" || e == ".jpeg") return true;
-  if (e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" || e == ".raf" || e == ".orf" ||
-      e == ".rw2" || e == ".pef" || e == ".srw" || e == ".raw")
-    return true;
-  return false;
+  return isSupportedImageExtension(lowerFileExtension(path));
 }
 
 bool isHostMetadataPath(const std::string &path) {
@@ -110,8 +82,13 @@ bool isHostMetadataPath(const std::string &path) {
 }
 
 std::vector<std::string> openImageDialogFilters() {
-  return {"Images",
-          "*.exr *.tif *.tiff *.png *.jpg *.jpeg *.cr2 *.cr3 *.nef *.arw *.dng *.raf *.orf *.rw2 *.pef *.srw *.raw"};
+  std::string glob;
+  for (const std::string &ext : supportedImageExtensions()) {
+    if (!glob.empty()) glob += ' ';
+    glob += '*';
+    glob += ext;
+  }
+  return {"Images", glob};
 }
 
 std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir) {
@@ -145,14 +122,12 @@ std::string relativeToWorkspace(const std::string &workspaceDir, const std::stri
 }
 
 bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel) {
-  std::ostringstream o;
-  o << '{'
-    << "\"format\":\"ofxrawhost-workspace\","
-    << "\"version\":1,"
-    << "\"activeImage\":\"" << jsonEscape(activeImageRel) << "\",";
-  appendGuiJson(o, gui);
-  o << '}';
-  return writeFile(workspaceProjectPath(workspaceDir), o.str());
+  JsonValue root = JsonValue::makeObject();
+  root.set("format", JsonValue::makeString("ofxrawhost-workspace"));
+  root.set("version", JsonValue::makeInt(1));
+  root.set("activeImage", JsonValue::makeString(activeImageRel));
+  root.set("gui", makeGuiJson(gui));
+  return writeFile(workspaceProjectPath(workspaceDir), root.dump());
 }
 
 static std::string iso8601Now() {
@@ -173,34 +148,27 @@ static std::string iso8601Now() {
 
 bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
                       const PersistChain &chain) {
-  std::ostringstream o;
-  o << '{'
-    << "\"format\":\"ofxrawhost-sidecar\","
-    << "\"version\":1,"
-    << "\"kind\":\"input\","
-    << "\"sourcePath\":\"" << jsonEscape(fs::path(imagePath).filename().string()) << "\","
-    << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\",";
-  appendGuiJson(o, gui);
-  o << ',';
-  appendChainJson(o, chain);
-  o << '}';
-  return writeFile(inputSidecarPath(imagePath), o.str());
+  JsonValue root = JsonValue::makeObject();
+  root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
+  root.set("version", JsonValue::makeInt(1));
+  root.set("kind", JsonValue::makeString("input"));
+  root.set("sourcePath", JsonValue::makeString(fs::path(imagePath).filename().string()));
+  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(inputSpace)));
+  root.set("gui", makeGuiJson(gui));
+  root.set("chain", makeChainJson(chain));
+  return writeFile(inputSidecarPath(imagePath), root.dump());
 }
 
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
                        const PersistGui &gui, const PersistChain &chain) {
-  std::ostringstream o;
-  o << '{'
-    << "\"format\":\"ofxrawhost-sidecar\","
-    << "\"version\":1,"
-    << "\"kind\":\"export\","
-    << "\"sourcePath\":\"" << jsonEscape(sourceImagePath) << "\","
-    << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\","
-    << "\"exportedAt\":\"" << iso8601Now() << "\",";
-  appendGuiJson(o, gui);
-  o << ',';
-  appendChainJson(o, chain);
-  o << '}';
-  return writeFile(exportSidecarPath(exportPath), o.str());
+  JsonValue root = JsonValue::makeObject();
+  root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
+  root.set("version", JsonValue::makeInt(1));
+  root.set("kind", JsonValue::makeString("export"));
+  root.set("sourcePath", JsonValue::makeString(sourceImagePath));
+  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(inputSpace)));
+  root.set("exportedAt", JsonValue::makeString(iso8601Now()));
+  root.set("gui", makeGuiJson(gui));
+  root.set("chain", makeChainJson(chain));
+  return writeFile(exportSidecarPath(exportPath), root.dump());
 }
-

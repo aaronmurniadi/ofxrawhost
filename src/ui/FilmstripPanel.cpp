@@ -2,11 +2,11 @@
 
 #include "Actions.h"
 #include "Filmstrip.h"
+#include "imgio/ImageIO.h"
 
 #include "imgui.h"
 
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -22,13 +22,7 @@ static const FilmstripTabItem kFilmstripTabs[] = {
     {FilmstripTab::Compressed, "Compressed"},
 };
 
-static bool isRawImagePath(const std::string &path) {
-  std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-  return e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" ||
-         e == ".raf" || e == ".orf" || e == ".rw2" || e == ".pef" || e == ".srw" ||
-         e == ".raw";
-}
+static bool isRawImagePath(const std::string &path) { return isRawImageExtension(lowerFileExtension(path)); }
 
 void drawFilmstripPanel(App &app) {
   if (app.workspaceDir.empty() || app.filmstrip.empty()) {
@@ -51,20 +45,19 @@ void drawFilmstripPanel(App &app) {
   const int wantEdge = snapFilmstripThumbEdge(thumbH * fbScale);
   if (app.filmstripThumbEdge.exchange(wantEdge) != wantEdge) invalidateFilmstripThumbs(app);
 
-  pumpFilmstripThumbs(app);
   if (app.filmstripIndex >= 0) requestFilmstripThumb(app, app.filmstripIndex, true);
 
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     if (app.filmstripTab == FilmstripTab::RAW && !isRawImagePath(app.filmstrip[i].path)) continue;
     if (app.filmstripTab == FilmstripTab::Compressed && isRawImagePath(app.filmstrip[i].path)) continue;
     FilmstripEntry &e = app.filmstrip[i];
-    const float aspect = (e.th && e.tw) ? (float)e.tw / (float)e.th : 1.0f;
+    const float aspect = (e.tex.h && e.tex.w) ? (float)e.tex.w / (float)e.tex.h : 1.0f;
     const ImVec2 btnSize(thumbH * aspect, thumbH);
     ImGui::PushID(i);
     const bool selected = i == app.filmstripIndex;
     if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
-    if (e.tex)
-      ImGui::ImageButton("##t", (ImTextureID)(intptr_t)e.tex, btnSize);
+    if (e.tex.id)
+      ImGui::ImageButton("##t", (ImTextureID)(intptr_t)e.tex.id, btnSize);
     else
       ImGui::Button(e.thumbFailed ? "?" : "…", btnSize);
     if (ImGui::IsItemVisible()) requestFilmstripThumb(app, i, selected);

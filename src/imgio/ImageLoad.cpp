@@ -36,6 +36,63 @@
 
 namespace fs = std::filesystem;
 
+// How one extension decodes.
+enum class ImageCodec { Exr, Tiff, Stb, Raw };
+
+// One row per file extension. This table is the only place that lists formats.
+// readIcc extracts an embedded profile, or is null when the format carries none.
+struct ImageFormatRow {
+  const char *ext;
+  ImageCodec codec;
+  bool (*readIcc)(const std::string &path, std::vector<uint8_t> &icc);
+};
+
+static const ImageFormatRow kImageFormats[] = {
+    {".exr", ImageCodec::Exr, nullptr},
+    {".tif", ImageCodec::Tiff, nullptr},
+    {".tiff", ImageCodec::Tiff, nullptr},
+    {".png", ImageCodec::Stb, extractPngIcc},
+    {".jpg", ImageCodec::Stb, extractJpgIcc},
+    {".jpeg", ImageCodec::Stb, extractJpgIcc},
+    {".cr2", ImageCodec::Raw, nullptr},
+    {".cr3", ImageCodec::Raw, nullptr},
+    {".nef", ImageCodec::Raw, nullptr},
+    {".arw", ImageCodec::Raw, nullptr},
+    {".dng", ImageCodec::Raw, nullptr},
+    {".raf", ImageCodec::Raw, nullptr},
+    {".orf", ImageCodec::Raw, nullptr},
+    {".rw2", ImageCodec::Raw, nullptr},
+    {".pef", ImageCodec::Raw, nullptr},
+    {".srw", ImageCodec::Raw, nullptr},
+    {".raw", ImageCodec::Raw, nullptr},
+};
+
+static const ImageFormatRow *imageFormatFor(const std::string &extLower) {
+  for (const ImageFormatRow &row : kImageFormats)
+    if (extLower == row.ext) return &row;
+  return nullptr;
+}
+
+std::string lowerFileExtension(const std::string &path) {
+  std::string e = fs::path(path).extension().string();
+  for (char &c : e) c = (char)tolower((unsigned char)c);
+  return e;
+}
+
+bool isRawImageExtension(const std::string &extLower) {
+  const ImageFormatRow *row = imageFormatFor(extLower);
+  return row && row->codec == ImageCodec::Raw;
+}
+
+bool isSupportedImageExtension(const std::string &extLower) { return imageFormatFor(extLower) != nullptr; }
+
+std::vector<std::string> supportedImageExtensions() {
+  std::vector<std::string> out;
+  out.reserve(sizeof kImageFormats / sizeof kImageFormats[0]);
+  for (const ImageFormatRow &row : kImageFormats) out.emplace_back(row.ext);
+  return out;
+}
+
 static std::mutex gLibRawDecodeMutex;
 
 void flipRows(float *px, int w, int h) {
@@ -308,12 +365,6 @@ static bool loadStbThumbRGBA(const std::string &path, int maxEdge, std::vector<u
   return ok;
 }
 
-static bool isRawExtension(const std::string &extLower) {
-  return extLower == ".cr2" || extLower == ".cr3" || extLower == ".nef" || extLower == ".arw" || extLower == ".dng" ||
-         extLower == ".raf" || extLower == ".orf" || extLower == ".rw2" || extLower == ".pef" || extLower == ".srw" ||
-         extLower == ".raw";
-}
-
 static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w,
                                      int &h) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
@@ -411,15 +462,20 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
   PerfScope _ps("loadImage");
   out = {};
   detected = ColorSpace::sRGB;
-  std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
+  const std::string e = lowerFileExtension(path);
+  const ImageFormatRow *format = imageFormatFor(e);
 
-  if (e == ".exr") {
+  if (format && format->codec == ImageCodec::Raw) {
+    if (!loadRaw(path, out)) return false;
+    detected = ColorSpace::LinearRec2020;
+    return true;
+  }
+  if (format && format->codec == ImageCodec::Exr) {
     if (!loadExr(path, out)) return false;
     detected = ColorSpace::LinearRec2020;
     return true;
   }
-  if (e == ".tif" || e == ".tiff") {
+  if (format && format->codec == ImageCodec::Tiff) {
     std::vector<uint8_t> icc;
     bool isFloat = false;
     if (!loadTiff(path, out, icc, isFloat)) return false;
@@ -427,14 +483,14 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
     return true;
   }
 
+  // Stb decodes PNG and JPEG. It also serves an extension the table does not list.
   std::vector<uint8_t> icc;
-  if (e == ".png") extractPngIcc(path, icc);
-  else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
-
+  if (format && format->readIcc) format->readIcc(path, icc);
   if (loadStb(path, out)) {
     detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
     return true;
   }
+  // A RAW file whose extension the table does not list.
   if (loadRaw(path, out)) {
     detected = ColorSpace::LinearRec2020;
     return true;
@@ -444,10 +500,9 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
 
 bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h) {
   if (maxEdge <= 0) maxEdge = 128;
-  std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-
-  if (isRawExtension(e)) return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
-  if (e == ".png" || e == ".jpg" || e == ".jpeg") return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
+  const ImageFormatRow *format = imageFormatFor(lowerFileExtension(path));
+  if (!format) return false;
+  if (format->codec == ImageCodec::Raw) return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
+  if (format->codec == ImageCodec::Stb) return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
   return false;
 }

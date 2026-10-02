@@ -1,10 +1,11 @@
 // OpenFX host side: property store, suites, plugin loading and CPU rendering.
 #pragma once
 
-#include "ofxImageEffect.h"
+#include "ofxCore.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -39,8 +40,23 @@ OfxStatus propSetN(OfxPropertySetHandle h, const char *k, int n, const T *v) {
 std::string sprop(const PropSet &ps, const char *k, int i = 0);
 double dprop(const PropSet &ps, const char *k, int i, double fallback);
 
+// Parameter kind, resolved once from the kOfxParamType* string. The string stays
+// on Param for the OFX suites. The enum answers shape questions without a compare.
+enum class ParamType {
+  Unknown,
+  Integer, Double, Boolean, Choice, String, Custom, StrChoice, Bytes,
+  PushButton, Group, Page,
+  Integer2D, Double2D, Integer3D, Double3D, RGB, RGBA,
+};
+
+ParamType paramTypeFromString(const std::string &type);
+int paramDimension(ParamType t);
+bool paramIsInteger(ParamType t);
+bool paramIsString(ParamType t);
+
 struct Param {
   std::string type, name;
+  ParamType kind = ParamType::Unknown;
   PropSet props;
   std::vector<double> v;
   std::string s;
@@ -58,12 +74,19 @@ struct Effect {
   std::vector<std::unique_ptr<Clip>> clips;
   float *src = nullptr, *dst = nullptr;
   void *srcMtl = nullptr, *dstMtl = nullptr;  // id<MTLBuffer> when metalEnabled
+  size_t srcMtlBytes = 0, dstMtlBytes = 0;    // capacities of the two buffers above
   bool metalEnabled = false;                  // this render passes MTLBuffer images
   bool metalCapable = false;                  // plugin declared kOfxImageEffectPropMetalRenderSupported
   int w = 0, h = 0;                           // input/source clip dims
   int outW = 0, outH = 0;                     // output clip dims (== w,h unless the plugin changes its RoD)
   int renderGen = 0;
   std::mutex dimMutex;                        // guards w/h/outW/outH: renders write them, suite actions read them
+
+  // Sets the input clip size under dimMutex. The render path owns outW and outH.
+  void setInputSize(int width, int height);
+
+  // Releases the Metal scratch buffers, if any.
+  ~Effect();
 };
 
 // Bumping gLatestGen aborts in-flight interactive renders. gValueMutex guards Param values.

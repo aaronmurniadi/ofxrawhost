@@ -1,2 +1,4 @@
+.cache/
 build/
 .DS_Store
+!.okf/build/

@@ -8,6 +8,7 @@ void clearNodes(App &app);
 bool addNode(App &app, int pluginIndex);
 void destroyNode(App &app, int index);
 void moveNode(App &app, int from, int to);
+void setNodeEnabled(App &app, int index, bool enabled);
 
 void syncOutputTag(App &app);
 void notifyChanged(Node &node, Param *p);

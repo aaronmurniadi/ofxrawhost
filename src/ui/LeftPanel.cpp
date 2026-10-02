@@ -78,11 +78,7 @@ static void drawNodeList(App &app) {
       ImGui::EndDragDropTarget();
     }
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##en", node.enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) {
-      waitRenderIdle(app);  // toggle must not race the worker reading node.enabled
-      node.enabled = !node.enabled;
-      scheduleRender(app);
-    }
+    if (iconBtn("##en", node.enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) setNodeEnabled(app, i, !node.enabled);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
       ImGui::SetTooltip(node.enabled ? "Disable processing" : "Enable processing");
     ImGui::SameLine(0.0f, btnGap);

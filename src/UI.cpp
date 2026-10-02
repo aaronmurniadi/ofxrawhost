@@ -65,6 +65,7 @@ int runApp(const std::string &optionalPath) {
   while (!glfwWindowShouldClose(app.window)) {
     glfwPollEvents();
     pumpDisplayUpload(app);
+    pumpFilmstripThumbs(app);
 
     ImGuiBackend_NewFrame();
     drawUiFrame(app);
@@ -79,7 +80,7 @@ int runApp(const std::string &optionalPath) {
   }
 
   app.quit = true;
-  app.renderCv.notify_one();
+  app.render.cv.notify_one();
   app.thumbCv.notify_one();
   if (app.renderThread.joinable()) app.renderThread.join();
   if (app.thumbThread.joinable()) app.thumbThread.join();
@@ -88,7 +89,7 @@ int runApp(const std::string &optionalPath) {
   clearNodes(app);
 
   freeFilmstripTextures(app.filmstrip);
-  if (app.tex) glDeleteTextures(1, &app.tex);
+  app.tex.destroy();
   ImGuiBackend_Shutdown();
 #if defined(__APPLE__)
   MacPinch_Shutdown();

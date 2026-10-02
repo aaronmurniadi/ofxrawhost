@@ -1,10 +1,15 @@
 #include "NodeGraph.h"
 
 #include "RenderPipeline.h"
+#include "ofxImageEffect.h"
 #include "ofxParam.h"
 
 #include <cctype>
 #include <sstream>
+
+// The color tag lives on a plugin choice parameter with one of these labels.
+static const char kInputColorLabel[] = "Input Color Space";
+static const char kOutputColorLabel[] = "Output Color Space";
 
 Node *selectedNode(App &app) {
   if (app.selectedNode < 0 || app.selectedNode >= (int)app.nodes.size()) return nullptr;
@@ -115,10 +120,11 @@ void notifyChanged(Node &node, Param *p) {
 void applyColorDefaults(App &app, Node &node) {
   for (auto &up : node.instance->params) {
     Param *p = up.get();
-    if (p->type != kOfxParamTypeChoice) continue;
+    if (p->kind != ParamType::Choice) continue;
     const std::string label = sprop(p->props, kOfxPropLabel);
-    const char *want =
-        label == "Input Color Space" ? colorSpaceName(app.inputSpace) : label == "Output Color Space" ? "sRGB" : nullptr;
+    const char *want = label == kInputColorLabel  ? colorSpaceName(app.inputSpace)
+                       : label == kOutputColorLabel ? "sRGB"
+                                                    : nullptr;
     if (!want) continue;
     const auto &options = choiceOptions(p);
     for (size_t i = 0; i < options.size(); ++i) {
@@ -138,7 +144,7 @@ void syncOutputTag(App &app) {
   for (int n = (int)app.nodes.size() - 1; n >= 0; --n) {
     for (auto &up : app.nodes[n].instance->params) {
       Param *p = up.get();
-      if (p->type != kOfxParamTypeChoice || sprop(p->props, kOfxPropLabel) != "Output Color Space" ||
+      if (p->kind != ParamType::Choice || sprop(p->props, kOfxPropLabel) != kOutputColorLabel ||
           dprop(p->props, kOfxParamPropSecret, 0, 0) != 0)
         continue;
       const auto &options = choiceOptions(p);
@@ -212,6 +218,13 @@ void moveNode(App &app, int from, int to) {
   app.nodes.insert(app.nodes.begin() + to, std::move(n));
   app.selectedNode = to;
   syncOutputTag(app);
+  scheduleRender(app);
+}
+
+void setNodeEnabled(App &app, int index, bool enabled) {
+  if (index < 0 || index >= (int)app.nodes.size()) return;
+  waitRenderIdle(app);  // the worker reads node.enabled
+  app.nodes[index].enabled = enabled;
   scheduleRender(app);
 }
 
