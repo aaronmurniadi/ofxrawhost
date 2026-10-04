@@ -9,14 +9,16 @@
 #include <cmath>
 #include <memory>
 
-#define kPluginName "Crop"
+#define kPluginName "Transform"
 #define kPluginGrouping "OFX Raw Host"
-#define kPluginDescription "Crop to an aspect ratio with adjustable crop amount and center offsets."
-#define kPluginIdentifier "com.aaronmurniadi.ofxrawhost.crop"
+#define kPluginDescription "Crop to an aspect ratio, then rotate and zoom the result."
+#define kPluginIdentifier "com.aaronmurniadi.ofxrawhost.transform"
 #define kPluginVersionMajor 1
 #define kPluginVersionMinor 0
 
 namespace {
+
+constexpr double kPi = 3.14159265358979323846;
 
 // ratio == 0 keeps the source aspect ratio.
 struct AspectEntry {
@@ -24,29 +26,41 @@ struct AspectEntry {
   double ratio;
 };
 
+// Ratios are landscape; the orientation parameter swaps width and height.
 const AspectEntry kAspects[] = {
     {"Original", 0.0},
     {"1:1 (Square)", 1.0},
-    {"4:5 (Portrait)", 4.0 / 5.0},
-    {"3:4 (Portrait)", 3.0 / 4.0},
-    {"9:16 (Vertical Video)", 9.0 / 16.0},
-    {"16:9 (Widescreen)", 16.0 / 9.0},
+    {"6:5 (Photo)", 6.0 / 5.0},
+    {"5:4 (Large Format)", 5.0 / 4.0},
     {"4:3 (Classic TV)", 4.0 / 3.0},
+    {"1.37:1 (Academy)", 1.37},
+    {"7:5 (Photo)", 7.0 / 5.0},
+    {"1.43:1 (IMAX)", 1.43},
     {"3:2 (Film Landscape)", 3.0 / 2.0},
-    {"2:3 (Film Portrait)", 2.0 / 3.0},
+    {"16:10 (Widescreen)", 16.0 / 10.0},
+    {"1.66:1 (Super 16)", 1.66},
+    {"5:3 (Wide)", 5.0 / 3.0},
+    {"7:4 (Wide)", 7.0 / 4.0},
+    {"16:9 (Widescreen)", 16.0 / 9.0},
     {"1.85:1 (Cinema Flat)", 1.85},
-    {"2.39:1 (Anamorphic)", 2.39},
+    {"2:1 (Univisium)", 2.0},
     {"21:9 (Ultrawide)", 21.0 / 9.0},
+    {"2.39:1 (Anamorphic)", 2.39},
+    {"3:1 (Panorama)", 3.0},
+    {"4:1 (Extreme Wide)", 4.0},
 };
 
-class CropPlugin : public OFX::ImageEffect {
+class TransformPlugin : public OFX::ImageEffect {
 public:
-  explicit CropPlugin(OfxImageEffectHandle handle)
+  explicit TransformPlugin(OfxImageEffectHandle handle)
       : ImageEffect(handle) {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
     aspect_ = fetchChoiceParam("aspect");
+    orientation_ = fetchChoiceParam("orientation");
     crop_ = fetchDoubleParam("crop");
+    zoom_ = fetchDoubleParam("zoom");
+    rotate_ = fetchDoubleParam("rotate");
     offsetX_ = fetchDoubleParam("offsetX");
     offsetY_ = fetchDoubleParam("offsetY");
   }
@@ -65,20 +79,30 @@ private:
   OFX::Clip *dstClip_;
   OFX::Clip *srcClip_;
   OFX::ChoiceParam *aspect_;
+  OFX::ChoiceParam *orientation_;
   OFX::DoubleParam *crop_;
+  OFX::DoubleParam *zoom_;
+  OFX::DoubleParam *rotate_;
   OFX::DoubleParam *offsetX_;
   OFX::DoubleParam *offsetY_;
 };
 
-void CropPlugin::computeCropWindow(double time, double srcW, double srcH,
-                                   double &x0, double &y0, double &w, double &h) {
+void TransformPlugin::computeCropWindow(double time, double srcW, double srcH,
+                                        double &x0, double &y0, double &w, double &h) {
   int choice = 0;
   aspect_->getValueAtTime(time, choice);
   if (choice < 0 || choice >= static_cast<int>(sizeof kAspects / sizeof kAspects[0]))
     choice = 0;
   double ar = kAspects[choice].ratio;
-  if (ar <= 0.0)
+  const bool original = (ar <= 0.0);
+  if (original)
     ar = srcW / srcH;
+
+  // Original keeps the source shape and ignores orientation.
+  int orient = 0;
+  orientation_->getValueAtTime(time, orient);
+  if (!original && orient == 1)
+    ar = 1.0 / ar;
 
   const double cropVal = std::clamp(crop_->getValueAtTime(time), 0.0, 100.0);
   const double scale = std::max(1.0 - cropVal / 100.0, 0.02);
@@ -104,7 +128,7 @@ void CropPlugin::computeCropWindow(double time, double srcW, double srcH,
   y0 = cy - h * 0.5;
 }
 
-void CropPlugin::render(const OFX::RenderArguments &args) {
+void TransformPlugin::render(const OFX::RenderArguments &args) {
   std::unique_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
   std::unique_ptr<OFX::Image> src(srcClip_->fetchImage(args.time));
   if (!dst || !src)
@@ -129,6 +153,29 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
 
+  // Zoom magnifies inside the fixed crop window. zoom > 1 samples a smaller
+  // source region (magnify), zoom < 1 a wider one.
+  const double zoom = std::clamp(zoom_->getValueAtTime(args.time), 1.0, 1000.0) / 100.0;
+  const double scx = x0 + w * 0.5;
+  const double scy = y0 + h * 0.5;
+  const double sampleW = w / zoom;
+  const double sampleH = h / zoom;
+  const double sx0 = scx - sampleW * 0.5;
+  const double sy0 = scy - sampleH * 0.5;
+
+  const double angle = std::clamp(rotate_->getValueAtTime(args.time), -180.0, 180.0) * kPi / 180.0;
+  const double cosA = std::cos(angle);
+  const double sinA = std::sin(angle);
+
+  // Magnify just enough after rotation so the axis-aligned crop window stays filled (no black wedges).
+  double cover = 1.0;
+  if (angle != 0.0) {
+    const double c = std::abs(cosA);
+    const double s = std::abs(sinA);
+    cover = std::max(c + (h / w) * s, (w / h) * s + c) * (1.0 + 1e-6);
+  }
+  const double rodX0 = x0, rodY0 = y0, rodW = w, rodH = h;
+
   const double outW = static_cast<double>(rw.x2 - rw.x1);
   const double outH = static_cast<double>(rw.y2 - rw.y1);
 
@@ -140,38 +187,48 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
       continue;
 
     const double ny = (y + 0.5 - rw.y1) / outH;
-    const double sy = y0 + ny * h;
-    const double fyRaw = sy * rsy - 0.5 - sb.y1;
-    // Y outside the source: the entire output row is black.
-    if (fyRaw < 0.0 || fyRaw > static_cast<double>(sh - 1)) {
-      for (int x = rw.x1; x < rw.x2; ++x, d += 4)
-        d[0] = d[1] = d[2] = d[3] = 0.0f;
-      continue;
-    }
-    const int iy0 = static_cast<int>(std::floor(fyRaw));
-    const int iy1 = std::min(iy0 + 1, sh - 1);
-    const double ty = fyRaw - iy0;
-    const float *r0 = static_cast<const float *>(src->getPixelAddress(sb.x1, sb.y1 + iy0));
-    const float *r1 = static_cast<const float *>(src->getPixelAddress(sb.x1, sb.y1 + iy1));
-    if (!r0 || !r1)
-      continue;
+    const double dy = rodY0 + ny * rodH - scy;
 
     for (int x = rw.x1; x < rw.x2; ++x, d += 4) {
       const double nx = (x + 0.5 - rw.x1) / outW;
-      const double sx = x0 + nx * w;
-      const double fxRaw = sx * rsx - 0.5 - sb.x1;
-      // X outside the source: this pixel is black.
-      if (fxRaw < 0.0 || fxRaw > static_cast<double>(sw - 1)) {
+      const double dx = rodX0 + nx * rodW - scx;
+      // Inverse rotation of the output pixel about the crop center.
+      const double ux = dx * cosA + dy * sinA;
+      const double uy = -dx * sinA + dy * cosA;
+      const double fx = 0.5 + ux / (w * cover);
+      const double fy = 0.5 + uy / (h * cover);
+      // Outside the magnified sample window (only at extreme zoom/rotation).
+      if (fx < 0.0 || fx > 1.0 || fy < 0.0 || fy > 1.0) {
         d[0] = d[1] = d[2] = d[3] = 0.0f;
         continue;
       }
-      const int ix0 = static_cast<int>(std::floor(fxRaw));
+      const double sx = sx0 + fx * sampleW;
+      const double sy = sy0 + fy * sampleH;
+      const double fpx = sx * rsx - 0.5 - sb.x1;
+      const double fpy = sy * rsy - 0.5 - sb.y1;
+      // Outside the source by more than half a pixel: this pixel is black.
+      if (fpx < -0.5 || fpx > static_cast<double>(sw) - 0.5 ||
+          fpy < -0.5 || fpy > static_cast<double>(sh) - 0.5) {
+        d[0] = d[1] = d[2] = d[3] = 0.0f;
+        continue;
+      }
+      // Clamp the outer half pixel to the source edge.
+      const double cpx = std::clamp(fpx, 0.0, static_cast<double>(sw - 1));
+      const double cpy = std::clamp(fpy, 0.0, static_cast<double>(sh - 1));
+      const int ix0 = static_cast<int>(std::floor(cpx));
       const int ix1 = std::min(ix0 + 1, sw - 1);
-      const double tx = fxRaw - ix0;
-      const float *p00 = r0 + ix0 * 4;
-      const float *p10 = r0 + ix1 * 4;
-      const float *p01 = r1 + ix0 * 4;
-      const float *p11 = r1 + ix1 * 4;
+      const int iy0 = static_cast<int>(std::floor(cpy));
+      const int iy1 = std::min(iy0 + 1, sh - 1);
+      const double tx = cpx - ix0;
+      const double ty = cpy - iy0;
+      const float *p00 = static_cast<const float *>(src->getPixelAddress(sb.x1 + ix0, sb.y1 + iy0));
+      const float *p10 = static_cast<const float *>(src->getPixelAddress(sb.x1 + ix1, sb.y1 + iy0));
+      const float *p01 = static_cast<const float *>(src->getPixelAddress(sb.x1 + ix0, sb.y1 + iy1));
+      const float *p11 = static_cast<const float *>(src->getPixelAddress(sb.x1 + ix1, sb.y1 + iy1));
+      if (!p00 || !p10 || !p01 || !p11) {
+        d[0] = d[1] = d[2] = d[3] = 0.0f;
+        continue;
+      }
       for (int c = 0; c < 4; ++c) {
         const double top = p00[c] + tx * (p10[c] - p00[c]);
         const double bot = p01[c] + tx * (p11[c] - p01[c]);
@@ -181,7 +238,7 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
   }
 }
 
-bool CropPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &args, OfxRectD &rod) {
+bool TransformPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &args, OfxRectD &rod) {
   // Source clip RoD is in canonical coordinates; with this host's renderScale {1,1}
   // canonical equals pixel, so the crop window maps directly to output dimensions.
   OfxRectD srcRod;
@@ -197,15 +254,17 @@ bool CropPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &a
 
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
+
+  // The canvas stays the crop window; rotation never changes the output size.
   rod = {x0, y0, x0 + w, y0 + h};
   return true;
 }
 
 }  // namespace
 
-mDeclarePluginFactory(CropPluginFactory, {}, {});
+mDeclarePluginFactory(TransformPluginFactory, {}, {});
 
-void CropPluginFactory::describe(OFX::ImageEffectDescriptor &desc) {
+void TransformPluginFactory::describe(OFX::ImageEffectDescriptor &desc) {
   desc.setLabels(kPluginName, kPluginName, kPluginName);
   desc.setPluginGrouping(kPluginGrouping);
   desc.setPluginDescription(kPluginDescription);
@@ -220,7 +279,7 @@ void CropPluginFactory::describe(OFX::ImageEffectDescriptor &desc) {
   desc.setSupportsMultipleClipPARs(false);
 }
 
-void CropPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum) {
+void TransformPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum) {
   using namespace OFX;
 
   ClipDescriptor *srcClip = desc.defineClip(kOfxImageEffectSimpleSourceClipName);
@@ -243,6 +302,14 @@ void CropPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX:
     aspect->appendOption(a.label);
   page->addChild(*aspect);
 
+  ChoiceParamDescriptor *orientation = desc.defineChoiceParam("orientation");
+  orientation->setLabels("Orientation", "Orientation", "Landscape keeps the aspect ratio; Portrait swaps width and height.");
+  orientation->setHint("Landscape keeps the chosen aspect ratio. Portrait swaps its width and height. The Original aspect ratio keeps the source shape and ignores this parameter.");
+  orientation->setDefault(0);
+  orientation->appendOption("Landscape");
+  orientation->appendOption("Portrait");
+  page->addChild(*orientation);
+
   DoubleParamDescriptor *crop = desc.defineDoubleParam("crop");
   crop->setLabels("Crop", "Crop", "Amount to crop in, in percent: 0 outputs the full image.");
   crop->setHint("Amount to crop in, in percent. 0 outputs the full image (identity). Higher values crop to a centered region matching the aspect ratio, shrinking the output so downstream plugins process fewer pixels. At 100 the region is 2% of the source.");
@@ -251,6 +318,24 @@ void CropPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX:
   crop->setDisplayRange(0, 100);
   crop->setIncrement(1);
   page->addChild(*crop);
+
+  DoubleParamDescriptor *zoom = desc.defineDoubleParam("zoom");
+  zoom->setLabels("Zoom", "Zoom", "Magnify inside the crop window; 100 is 1:1 and higher values magnify.");
+  zoom->setHint("Magnify inside the crop window. 100 samples the crop window at 1:1. Higher values sample a smaller source region and magnify. Lower values sample a wider region and shrink. The output size does not change.");
+  zoom->setDefault(100);
+  zoom->setRange(1, 1000);
+  zoom->setDisplayRange(10, 400);
+  zoom->setIncrement(1);
+  page->addChild(*zoom);
+
+  DoubleParamDescriptor *rotate = desc.defineDoubleParam("rotate");
+  rotate->setLabels("Rotate", "Rotate", "Rotate the cropped image about its center, in degrees.");
+  rotate->setHint("Rotate the cropped image about its center, in degrees, from -180 to 180. The crop window stays the output size; the image scales up as needed so the frame stays filled with no black corners.");
+  rotate->setDefault(0);
+  rotate->setRange(-180, 180);
+  rotate->setDisplayRange(-180, 180);
+  rotate->setIncrement(0.01);
+  page->addChild(*rotate);
 
   DoubleParamDescriptor *offsetX = desc.defineDoubleParam("offsetX");
   offsetX->setLabels("Offset X", "Offset X", "Pan the crop window horizontally; -100 moves it fully left, 100 fully right.");
@@ -271,15 +356,15 @@ void CropPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX:
   page->addChild(*offsetY);
 }
 
-OFX::ImageEffect *CropPluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum) {
-  return new CropPlugin(handle);
+OFX::ImageEffect *TransformPluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum) {
+  return new TransformPlugin(handle);
 }
 
 namespace OFX {
 namespace Plugin {
 
 void getPluginIDs(OFX::PluginFactoryArray &ids) {
-  static CropPluginFactory p(kPluginIdentifier, kPluginVersionMajor, kPluginVersionMinor);
+  static TransformPluginFactory p(kPluginIdentifier, kPluginVersionMajor, kPluginVersionMinor);
   ids.push_back(&p);
 }
 

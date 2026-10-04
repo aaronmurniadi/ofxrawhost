@@ -35,17 +35,20 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 
 ## Bundled plugins
 
-### Crop
+### Transform
 
-A bundled OFX plugin that simply crops the image. Intended at the **beginning of a plugin chain**
-so downstream plugins process fewer pixels, it implements `getRegionOfDefinition` to report the
-cropped output dimensions directly to the host.
+A bundled OFX plugin that crops, rotates, and zooms the image. Intended at the **beginning of a plugin
+chain** so downstream plugins process fewer pixels, it implements `getRegionOfDefinition` to report
+the output dimensions directly to the host.
 
 **Parameters:**
 
 - **Crop** — crop amount from 0 to 100, default 0. At 0 the plugin outputs the full image (identity). At 100 the region is 2% of the source in each dimension, which is 0.04% of the source area.
-- **Aspect Ratio** — crop window aspect ratio. Options: *Original* (source ratio), *1:1 (Square)*, *4:5 (Portrait)*, *3:4 (Portrait)*, *9:16 (Vertical Video)*, *16:9 (Widescreen)*, *4:3 (Classic TV)*, *3:2 (Film Landscape)*, *2:3 (Film Portrait)*, *1.85:1 (Cinema Flat)*, *2.39:1 (Anamorphic)*, *21:9 (Ultrawide)*. The default is *Original*.
-- **Offset X / Offset Y** — pan the crop window from -100 to 100, default 0. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a 4:5 aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge. The out-of-bounds area is filled with **black pixels**.
+- **Aspect Ratio** — crop window aspect ratio. The list holds landscape ratios: _Original_ (source ratio), _1:1 (Square)_, _6:5 (Photo)_, _5:4 (Large Format)_, _4:3 (Classic TV)_, _1.37:1 (Academy)_, _7:5 (Photo)_, _1.43:1 (IMAX)_, _3:2 (Film Landscape)_, _16:10 (Widescreen)_, _1.66:1 (Super 16)_, _5:3 (Wide)_, _7:4 (Wide)_, _16:9 (Widescreen)_, _1.85:1 (Cinema Flat)_, _2:1 (Univisium)_, _21:9 (Ultrawide)_, _2.39:1 (Anamorphic)_, _3:1 (Panorama)_, and _4:1 (Extreme Wide)_. The default is _Original_.
+- **Orientation** — _Landscape_ or _Portrait_, default _Landscape_. Portrait swaps the width and height of the chosen aspect ratio. _Original_ keeps the source shape and ignores this parameter.
+- **Zoom** — magnification inside the crop window, from 1 to 1000, default 100. 100 samples the crop window at 1:1. Higher values sample a smaller source region and magnify; lower values sample a wider region and shrink. The output size does not change.
+- **Rotate** — rotate the cropped image about its center, in degrees, from -180 to 180, default 0. The crop window stays the output size; the image scales up as needed so the frame stays filled (straight edges, no black corner wedges).
+- **Offset X / Offset Y** — pan the crop window from -100 to 100, default 0. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a portrait aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge. The out-of-bounds area is filled with **black pixels**.
 
 ---
 
@@ -166,6 +169,10 @@ build/OfxRawHost --selftest
 | Performance: progressive preview draws a draft then full res        | Done (v0.3.15) |
 | Performance: async PBO display texture upload                       | Done (v0.3.15) |
 | Performance: parallel display color conversion                      | Done (v0.3.15) |
+| Bundled plugin: Crop becomes Transform (orientation, zoom, rotate)  | Done (v0.3.16) |
+| Transform rotates with cover-scale so the frame has no black wedges | Done (v0.3.16) |
+| Transform samples bilinearly with clamped edge pixels               | Done (v0.3.16) |
+| Parameter widgets honor the OFX increment; wide ranges use drag     | Done (v0.3.16) |
 | Packaged Windows and Linux releases                                 | Planned        |
 
 ---

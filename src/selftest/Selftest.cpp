@@ -1,4 +1,4 @@
-// Self-test cases: decode and color checks, the bundled Crop plugin, every
+// Self-test cases: decode and color checks, the bundled Transform plugin, every
 // installed plugin, and a concurrency smoke case. Run with --selftest.
 
 #include "selftest/Selftest.h"
@@ -122,15 +122,15 @@ static Image makeTestImage() {
   return src;
 }
 
-// Bundled Crop plugin: defaults must be an identity pass-through with a
+// Bundled Transform plugin: defaults must be an identity pass-through with a
 // full-size RoD; the crop slider must shrink the RoD and change the rendered
 // output. Checked first so a flaky third-party plugin later in the list
 // cannot mask a regression here.
-static int testCropPlugin(Image &src) {
-  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Crop"; });
-  if (it == gPlugins.end()) return fail("bundled Crop plugin not found");
+static int testTransformPlugin(Image &src) {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == gPlugins.end()) return fail("bundled Transform plugin not found");
   auto e = createInstance(*it);
-  if (!e) return fail("createInstance: Crop");
+  if (!e) return fail("createInstance: Transform");
 
   // At default (crop=0): RoD matches source size and render is identity.
   int ow = src.w, oh = src.h;
@@ -141,7 +141,7 @@ static int testCropPlugin(Image &src) {
   out.h = src.h;
   out.px.assign(src.px.size(), -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, src.w, src.h, 0) != kOfxStatOK)
-    return fail("render: Crop (defaults)");
+    return fail("render: Transform (defaults)");
   if (out.px != src.px) return fail("crop defaults are not identity");
 
   // At crop=80: RoD should shrink and render to the smaller output should differ.
@@ -155,7 +155,7 @@ static int testCropPlugin(Image &src) {
   out.h = oh;
   out.px.assign((size_t)ow * oh * 4, -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
-    return fail("render: Crop (zoomed)");
+    return fail("render: Transform (zoomed)");
   bool finite = true, changed = false;
   for (float v : out.px) {
     finite &= std::isfinite(v);
@@ -178,13 +178,13 @@ static int testCropPlugin(Image &src) {
   out.px.assign((size_t)ow * oh * 4, -1.0f);
   offsetX->v[0] = 0; offsetY->v[0] = 0;
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
-    return fail("render: Crop (centered)");
+    return fail("render: Transform (centered)");
   for (float v : out.px)
     if (v == 0.0f) return fail("centered crop should have no black pixels");
   offsetY->v[0] = 100;
   std::fill(out.px.begin(), out.px.end(), -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
-    return fail("render: Crop (Y offset)");
+    return fail("render: Transform (Y offset)");
   changed = false;
   for (float v : out.px)
     changed |= v == 0.0f;
@@ -192,13 +192,36 @@ static int testCropPlugin(Image &src) {
   offsetX->v[0] = 100; offsetY->v[0] = 0;
   std::fill(out.px.begin(), out.px.end(), -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
-    return fail("render: Crop (X offset)");
+    return fail("render: Transform (X offset)");
   changed = false;
   for (float v : out.px)
     changed |= v == 0.0f;
   if (!changed) return fail("X offset produced no black fill");
+
+  // Rotate: canvas stays the crop window; image magnifies to fill it (no black wedges).
+  Param *rotate = findParam(e.get(), "rotate");
+  if (!rotate || rotate->v.empty()) return fail("rotate param missing");
+  offsetX->v[0] = 0;
+  offsetY->v[0] = 0;
+  rotate->v[0] = 45;
+  ow = src.w; oh = src.h;
+  queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
+  if (ow != src.w || oh != src.h) return fail("rotate changed the RoD");
+  out.w = ow;
+  out.h = oh;
+  out.px.assign((size_t)ow * oh * 4, -1.0f);
+  if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
+    return fail("render: Transform (rotate)");
+  bool finiteRot = true, hasBlack = false, touched = false;
+  for (float v : out.px) {
+    finiteRot &= std::isfinite(v);
+    hasBlack |= v == 0.0f;
+    touched |= v != -1.0f;
+  }
+  if (!finiteRot || !touched) return fail("rotate output");
+  if (hasBlack) return fail("rotate left black pixels in frame");
   callAction(it->plugin, kOfxActionDestroyInstance, e.get());
-  printf("ok  Crop zoom\n");
+  printf("ok  Transform crop/zoom/rotate\n");
   return 0;
 }
 
@@ -248,20 +271,20 @@ static int testConcurrency(const Image &src) {
     if (!selftestExcluded(gPlugins[i])) usable.push_back(i);
   if (usable.empty()) return fail("concurrency: no usable plugins");
 
-  int cropPi = -1;
+  int transformPi = -1;
   for (int pi = 0; pi < (int)gPlugins.size(); ++pi)
-    if (gPlugins[pi].label == "Crop") cropPi = pi;
-  if (cropPi < 0) return fail("concurrency: Crop plugin missing");
+    if (gPlugins[pi].label == "Transform") transformPi = pi;
+  if (transformPi < 0) return fail("concurrency: Transform plugin missing");
 
   App app;
   app.full = src;
   app.preview = src;
   app.renderThread = std::thread(renderWorker, &app);
-  if (!addNode(app, cropPi)) return fail("concurrency addNode 1");
+  if (!addNode(app, transformPi)) return fail("concurrency addNode 1");
   for (int pi : usable)
-    if (pi != cropPi && !addNode(app, pi)) return fail("concurrency addNode 2");
+    if (pi != transformPi && !addNode(app, pi)) return fail("concurrency addNode 2");
 
-  // UI-side queryOutputSize runs Crop's getRoD, whose clip-RoD suite reads must
+  // UI-side queryOutputSize runs Transform's getRoD, whose clip-RoD suite reads must
   // not race the worker's dim writes in renderEffect/queryOutputSize.
   for (int k = 0; k < 8; ++k) {
     scheduleRender(app);
@@ -315,7 +338,7 @@ int runSelfTest() {
   if (const int rc = testRowOrder()) return rc;
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
-  if (const int rc = testCropPlugin(src)) return rc;
+  if (const int rc = testTransformPlugin(src)) return rc;
   if (const int rc = testEveryPlugin(src)) return rc;
   if (const int rc = testConcurrency(src)) return rc;
   return 0;

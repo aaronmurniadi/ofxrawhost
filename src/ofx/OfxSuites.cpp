@@ -219,7 +219,13 @@ void refreshParamUiCache(Effect *e) {
       ui.displayMax = hi;
       ui.hardMin = dprop(p->props, kOfxParamPropMin, 0, lo);
       ui.hardMax = dprop(p->props, kOfxParamPropMax, 0, hi);
-      ui.step = p->kind == ParamType::Integer ? 1.0 : std::max((hi - lo) / 100.0, 1e-6);
+      const double inc = dprop(p->props, kOfxParamPropIncrement, 0, 0);
+      if (p->kind == ParamType::Integer)
+        ui.step = 1.0;
+      else if (inc > 0 && std::isfinite(inc))
+        ui.step = inc;
+      else
+        ui.step = std::max((hi - lo) / 100.0, 1e-6);
     }
   }
 }

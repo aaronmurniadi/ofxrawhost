@@ -188,7 +188,7 @@ else()
   target_link_libraries(OfxRawHost PRIVATE OpenGL::GL)
 endif()
 
-# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Crop) ---
+# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform) ---
 find_package(Threads REQUIRED)
 
 # The support lib's log-indent counter is a process-global int (upstream calls it
@@ -220,16 +220,16 @@ set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
 # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
-add_library(OfxRawHostCrop MODULE plugins/Crop.cpp)
-set_target_properties(OfxRawHostCrop PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
-target_link_libraries(OfxRawHostCrop PRIVATE OfxSupport)
+add_library(OfxRawHostTransform MODULE plugins/Transform.cpp)
+set_target_properties(OfxRawHostTransform PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
+target_link_libraries(OfxRawHostTransform PRIVATE OfxSupport)
 if(APPLE)
-  target_link_libraries(OfxRawHostCrop PRIVATE "-framework OpenGL")
+  target_link_libraries(OfxRawHostTransform PRIVATE "-framework OpenGL")
 elseif(WIN32)
-  target_link_libraries(OfxRawHostCrop PRIVATE opengl32)
+  target_link_libraries(OfxRawHostTransform PRIVATE opengl32)
 else()
   find_package(OpenGL REQUIRED)
-  target_link_libraries(OfxRawHostCrop PRIVATE OpenGL::GL)
+  target_link_libraries(OfxRawHostTransform PRIVATE OpenGL::GL)
 endif()
 
 # Arch subdir must match pluginBinary() in src/ofx/OfxPlugins.cpp.
@@ -248,15 +248,15 @@ else()
 endif()
 
 set(OFX_BUNDLE "${CMAKE_BINARY_DIR}/Plugins/OfxRawHost.ofx.bundle")
-add_custom_command(TARGET OfxRawHostCrop POST_BUILD
+add_custom_command(TARGET OfxRawHostTransform POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}"
-  COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostCrop>"
+  COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostTransform>"
     "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}/OfxRawHost.ofx"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/plugins/Info.plist" "${OFX_BUNDLE}/Contents/Info.plist"
   COMMENT "Assembling OfxRawHost.ofx.bundle"
 )
-add_dependencies(OfxRawHost OfxRawHostCrop)
+add_dependencies(OfxRawHost OfxRawHostTransform)
 
 # macOS app bundle packaging (optional convenience target)
 if(APPLE)
@@ -274,6 +274,6 @@ if(APPLE)
       ${OFX_BUNDLE}
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle
     COMMAND ${CMAKE_COMMAND} -E echo "Built ${CMAKE_BINARY_DIR}/OfxRawHost.app"
-    DEPENDS OfxRawHost OfxRawHostCrop
+    DEPENDS OfxRawHost OfxRawHostTransform
   )
 endif()

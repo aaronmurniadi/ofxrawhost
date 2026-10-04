@@ -160,7 +160,16 @@ static void drawParam(App &app, Param *p) {
     ImGui::SameLine(0, gap);
     ImGui::SetNextItemWidth(valueWidth());
     float fv = (float)paramValue(p, 0);
-    if (ImGui::SliderFloat(ui.idLabel.c_str(), &fv, (float)lo, (float)hi)) {
+    const float range = (float)(hi - lo);
+    const float dragSpeed = (float)std::max(step, 1e-6);
+    const bool fineDrag = !isInt && (range > 100.0f || step < 1.0);
+    if (fineDrag) {
+      if (ImGui::DragFloat(ui.idLabel.c_str(), &fv, dragSpeed, (float)lo, (float)hi, "%.3f")) {
+        std::lock_guard<std::mutex> lock(gValueMutex);
+        p->v[0] = fv;
+        changed = true;
+      }
+    } else if (ImGui::SliderFloat(ui.idLabel.c_str(), &fv, (float)lo, (float)hi)) {
       std::lock_guard<std::mutex> lock(gValueMutex);
       p->v[0] = isInt ? std::round(fv) : fv;
       changed = true;
