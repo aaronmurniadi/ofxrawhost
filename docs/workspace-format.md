@@ -36,9 +36,7 @@ Dock panel sizes and splits are stored separately in ImGui’s layout file:
 
 Paths in `activeImage` are relative to the workspace directory when possible.
 
-### Legacy layout fields
-
-Older files may still contain `leftW`, `rightW`, and `filmstripH` under `gui`. The host still **reads** them to seed a default DockSpace layout when no `.ofxrawhost-layout.ini` exists. They are no longer written on save; ImGui’s `.ini` owns panel geometry.
+Panel geometry is not stored here or in the sidecars; ImGui's layout `.ini` owns it.
 
 ## Input image sidecar
 

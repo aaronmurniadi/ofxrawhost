@@ -16,7 +16,7 @@
 namespace fs = std::filesystem;
 
 JsonValue makeGuiJson(const PersistGui &g) {
-  // Panel sizes (leftW/rightW/filmstripH) are legacy; layout lives in the ImGui .ini.
+  // Panel geometry lives in ImGui's layout .ini, not in this JSON.
   JsonValue gui = JsonValue::makeObject();
   gui.set("outputIndex", JsonValue::makeInt(g.outputIndex));
   gui.set("exportFormat", JsonValue::makeInt(g.exportFormat));

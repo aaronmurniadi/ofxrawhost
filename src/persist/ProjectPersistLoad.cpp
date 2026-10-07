@@ -13,10 +13,7 @@ void loadGui(const JsonValue &gui, PersistGui &g) {
   g.themeIndex = (int)gui.integer("themeIndex", g.themeIndex);
   g.showLeft = gui.boolean("showLeft", g.showLeft);
   g.showRight = gui.boolean("showRight", g.showRight);
-  g.leftW = (float)gui.number("leftW", g.leftW);
-  g.rightW = (float)gui.number("rightW", g.rightW);
   g.showFilmstrip = gui.boolean("showFilmstrip", g.showFilmstrip);
-  g.filmstripH = (float)gui.number("filmstripH", g.filmstripH);
 }
 
 bool loadChain(const JsonValue &chain, PersistChain &out) {

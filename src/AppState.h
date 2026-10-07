@@ -59,10 +59,6 @@ struct GuiState {
   bool showLeft = true;
   bool showRight = true;
   bool showFilmstrip = true;
-  // Legacy layout sizes (read from old JSON; DockBuilder uses them once if no .ini).
-  float leftW = 280.0f;
-  float rightW = 420.0f;
-  float filmstripH = 96.0f;
   int themeIndex = 2;  // Photoshop
   float previewZoom = 1.0f;  // 1 = fit in view
   float previewPanX = 0.0f;

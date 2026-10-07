@@ -15,10 +15,7 @@ PersistGui captureGui(const App &app) {
   g.themeIndex = app.gui.themeIndex;
   g.showLeft = app.gui.showLeft;
   g.showRight = app.gui.showRight;
-  g.leftW = app.gui.leftW;
-  g.rightW = app.gui.rightW;
   g.showFilmstrip = app.gui.showFilmstrip;
-  g.filmstripH = app.gui.filmstripH;
   return g;
 }
 
@@ -30,10 +27,7 @@ void applyGui(App &app, const PersistGui &g) {
   if (g.themeIndex >= 0 && g.themeIndex < themeCount()) app.gui.themeIndex = g.themeIndex;
   app.gui.showLeft = g.showLeft;
   app.gui.showRight = g.showRight;
-  app.gui.leftW = g.leftW;
-  app.gui.rightW = g.rightW;
   app.gui.showFilmstrip = g.showFilmstrip;
-  app.gui.filmstripH = std::clamp(g.filmstripH, 48.0f, 240.0f);
   app.gui.themeApplyPending = true;
 }
 

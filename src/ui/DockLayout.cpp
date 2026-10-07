@@ -3,21 +3,22 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
-#include <algorithm>
-
 namespace DockLayout {
 
-static void buildDefaultLayout(App &app, ImGuiID dockspaceId) {
+// Default split fractions used until ImGui's layout .ini supplies real geometry.
+static constexpr float kDefaultLeftRatio = 0.15f;
+static constexpr float kDefaultRightRatio = 0.22f;
+static constexpr float kDefaultStripRatio = 0.09f;
+
+static void buildDefaultLayout(ImGuiID dockspaceId) {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
   ImGui::DockBuilderRemoveNode(dockspaceId);
   ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
   ImGui::DockBuilderSetNodeSize(dockspaceId, vp->WorkSize);
 
-  const float refW = std::max(1.0f, vp->WorkSize.x);
-  const float refH = std::max(1.0f, vp->WorkSize.y);
-  const float leftRatio = std::clamp(app.gui.leftW / refW, 0.12f, 0.40f);
-  const float rightRatio = std::clamp(app.gui.rightW / refW, 0.12f, 0.45f);
-  const float stripRatio = std::clamp(app.gui.filmstripH / refH, 0.08f, 0.35f);
+  const float leftRatio = kDefaultLeftRatio;
+  const float rightRatio = kDefaultRightRatio;
+  const float stripRatio = kDefaultStripRatio;
 
   ImGuiID dockMain = dockspaceId;
   ImGuiID dockLeft = 0;
@@ -52,7 +53,7 @@ void BeginMainDockSpace(App &app) {
   const ImGuiID dockspaceId = ImGui::GetID("OfxRawHostDock");
   const bool missingNode = ImGui::DockBuilderGetNode(dockspaceId) == nullptr;
   if (missingNode || app.gui.layoutApplyPending) {
-    buildDefaultLayout(app, dockspaceId);
+    buildDefaultLayout(dockspaceId);
     app.gui.layoutApplyPending = false;
   }
 
