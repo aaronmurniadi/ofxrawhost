@@ -87,18 +87,24 @@ add_executable(OfxRawHost
   src/imgio/ImageWrite.cpp
   src/UI.cpp
   src/NodeGraph.cpp
-  src/RenderPipeline.cpp
+  src/ParamBridge.cpp
+  src/ChainRenderer.cpp
+  src/RenderScheduler.cpp
   src/Actions.cpp
   src/persist/DocumentActions.cpp
+  src/persist/ChainIO.cpp
+  src/persist/Json.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
   src/ui/Themes.cpp
+  src/ui/GlTexture.cpp
   src/Filmstrip.cpp
   src/ui/ImGuiBackend.cpp
   src/ui/DockLayout.cpp
   src/ui/UiFrame.cpp
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
+  src/ui/ParamEdit.cpp
   src/ui/LeftPanel.cpp
   src/ui/RightPanel.cpp
   src/ui/PreviewPanel.cpp

@@ -1,7 +1,7 @@
 #include "ui/ParamWidgets.h"
 
 #include "NodeGraph.h"
-#include "RenderPipeline.h"
+#include "ui/ParamEdit.h"
 #include "ui/Widgets.h"
 
 #include "imgui.h"
@@ -61,29 +61,13 @@ static void drawPlusIcon(ImVec2 a, ImVec2 b) {
   dl->AddLine(ImVec2(cx, a.y + pad), ImVec2(cx, b.y - pad), col, 1.4f);
 }
 
-// Param values are shared with in-flight renders; snapshot them under the value lock.
-static double paramValue(const Param *p, size_t i) {
-  std::lock_guard<std::mutex> lock(gValueMutex);
-  return p->v[i];
-}
-
-static std::string paramString(const Param *p) {
-  std::lock_guard<std::mutex> lock(gValueMutex);
-  return p->s;
-}
-
 static bool resetParamButton(Param *p) {
   const float h = ImGui::GetFrameHeight();
   const bool clicked = ImGui::Button("##reset", ImVec2(h, h));
   drawResetIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Reset to default");
   if (!clicked) return false;
-  std::lock_guard<std::mutex> lock(gValueMutex);
-  if (paramIsString(p->kind)) {
-    p->s = p->ui.defaultString;
-    return true;
-  }
-  for (size_t i = 0; i < p->v.size() && i < p->ui.defaults.size(); ++i) p->v[i] = p->ui.defaults[i];
+  resetParamToDefault(p);
   return true;
 }
 
@@ -139,18 +123,16 @@ static void drawParam(App &app, Param *p) {
     const double hardHi = ui.hardMax;
     const double step = ui.step;
     auto nudge = [&](double d) {
-      std::lock_guard<std::mutex> lock(gValueMutex);
-      const double v = std::clamp(p->v[0] + d, lo, hi);
-      p->v[0] = isInt ? std::round(v) : v;
+      const double v = std::clamp(paramScalar(p, 0) + d, lo, hi);
+      setParamScalar(p, 0, isInt ? std::round(v) : v);
       changed = true;
     };
 
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
-    double typed = paramValue(p, 0);
+    double typed = paramScalar(p, 0);
     if (paramEditButton(typed, isInt, hardLo, hardHi)) {
-      std::lock_guard<std::mutex> lock(gValueMutex);
-      p->v[0] = typed;
+      setParamScalar(p, 0, typed);
       changed = true;
     }
     ImGui::SameLine(0, gap);
@@ -159,56 +141,51 @@ static void drawParam(App &app, Param *p) {
     if (paramStepButton(true)) nudge(step);
     ImGui::SameLine(0, gap);
     ImGui::SetNextItemWidth(valueWidth());
-    float fv = (float)paramValue(p, 0);
+    float fv = (float)paramScalar(p, 0);
     const float range = (float)(hi - lo);
     const float dragSpeed = (float)std::max(step, 1e-6);
     const bool fineDrag = !isInt && (range > 100.0f || step < 1.0);
     if (fineDrag) {
       if (ImGui::DragFloat(ui.idLabel.c_str(), &fv, dragSpeed, (float)lo, (float)hi, "%.3f")) {
-        std::lock_guard<std::mutex> lock(gValueMutex);
-        p->v[0] = fv;
+        setParamScalar(p, 0, fv);
         changed = true;
       }
     } else if (ImGui::SliderFloat(ui.idLabel.c_str(), &fv, (float)lo, (float)hi)) {
-      std::lock_guard<std::mutex> lock(gValueMutex);
-      p->v[0] = isInt ? std::round(fv) : fv;
+      setParamScalar(p, 0, isInt ? std::round(fv) : fv);
       changed = true;
     }
   } else if (p->kind == ParamType::Boolean) {
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
-    bool v = paramValue(p, 0) != 0;
+    bool v = paramScalar(p, 0) != 0;
     if (ImGui::Checkbox(ui.idLabel.c_str(), &v)) {
-      std::lock_guard<std::mutex> lock(gValueMutex);
-      p->v[0] = v ? 1 : 0;
+      setParamScalar(p, 0, v ? 1.0 : 0.0);
       changed = true;
     }
   } else if (p->kind == ParamType::Choice) {
     if (resetParamButton(p)) changed = true;
     ImGui::SameLine(0, gap);
-    int cur = (int)paramValue(p, 0);
+    int cur = (int)paramScalar(p, 0);
     ImGui::SetNextItemWidth(valueWidth());
     if (!ui.choicePtrs.empty() && ImGui::Combo(ui.idLabel.c_str(), &cur, ui.choicePtrs.data(), (int)ui.choicePtrs.size())) {
-      std::lock_guard<std::mutex> lock(gValueMutex);
-      p->v[0] = cur;
+      setParamScalar(p, 0, cur);
       changed = true;
     }
   } else if (p->kind == ParamType::PushButton) {
     if (ImGui::Button(ui.idLabel.c_str())) changed = true;
   } else if (p->kind == ParamType::String) {
     char buf[512];
-    std::snprintf(buf, sizeof buf, "%s", paramString(p).c_str());
+    std::snprintf(buf, sizeof buf, "%s", paramText(p).c_str());
     if (!ui.stringIsLabel) {
       if (resetParamButton(p)) changed = true;
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(valueWidth());
       if (ImGui::InputText(ui.idLabel.c_str(), buf, sizeof buf)) {
-        std::lock_guard<std::mutex> lock(gValueMutex);
-        p->s = buf;
+        setParamString(p, buf);
         changed = true;
       }
     } else {
-      ImGui::Text("%s: %s", ui.label.c_str(), paramString(p).c_str());
+      ImGui::Text("%s: %s", ui.label.c_str(), paramText(p).c_str());
     }
   } else if (paramDimension(p->kind) > 1) {
     const int dim = paramDimension(p->kind);
@@ -219,20 +196,18 @@ static void drawParam(App &app, Param *p) {
     ImGui::TextUnformatted(ui.label.c_str());
     ImGui::Indent();
     for (int i = 0; i < dim; ++i) {
-      const double val = paramValue(p, i);
+      const double val = paramScalar(p, i);
       float fv = (float)val;
       ImGui::PushID(i);
       double typed = val;
       if (paramEditButton(typed, isInt, -1e7, 1e7)) {
-        std::lock_guard<std::mutex> lock(gValueMutex);
-        p->v[i] = typed;
+        setParamScalar(p, i, typed);
         changed = true;
       }
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(std::max(40.0f, rowW - btn - gap));
       if (ImGui::DragFloat("##v", &fv, isInt ? 1.0f : 0.01f)) {
-        std::lock_guard<std::mutex> lock(gValueMutex);
-        p->v[i] = isInt ? std::round(fv) : fv;
+        setParamScalar(p, i, isInt ? std::round(fv) : fv);
         changed = true;
       }
       ImGui::PopID();
@@ -244,11 +219,7 @@ static void drawParam(App &app, Param *p) {
   ImGui::PopID();
   if (changed) {
     Node *node = selectedNode(app);
-    if (node) {
-      notifyChanged(*node, p);
-      syncOutputTag(app);
-      scheduleRender(app);
-    }
+    if (node) commitParamEdit(app, *node, p);
   }
 }
 
@@ -272,7 +243,7 @@ static bool subtreeMatches(Effect *e, const std::string &parent, const std::stri
 
 void drawParams(App &app, Node &node, const std::string &parent) {
   if (!node.instance) return;
-  const std::string filter = app.paramFilter;
+  const std::string filter = app.gui.paramFilter;
   const bool filtering = filter[0] != '\0';
   for (auto &up : node.instance->params) {
     Param *p = up.get();

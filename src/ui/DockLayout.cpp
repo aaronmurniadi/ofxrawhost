@@ -15,9 +15,9 @@ static void buildDefaultLayout(App &app, ImGuiID dockspaceId) {
 
   const float refW = std::max(1.0f, vp->WorkSize.x);
   const float refH = std::max(1.0f, vp->WorkSize.y);
-  const float leftRatio = std::clamp(app.leftW / refW, 0.12f, 0.40f);
-  const float rightRatio = std::clamp(app.rightW / refW, 0.12f, 0.45f);
-  const float stripRatio = std::clamp(app.filmstripH / refH, 0.08f, 0.35f);
+  const float leftRatio = std::clamp(app.gui.leftW / refW, 0.12f, 0.40f);
+  const float rightRatio = std::clamp(app.gui.rightW / refW, 0.12f, 0.45f);
+  const float stripRatio = std::clamp(app.gui.filmstripH / refH, 0.08f, 0.35f);
 
   ImGuiID dockMain = dockspaceId;
   ImGuiID dockLeft = 0;
@@ -51,9 +51,9 @@ void BeginMainDockSpace(App &app) {
 
   const ImGuiID dockspaceId = ImGui::GetID("OfxRawHostDock");
   const bool missingNode = ImGui::DockBuilderGetNode(dockspaceId) == nullptr;
-  if (missingNode || app.layoutApplyPending) {
+  if (missingNode || app.gui.layoutApplyPending) {
     buildDefaultLayout(app, dockspaceId);
-    app.layoutApplyPending = false;
+    app.gui.layoutApplyPending = false;
   }
 
   ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);

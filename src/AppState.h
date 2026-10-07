@@ -1,49 +1,18 @@
 #pragma once
 
-#include "imgio/ImageIO.h"
-#include "ofx/OfxHost.h"
-#include "RenderSchedule.h"
+#include "Chain.h"
+#include "Document.h"
+#include "Filmstrip.h"
+#include "RenderState.h"
 #include "ui/GlTexture.h"
-
-#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
-#include <deque>
-#include <map>
-#include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
-struct Node {
-  int pluginIndex = -1;
-  bool enabled = true;
-  std::unique_ptr<Effect> instance;
-  std::map<std::string, bool> groupOpen;
-};
-
-struct ThumbReady {
-  std::string path;
-  std::vector<unsigned char> rgba;
-  int w = 0, h = 0;
-  int edge = 0;  // long-edge cap the job was rendered at
-  enum class Kind { Ok, Fail, Canceled } kind = Kind::Fail;
-};
-
-struct FilmstripEntry {
-  std::string path;
-  GlTexture tex;
-  bool isRaw = false;
-  bool thumbPending = true;
-  bool thumbLoading = false;
-  bool thumbFailed = false;
-  int thumbLru = 0;
-};
+// Forward-declared so this header does not pull in GLFW/OpenGL.
+struct GLFWwindow;
 
 inline constexpr const char *kOutputSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
 inline constexpr int kOutputSpaceCount = 4;
@@ -51,8 +20,6 @@ inline constexpr int kOutputSpaceCount = 4;
 enum class ExportFormat { PNG = 0, JPEG = 1 };
 
 enum class PreviewRes { R720p = 0, R1080p, R1440p, Full };
-
-enum class FilmstripTab { All = 0, RAW, Compressed };
 
 // Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
@@ -87,64 +54,48 @@ inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
   return ColorSpace::LinearRec709;
 }
 
-struct App {
-  GLFWwindow *window = nullptr;
-  GlTexture tex;
-
-  Image full, preview;
-  std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
-  ColorSpace inputSpace = ColorSpace::LinearRec2020;
-  std::atomic<ColorSpace> outputTag{ColorSpace::sRGB};  // written on the UI thread while renders are in flight
-  ExportFormat exportFormat = ExportFormat::JPEG;
-  int jpegQuality = 92;
-  PreviewRes previewRes = PreviewRes::R1080p;
+// UI-only state: layout, theme, view transform, persistable preferences.
+struct GuiState {
   bool showLeft = true;
   bool showRight = true;
+  bool showFilmstrip = true;
   // Legacy layout sizes (read from old JSON; DockBuilder uses them once if no .ini).
   float leftW = 280.0f;
   float rightW = 420.0f;
-  char paramFilter[128] = {};
-  char pluginFilter[128] = {};
+  float filmstripH = 96.0f;
+  int themeIndex = 2;  // Photoshop
   float previewZoom = 1.0f;  // 1 = fit in view
-  int themeIndex = 2;        // Photoshop
   float previewPanX = 0.0f;
   float previewPanY = 0.0f;
-  std::vector<Node> nodes;
-  int selectedNode = -1;
-
-  std::string workspaceDir;
-  std::vector<FilmstripEntry> filmstrip;
-  std::unordered_map<std::string, int> filmstripPathIndex;  // path -> filmstrip index
-  int filmstripIndex = -1;
-  bool showFilmstrip = true;
-  float filmstripH = 96.0f;
-  FilmstripTab filmstripTab = FilmstripTab::All;
+  ExportFormat exportFormat = ExportFormat::JPEG;
+  int jpegQuality = 92;
+  PreviewRes previewRes = PreviewRes::R1080p;
+  char paramFilter[128] = {};
+  char pluginFilter[128] = {};
   bool showAbout = false;
   bool showDonate = false;
-
-  std::atomic<int> filmstripGen{0};
-  std::atomic<int> filmstripThumbEdge{256};  // snapped long-edge cap (see kFilmstripThumbEdges)
-  int thumbLruTick = 0;
-  std::thread thumbThread;
-  std::mutex thumbMutex;
-  std::condition_variable thumbCv;
-  std::deque<std::string> thumbQueue;
-  std::unordered_set<std::string> thumbQueued;
-  std::deque<ThumbReady> thumbReady;
-
-  std::string pendingWorkspaceDir;
   bool themeApplyPending = false;
   bool layoutApplyPending = false;
+  std::string pendingWorkspaceDir;
+};
 
-  RenderSchedule render;
-  std::atomic<bool> quit{false};
-  std::thread renderThread;
-  Image display;  // latest rendered (bottom-up float), guarded by displayMutex
-  std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
-  std::mutex displayMutex;
-  bool displayDirty = false;
+// Composition root: owns the window and the cohesive state units. Domain modules
+// take the narrow unit they need (DocumentState&, ChainState&, RenderState&,
+// Filmstrip&) rather than this whole struct.
+struct App {
+  GLFWwindow *window = nullptr;
+  GlTexture tex;
+  DocumentState doc;
+  GuiState gui;
+  ChainState chain;
+  RenderState render;
+  Filmstrip filmstrip;
+
+  std::atomic<ColorSpace> outputTag{ColorSpace::sRGB};  // written on the UI thread while renders are in flight
+  std::atomic<bool> quit{false};                        // app lifetime; stops both workers
 
   std::mutex statusMutex;
+  std::string status = "Open an image. Source is fed to the plugin as scene-linear.";
   void setStatus(const std::string &s) {
     std::lock_guard<std::mutex> lock(statusMutex);
     status = s;

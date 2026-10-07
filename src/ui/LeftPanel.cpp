@@ -3,7 +3,8 @@
 #include "Actions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
-#include "RenderPipeline.h"
+#include "RenderScheduler.h"
+#include "ofx/OfxHost.h"
 #include "ui/Widgets.h"
 
 #include "IconsFontAwesome6.h"
@@ -17,12 +18,12 @@ static void drawPluginPicker(App &app) {
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##pluginFilter", "Search…", app.pluginFilter, sizeof app.pluginFilter);
+    ImGui::InputTextWithHint("##pluginFilter", "Search…", app.gui.pluginFilter, sizeof app.gui.pluginFilter);
     ImGui::Separator();
     if (gPlugins.empty()) {
       ImGui::TextDisabled("No plugins found");
     } else {
-      const std::string q = app.pluginFilter;
+      const std::string q = app.gui.pluginFilter;
       std::string curAuthor;
       int shown = 0;
       for (int i = 0; i < (int)gPlugins.size(); ++i) {
@@ -36,7 +37,7 @@ static void drawPluginPicker(App &app) {
         }
         if (ImGui::Selectable(pe.label.c_str())) {
           addNode(app, i);
-          app.pluginFilter[0] = '\0';
+          app.gui.pluginFilter[0] = '\0';
           ImGui::CloseCurrentPopup();
         }
         ++shown;
@@ -49,20 +50,20 @@ static void drawPluginPicker(App &app) {
 
 static void drawNodeList(App &app) {
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
-  if (app.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a plugin to build a chain.");
+  if (app.chain.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a plugin to build a chain.");
   const float btnH = ImGui::GetFrameHeight();
   const float btnGap = ImGui::GetStyle().ItemSpacing.x;
   const float btnsW = 4.0f * btnH + 3.0f * btnGap;
   int removeAt = -1;
-  for (int i = 0; i < (int)app.nodes.size(); ++i) {
+  for (int i = 0; i < (int)app.chain.nodes.size(); ++i) {
     ImGui::PushID(i);
-    Node &node = app.nodes[i];
-    const bool selected = app.selectedNode == i;
+    Node &node = app.chain.nodes[i];
+    const bool selected = app.chain.selectedNode == i;
     const std::string label = gPlugins[node.pluginIndex].label;
     if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
     if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(ImGui::GetContentRegionAvail().x - btnsW - btnGap, btnH))) {
-      app.selectedNode = i;
-      app.paramFilter[0] = '\0';
+      app.chain.selectedNode = i;
+      app.gui.paramFilter[0] = '\0';
     }
     if (!node.enabled) ImGui::PopStyleVar();
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
@@ -84,7 +85,7 @@ static void drawNodeList(App &app) {
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) moveNode(app, i, i - 1);
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size()) moveNode(app, i, i + 1);
+    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.chain.nodes.size()) moveNode(app, i, i + 1);
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##rm", ICON_FA_XMARK)) removeAt = i;
     ImGui::PopID();
@@ -103,26 +104,22 @@ void drawLeftPanel(App &app) {
   if (ImGui::Button("Open Workspace")) {
     auto f = pfd::select_folder("Open workspace folder");
     auto r = f.result();
-    if (!r.empty()) app.pendingWorkspaceDir = r;
+    if (!r.empty()) app.gui.pendingWorkspaceDir = r;
   }
   ImGui::SameLine();
   if (ImGui::Button("Export")) exportImage(app);
 
   int outTag = static_cast<int>(app.outputTag.load());
-  if (ImGui::Combo("Output tag", &outTag, kOutputSpaces, kOutputSpaceCount)) app.outputTag = outputSpace(outTag);
-  if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
+  if (ImGui::Combo("Output tag", &outTag, kOutputSpaces, kOutputSpaceCount)) setOutputTag(app, outTag);
   {
     const char *items[kPreviewResCount];
     for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
-    int res = static_cast<int>(app.previewRes);
-    if (ImGui::Combo("Preview", &res, items, kPreviewResCount)) {
-      app.previewRes = static_cast<PreviewRes>(res);
-      rebuildPreview(app);
-    }
+    int res = static_cast<int>(app.gui.previewRes);
+    if (ImGui::Combo("Preview", &res, items, kPreviewResCount)) setPreviewRes(app, res);
   }
-  int fmt = static_cast<int>(app.exportFormat);
-  if (ImGui::Combo("Export format", &fmt, "PNG (8-bit)\0JPEG\0")) app.exportFormat = static_cast<ExportFormat>(fmt);
-  if (app.exportFormat == ExportFormat::JPEG) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
+  int fmt = static_cast<int>(app.gui.exportFormat);
+  if (ImGui::Combo("Export format", &fmt, "PNG (8-bit)\0JPEG\0")) app.gui.exportFormat = static_cast<ExportFormat>(fmt);
+  if (app.gui.exportFormat == ExportFormat::JPEG) ImGui::SliderInt("JPEG quality", &app.gui.jpegQuality, 1, 100);
   ImGui::Separator();
   const std::string status = app.getStatus();
   ImGui::TextWrapped("%s", status.c_str());

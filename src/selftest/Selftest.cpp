@@ -5,8 +5,9 @@
 
 #include "Actions.h"
 #include "NodeGraph.h"
-#include "RenderPipeline.h"
+#include "RenderScheduler.h"
 #include "imgio/ImageIO.h"
+#include "ParamBridge.h"
 #include "ofx/OfxHost.h"
 #include "persist/ProjectPersist.h"
 
@@ -277,9 +278,9 @@ static int testConcurrency(const Image &src) {
   if (transformPi < 0) return fail("concurrency: Transform plugin missing");
 
   App app;
-  app.full = src;
-  app.preview = src;
-  app.renderThread = std::thread(renderWorker, &app);
+  app.doc.full = src;
+  app.doc.preview = src;
+  app.render.thread = std::thread(renderWorker, &app);
   if (!addNode(app, transformPi)) return fail("concurrency addNode 1");
   for (int pi : usable)
     if (pi != transformPi && !addNode(app, pi)) return fail("concurrency addNode 2");
@@ -289,9 +290,9 @@ static int testConcurrency(const Image &src) {
   for (int k = 0; k < 8; ++k) {
     scheduleRender(app);
     int ow = 0, oh = 0;
-    queryOutputSize(gPlugins[app.nodes[0].pluginIndex].plugin, app.nodes[0].instance.get(), app.preview.w,
-                    app.preview.h, &ow, &oh);
-    if (ow != app.preview.w || oh != app.preview.h) return fail("concurrent queryOutputSize");
+    queryOutputSize(gPlugins[app.chain.nodes[0].pluginIndex].plugin, app.chain.nodes[0].instance.get(), app.doc.preview.w,
+                    app.doc.preview.h, &ow, &oh);
+    if (ow != app.doc.preview.w || oh != app.doc.preview.h) return fail("concurrent queryOutputSize");
   }
   waitRenderIdle(app);
 
@@ -308,20 +309,21 @@ static int testConcurrency(const Image &src) {
     if (i == 50) {
       doExport(app, out.string());
       // Mutating the graph right after an export must wait it out, not race it.
-      if (app.nodes.size() > 1) destroyNode(app, 0);
+      if (app.chain.nodes.size() > 1) destroyNode(app, 0);
       else addNode(app, usable[i % (int)usable.size()]);
     }
     if (i % 7 == 0) {
       waitRenderIdle(app);
-      if (app.nodes.size() > 1) destroyNode(app, 0);
+      if (app.chain.nodes.size() > 1) destroyNode(app, 0);
       else addNode(app, usable[i % (int)usable.size()]);
-      if (app.nodes.size() > 1) moveNode(app, 0, (int)app.nodes.size() - 1);
+      if (app.chain.nodes.size() > 1) moveNode(app, 0, (int)app.chain.nodes.size() - 1);
     }
   }
   waitRenderIdle(app);  // also waits out the export thread
   app.quit = true;
-  app.render.cv.notify_one();
-  if (app.renderThread.joinable()) app.renderThread.join();
+  app.render.schedule.cv.notify_one();
+  if (app.render.thread.joinable()) app.render.thread.join();
+  if (app.render.exportThread.joinable()) app.render.exportThread.join();
   if (!fs::exists(out) || fs::file_size(out) == 0) return fail("concurrent export output");
   fs::remove(out);
   const fs::path side = exportSidecarPath(out.string());

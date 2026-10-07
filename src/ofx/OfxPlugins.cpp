@@ -1,5 +1,6 @@
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "ofx/OfxEffectGpu.h"
 #include "ofx/OfxMetal.h"
 #include "ofxGPURender.h"
 
@@ -200,7 +201,7 @@ void loadPlugins() {
 
 std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
   auto e = cloneEffect(*pe.descriptor);
-  e->metalCapable = pe.metalCapable;
+  effectGpu(*e).metalCapable = pe.metalCapable;
   OfxPropertySetHandle ep = H(&e->props);
   propSetString(ep, kOfxPropType, 0, kOfxTypeImageEffectInstance);
   propSetString(ep, kOfxImageEffectPropContext, 0, kOfxImageEffectContextFilter);
@@ -240,8 +241,15 @@ void Effect::setInputSize(int width, int height) {
 
 // The descriptor effect holds no buffer, so a plain pointer copy stays safe.
 Effect::~Effect() {
-  if (srcMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(srcMtl));
-  if (dstMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(dstMtl));
+  if (!gpu) return;
+  if (gpu->srcMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(gpu->srcMtl));
+  if (gpu->dstMtl) ofxMetalBufferRelease(reinterpret_cast<OfxMetalBuffer *>(gpu->dstMtl));
+}
+
+// Lazily allocates the effect's GPU state on first use.
+EffectGpu &effectGpu(Effect &e) {
+  if (!e.gpu) e.gpu = std::make_unique<EffectGpu>();
+  return *e.gpu;
 }
 
 // Returns a buffer of at least wantBytes, and reuses the slot when it is large
@@ -284,7 +292,7 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
   *outH = (int)std::lround(dh);
 }
 
-bool effectUsesMetal(const Effect *e) { return e && e->metalCapable && ofxMetalAvailable(); }
+bool effectUsesMetal(const Effect *e) { return e && e->gpu && e->gpu->metalCapable && ofxMetalAvailable(); }
 
 OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen,
                        void *srcMtl, void *dstMtl, bool draft) {
@@ -298,6 +306,7 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
     e->outH = outH;
   }
   e->renderGen = gen;
+  EffectGpu &g = effectGpu(*e);
   PropSet in;
   OfxPropertySetHandle a = H(&in);
   const int window[4] = {0, 0, outW, outH};
@@ -312,27 +321,27 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
     propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 1);
   else
     propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 0);
-  e->metalEnabled = e->metalCapable && ofxMetalAvailable();
-  e->curSrcMtl = nullptr;
-  e->curDstMtl = nullptr;
-  if (e->metalEnabled) {
+  g.metalEnabled = g.metalCapable && ofxMetalAvailable();
+  g.curSrcMtl = nullptr;
+  g.curDstMtl = nullptr;
+  if (g.metalEnabled) {
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 1);
     propSetPointer(a, kOfxImageEffectPropMetalCommandQueue, 0, ofxMetalCommandQueue());
     void *useSrc = srcMtl;
     void *useDst = dstMtl;
     if (!useSrc) {
       const size_t srcBytes = (size_t)w * h * 4 * sizeof(float);
-      useSrc = ensureMetalBuffer(e->srcMtl, e->srcMtlBytes, srcBytes);
+      useSrc = ensureMetalBuffer(g.srcMtl, g.srcMtlBytes, srcBytes);
       if (!useSrc) return kOfxStatErrMemory;
       if (src) std::memcpy(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(useSrc)), src, srcBytes);
     }
     if (!useDst) {
       const size_t dstBytes = (size_t)outW * outH * 4 * sizeof(float);
-      useDst = ensureMetalBuffer(e->dstMtl, e->dstMtlBytes, dstBytes);
+      useDst = ensureMetalBuffer(g.dstMtl, g.dstMtlBytes, dstBytes);
       if (!useDst) return kOfxStatErrMemory;
     }
-    e->curSrcMtl = useSrc;
-    e->curDstMtl = useDst;
+    g.curSrcMtl = useSrc;
+    g.curDstMtl = useDst;
   } else {
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 0);
   }
@@ -340,19 +349,19 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   // Chained GPU renders keep the buffers on the GPU: the chain owns the sync and
   // the readback. A single-node caller (dstMtl null) keeps the old behavior and
   // gets the GPU result copied back to the CPU dst here.
-  if (e->metalEnabled && !dstMtl && st == kOfxStatOK && e->dstMtl && dst) {
+  if (g.metalEnabled && !dstMtl && st == kOfxStatOK && g.dstMtl && dst) {
     ofxMetalSync();
-    const void *d = ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl));
+    const void *d = ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(g.dstMtl));
     if (d) std::memcpy(dst, d, (size_t)outW * outH * 4 * sizeof(float));
   }
-  if (st != kOfxStatOK && e->metalCapable) {
+  if (st != kOfxStatOK && g.metalCapable) {
     std::fprintf(stderr, "[metal] render failed: status=%d (0x%08x) metal=%d plugin=%p\n", (int)st, (unsigned int)st,
-                 (int)e->metalEnabled, (void *)plugin);
+                 (int)g.metalEnabled, (void *)plugin);
   }
   e->src = e->dst = nullptr;
-  e->curSrcMtl = nullptr;
-  e->curDstMtl = nullptr;
-  e->metalEnabled = false;
+  g.curSrcMtl = nullptr;
+  g.curDstMtl = nullptr;
+  g.metalEnabled = false;
   return st;
 }
 

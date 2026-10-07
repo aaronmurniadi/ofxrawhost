@@ -6,7 +6,7 @@
 #include "Filmstrip.h"
 #include "NodeGraph.h"
 #include "ofx/OfxHost.h"
-#include "RenderPipeline.h"
+#include "RenderScheduler.h"
 #include "ui/ImGuiBackend.h"
 #include "ui/UiFrame.h"
 
@@ -43,7 +43,7 @@ int runApp(const std::string &optionalPath) {
   MacPinch_Install();
 #endif
 
-  ImGuiBackend_Init(app.window, app.themeIndex);
+  ImGuiBackend_Init(app.window, app.gui.themeIndex);
 
   gOnMessage = [&app](const std::string &msg) { app.setStatus(msg); };
   loadPlugins();
@@ -53,8 +53,8 @@ int runApp(const std::string &optionalPath) {
     app.setStatus("Add plugins with + to build a processing chain.");
   if (!optionalPath.empty()) openPath(app, optionalPath);
 
-  app.renderThread = std::thread(renderWorker, &app);
-  app.thumbThread = startFilmstripThumbThread(&app);
+  app.render.thread = std::thread(renderWorker, &app);
+  app.filmstrip.thread = startFilmstripThumbThread(&app.filmstrip, &app.quit);
 
   glfwSetDropCallback(app.window, [](GLFWwindow *w, int count, const char **paths) {
     auto *app = static_cast<App *>(glfwGetWindowUserPointer(w));
@@ -65,7 +65,7 @@ int runApp(const std::string &optionalPath) {
   while (!glfwWindowShouldClose(app.window)) {
     glfwPollEvents();
     pumpDisplayUpload(app);
-    pumpFilmstripThumbs(app);
+    pumpFilmstripThumbs(app.filmstrip);
 
     ImGuiBackend_NewFrame();
     drawUiFrame(app);
@@ -80,10 +80,11 @@ int runApp(const std::string &optionalPath) {
   }
 
   app.quit = true;
-  app.render.cv.notify_one();
-  app.thumbCv.notify_one();
-  if (app.renderThread.joinable()) app.renderThread.join();
-  if (app.thumbThread.joinable()) app.thumbThread.join();
+  app.render.schedule.cv.notify_one();
+  app.filmstrip.cv.notify_one();
+  if (app.render.thread.joinable()) app.render.thread.join();
+  if (app.filmstrip.thread.joinable()) app.filmstrip.thread.join();
+  if (app.render.exportThread.joinable()) app.render.exportThread.join();
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
   clearNodes(app);

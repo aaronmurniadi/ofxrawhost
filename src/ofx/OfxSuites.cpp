@@ -1,5 +1,6 @@
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "ofx/OfxEffectGpu.h"
 #include "ofx/OfxMetal.h"
 
 #include "ofxGPURender.h"
@@ -393,8 +394,9 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   Clip *c = C(ch);
   Effect *e = c->owner;
   const bool isOutput = c->name == kOfxImageEffectOutputClipName;
+  EffectGpu &g = effectGpu(*e);
   OfxMetalBuffer *mbuf =
-      e->metalEnabled ? (isOutput ? (OfxMetalBuffer *)e->curDstMtl : (OfxMetalBuffer *)e->curSrcMtl) : nullptr;
+      g.metalEnabled ? (isOutput ? (OfxMetalBuffer *)g.curDstMtl : (OfxMetalBuffer *)g.curSrcMtl) : nullptr;
   void *data = mbuf ? ofxMetalBufferHandle(mbuf) : (isOutput ? (void *)e->dst : (void *)e->src);
   if (!data) return kOfxStatFailed;
   // Reuse the clip's pooled PropSet instead of heap-allocating per request.

@@ -1,6 +1,7 @@
 #include "ui/UiFrame.h"
 
 #include "NodeGraph.h"
+#include "ofx/OfxHost.h"
 #include "ui/ParamWidgets.h"
 #include "ui/Widgets.h"
 
@@ -18,17 +19,17 @@ void drawRightPanel(App &app) {
   ImGui::Separator();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
     ImGui::SetKeyboardFocusHere();
-  const bool hasFilter = app.paramFilter[0] != '\0';
+  const bool hasFilter = app.gui.paramFilter[0] != '\0';
   if (hasFilter) {
     const float clearW = ImGui::GetFrameHeight();
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - clearW - ImGui::GetStyle().ItemSpacing.x);
   } else {
     ImGui::SetNextItemWidth(-1);
   }
-  ImGui::InputTextWithHint("##paramFilter", "Search parameters...", app.paramFilter, sizeof app.paramFilter);
+  ImGui::InputTextWithHint("##paramFilter", "Search parameters...", app.gui.paramFilter, sizeof app.gui.paramFilter);
   if (hasFilter) {
     ImGui::SameLine();
-    if (iconBtn("##clearFilter", ICON_FA_XMARK)) app.paramFilter[0] = '\0';
+    if (iconBtn("##clearFilter", ICON_FA_XMARK)) app.gui.paramFilter[0] = '\0';
   }
   ImGui::Separator();
   drawParams(app, *node, "");

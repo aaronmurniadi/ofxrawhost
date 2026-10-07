@@ -22,7 +22,7 @@ static const FilmstripTabItem kFilmstripTabs[] = {
 };
 
 void drawFilmstripPanel(App &app) {
-  if (app.workspaceDir.empty() || app.filmstrip.empty()) {
+  if (app.doc.workspaceDir.empty() || app.filmstrip.entries.empty()) {
     ImGui::TextDisabled("Open a workspace folder to browse images.");
     return;
   }
@@ -30,7 +30,7 @@ void drawFilmstripPanel(App &app) {
   if (ImGui::BeginTabBar("##filmstripTabs")) {
     for (const FilmstripTabItem &t : kFilmstripTabs) {
       if (ImGui::BeginTabItem(t.label)) {
-        app.filmstripTab = t.tab;
+        app.filmstrip.tab = t.tab;
         ImGui::EndTabItem();
       }
     }
@@ -40,9 +40,9 @@ void drawFilmstripPanel(App &app) {
   const float thumbH = std::max(24.0f, ImGui::GetContentRegionAvail().y - ImGui::GetStyle().FramePadding.y * 2.0f);
   const float fbScale = std::max(1.0f, ImGui::GetIO().DisplayFramebufferScale.y);
   const int wantEdge = snapFilmstripThumbEdge(thumbH * fbScale);
-  if (app.filmstripThumbEdge.exchange(wantEdge) != wantEdge) invalidateFilmstripThumbs(app);
+  if (app.filmstrip.thumbEdge.exchange(wantEdge) != wantEdge) invalidateFilmstripThumbs(app.filmstrip);
 
-  if (app.filmstripIndex >= 0) requestFilmstripThumb(app, app.filmstripIndex, true);
+  if (app.filmstrip.index >= 0) requestFilmstripThumb(app.filmstrip, app.filmstrip.index, true);
 
   // Lay out the strip by hand so off-screen entries cost nothing. Only the entries
   // that intersect the visible band get a widget; a trailing dummy keeps the full
@@ -54,23 +54,23 @@ void drawFilmstripPanel(App &app) {
   const float viewRight = scrollX + ImGui::GetContentRegionAvail().x + thumbH;
   float x = startX;
   bool anyDrawn = false;
-  for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
-    FilmstripEntry &e = app.filmstrip[i];
-    if (app.filmstripTab == FilmstripTab::RAW && !e.isRaw) continue;
-    if (app.filmstripTab == FilmstripTab::Compressed && e.isRaw) continue;
+  for (int i = 0; i < (int)app.filmstrip.entries.size(); ++i) {
+    FilmstripEntry &e = app.filmstrip.entries[i];
+    if (app.filmstrip.tab == FilmstripTab::RAW && !e.isRaw) continue;
+    if (app.filmstrip.tab == FilmstripTab::Compressed && e.isRaw) continue;
     const float w = thumbH * ((e.tex.h && e.tex.w) ? (float)e.tex.w / (float)e.tex.h : 1.0f);
     if (x + w >= viewLeft && x <= viewRight) {
       if (!anyDrawn) ImGui::SetCursorPosX(x);
       else ImGui::SameLine(x, 0.0f);
       const ImVec2 btnSize(w, thumbH);
       ImGui::PushID(i);
-      const bool selected = i == app.filmstripIndex;
+      const bool selected = i == app.filmstrip.index;
       if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
       if (e.tex.id)
         ImGui::ImageButton("##t", (ImTextureID)(intptr_t)e.tex.id, btnSize);
       else
         ImGui::Button(e.thumbFailed ? "?" : "…", btnSize);
-      if (ImGui::IsItemVisible()) requestFilmstripThumb(app, i, selected);
+      if (ImGui::IsItemVisible()) requestFilmstripThumb(app.filmstrip, i, selected);
       if (selected) ImGui::PopStyleColor();
       if (ImGui::IsItemClicked()) openPath(app, e.path);
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))

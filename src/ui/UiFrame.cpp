@@ -44,7 +44,7 @@ static void drawMenuBar(App &app) {
 #endif
         auto f = pfd::select_folder("Open workspace folder");
         auto r = f.result();
-        if (!r.empty()) app.pendingWorkspaceDir = r;
+        if (!r.empty()) app.gui.pendingWorkspaceDir = r;
       }
       if (ImGui::MenuItem("Save Project")) {
         saveCurrentInputSidecar(app);
@@ -65,20 +65,20 @@ static void drawMenuBar(App &app) {
     }
     if (ImGui::BeginMenu("View")) {
 #ifdef __APPLE__
-      ImGui::MenuItem("Left panel", "⌘+[", &app.showLeft);
-      ImGui::MenuItem("Right panel", "⌘+]", &app.showRight);
-      ImGui::MenuItem("Filmstrip", "⌘+\\", &app.showFilmstrip);
+      ImGui::MenuItem("Left panel", "⌘+[", &app.gui.showLeft);
+      ImGui::MenuItem("Right panel", "⌘+]", &app.gui.showRight);
+      ImGui::MenuItem("Filmstrip", "⌘+\\", &app.gui.showFilmstrip);
 #else
-      ImGui::MenuItem("Left panel", "Ctrl+[", &app.showLeft);
-      ImGui::MenuItem("Right panel", "Ctrl+]", &app.showRight);
-      ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.showFilmstrip);
+      ImGui::MenuItem("Left panel", "Ctrl+[", &app.gui.showLeft);
+      ImGui::MenuItem("Right panel", "Ctrl+]", &app.gui.showRight);
+      ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.gui.showFilmstrip);
 #endif
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Theme")) {
       for (int i = 0; i < themeCount(); ++i) {
-        if (ImGui::MenuItem(themeName(i), nullptr, app.themeIndex == i)) {
-          app.themeIndex = i;
+        if (ImGui::MenuItem(themeName(i), nullptr, app.gui.themeIndex == i)) {
+          app.gui.themeIndex = i;
           applyTheme(i);
         }
       }
@@ -86,10 +86,10 @@ static void drawMenuBar(App &app) {
     }
     if (ImGui::BeginMenu("Help")) {
       if (ImGui::MenuItem("About")) {
-        app.showAbout = true;
+        app.gui.showAbout = true;
       }
       if (ImGui::MenuItem("Donate")) {
-        app.showDonate = true;
+        app.gui.showDonate = true;
       }
       ImGui::EndMenu();
     }
@@ -100,7 +100,7 @@ static void drawMenuBar(App &app) {
 void exportImage(App &app) {
   if (!canExport(app)) return;
   const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
-  const int fmt = static_cast<int>(app.exportFormat);
+  const int fmt = static_cast<int>(app.gui.exportFormat);
   auto sel = pfd::save_file("Export", defaultExportName(app), {filters[fmt * 2], filters[fmt * 2 + 1]});
   const std::string outPath = sel.result();
   if (outPath.empty()) return;
@@ -108,28 +108,28 @@ void exportImage(App &app) {
 }
 
 void drawUiFrame(App &app) {
-  if (app.themeApplyPending) {
-    applyTheme(app.themeIndex);
-    app.themeApplyPending = false;
+  if (app.gui.themeApplyPending) {
+    applyTheme(app.gui.themeIndex);
+    app.gui.themeApplyPending = false;
   }
-  if (!app.pendingWorkspaceDir.empty()) {
-    const std::string dir = std::move(app.pendingWorkspaceDir);
-    app.pendingWorkspaceDir.clear();
-    if (openWorkspace(app, dir) && !ImGuiBackend_SetWorkspaceIni(app.workspaceDir))
-      app.layoutApplyPending = true;
+  if (!app.gui.pendingWorkspaceDir.empty()) {
+    const std::string dir = std::move(app.gui.pendingWorkspaceDir);
+    app.gui.pendingWorkspaceDir.clear();
+    if (openWorkspace(app, dir) && !ImGuiBackend_SetWorkspaceIni(app.doc.workspaceDir))
+      app.gui.layoutApplyPending = true;
   }
 
   drawMenuBar(app);
 
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_LeftBracket))
-    app.showLeft = !app.showLeft;
+    app.gui.showLeft = !app.gui.showLeft;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
-    app.showRight = !app.showRight;
+    app.gui.showRight = !app.gui.showRight;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
-    app.showFilmstrip = !app.showFilmstrip;
+    app.gui.showFilmstrip = !app.gui.showFilmstrip;
 #ifdef __APPLE__
   if (ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey_O)) {
 #else
@@ -137,17 +137,17 @@ void drawUiFrame(App &app) {
 #endif
     auto f = pfd::select_folder("Open workspace folder");
     auto r = f.result();
-    if (!r.empty()) app.pendingWorkspaceDir = r;
+    if (!r.empty()) app.gui.pendingWorkspaceDir = r;
   }
 
   DockLayout::BeginMainDockSpace(app);
 
-  if (app.showLeft) {
-    if (ImGui::Begin(DockLayout::kLeft, &app.showLeft)) drawLeftPanel(app);
+  if (app.gui.showLeft) {
+    if (ImGui::Begin(DockLayout::kLeft, &app.gui.showLeft)) drawLeftPanel(app);
     ImGui::End();
   }
-  if (app.showRight) {
-    if (ImGui::Begin(DockLayout::kParams, &app.showRight)) drawRightPanel(app);
+  if (app.gui.showRight) {
+    if (ImGui::Begin(DockLayout::kParams, &app.gui.showRight)) drawRightPanel(app);
     ImGui::End();
   }
   {
@@ -156,14 +156,14 @@ void drawUiFrame(App &app) {
     if (ImGui::Begin(DockLayout::kPreview, nullptr, previewFlags)) drawPreviewPanel(app);
     ImGui::End();
   }
-  if (app.showFilmstrip) {
-    if (ImGui::Begin(DockLayout::kFilmstrip, &app.showFilmstrip)) drawFilmstripPanel(app);
+  if (app.gui.showFilmstrip) {
+    if (ImGui::Begin(DockLayout::kFilmstrip, &app.gui.showFilmstrip)) drawFilmstripPanel(app);
     ImGui::End();
   }
 
-  if (app.showAbout) {
+  if (app.gui.showAbout) {
     ImGui::OpenPopup("About");
-    app.showAbout = false;
+    app.gui.showAbout = false;
   }
   if (ImGui::BeginPopupModal("About", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextUnformatted("OfxRawHost");
@@ -179,9 +179,9 @@ void drawUiFrame(App &app) {
     ImGui::EndPopup();
   }
 
-  if (app.showDonate) {
+  if (app.gui.showDonate) {
     ImGui::OpenPopup("Donate");
-    app.showDonate = false;
+    app.gui.showDonate = false;
   }
   if (ImGui::BeginPopupModal("Donate", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextWrapped("OfxRawHost is free and open-source. If you find it useful, consider supporting its development.");
