@@ -1,5 +1,4 @@
 .cache/
 build/
 .DS_Store
-!.okf/build/
 .pi-lens.json
