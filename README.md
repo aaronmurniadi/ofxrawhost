@@ -173,6 +173,11 @@ build/OfxRawHost --selftest
 | Transform rotates with cover-scale so the frame has no black wedges | Done (v0.3.16) |
 | Transform samples bilinearly with clamped edge pixels               | Done (v0.3.16) |
 | Parameter widgets honor the OFX increment; wide ranges use drag     | Done (v0.3.16) |
+| UI: DaVinci-style parameter rows (slider, value field, reset)       | Done (v0.3.17) |
+| UI: Per-node parameter tabs in the right panel                      | Done (v0.3.17) |
+| UI: Dock splits Plugins and Parameters; preview without tab bar     | Done (v0.3.17) |
+| UI: System sans font and adjustable UI font size (Settings)         | Done (v0.3.17) |
+| Refactor: Document / Chain / GuiState; scheduler + chain renderer   | Done (v0.3.17) |
 | Packaged Windows and Linux releases                                 | Planned        |
 
 ---

@@ -19,6 +19,34 @@ namespace fs = std::filesystem;
 
 static std::string gIniPath = "ofxrawhost.ini";
 
+static ImFont *addSystemSansFont(ImFontAtlas *fonts, ImFontConfig *cfg) {
+#if defined(__APPLE__)
+  const char *cands[] = {
+      "/System/Library/Fonts/SFNS.ttf",
+      "/System/Library/Fonts/HelveticaNeue.ttc",
+      "/System/Library/Fonts/Helvetica.ttc",
+      "/System/Library/Fonts/Supplemental/Arial.ttf",
+  };
+#elif defined(_WIN32)
+  const char *cands[] = {
+      "C:\\Windows\\Fonts\\segoeui.ttf",
+      "C:\\Windows\\Fonts\\arial.ttf",
+  };
+#else
+  const char *cands[] = {
+      "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+      "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+      "/usr/share/fonts/TTF/DejaVuSans.ttf",
+  };
+#endif
+  for (const char *path : cands) {
+    if (!path || !fs::exists(path)) continue;
+    if (ImFont *font = fonts->AddFontFromFileTTF(path, cfg->SizePixels, cfg)) return font;
+  }
+  std::fprintf(stderr, "warning: system sans font not found, using ImGui default\n");
+  return fonts->AddFontDefault(cfg);
+}
+
 static void ImGuiBackend_SetDefaultIni() {
   gIniPath = "ofxrawhost.ini";
   if (ImGui::GetCurrentContext()) ImGui::GetIO().IniFilename = gIniPath.c_str();
@@ -40,26 +68,19 @@ bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir) {
   return false;
 }
 
-void ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
-  IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
+static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
   ImGuiIO &io = ImGui::GetIO();
-  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-  io.IniFilename = gIniPath.c_str();
-
-  // Rasterize fonts at framebuffer DPI so Retina text stays sharp.
   float dpiX = 1.0f, dpiY = 1.0f;
   glfwGetWindowContentScale(window, &dpiX, &dpiY);
   const float dpi = std::max(1.0f, std::max(dpiX, dpiY));
   ImFontConfig fontCfg;
-  fontCfg.SizePixels = std::round(13.0f * dpi);
+  fontCfg.SizePixels = std::round(uiFontSizePt * dpi);
   fontCfg.OversampleH = 2;
   fontCfg.OversampleV = 2;
   io.Fonts->Clear();
-  io.Fonts->AddFontDefault(&fontCfg);
+  addSystemSansFont(io.Fonts, &fontCfg);
 #if defined(__APPLE__)
   {
-    // Merge the ⌘ glyph so macOS menu shortcuts can render it.
     ImFontConfig symbolsCfg;
     symbolsCfg.MergeMode = true;
     symbolsCfg.PixelSnapH = true;
@@ -105,6 +126,23 @@ void ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
     if (!loaded) std::fprintf(stderr, "warning: could not load Font Awesome icon font\n");
   }
   io.FontGlobalScale = 1.0f / dpi;
+}
+
+void ImGuiBackend_SetUIFontSize(GLFWwindow *window, float uiFontSizePt) {
+  if (!ImGui::GetCurrentContext() || !window) return;
+  loadUiFonts(window, uiFontSizePt);
+  ImGui_ImplOpenGL3_DestroyFontsTexture();
+  ImGui_ImplOpenGL3_CreateFontsTexture();
+}
+
+void ImGuiBackend_Init(GLFWwindow *window, int themeIndex, float uiFontSizePt) {
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+  io.IniFilename = gIniPath.c_str();
+
+  loadUiFonts(window, uiFontSizePt);
   applyTheme(themeIndex);
   ImGui_ImplGlfw_InitForOpenGL(window, true);
 #if defined(__APPLE__)

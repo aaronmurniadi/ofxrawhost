@@ -12,6 +12,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <cmath>
 #include <cstdlib>
 
 static void openUrl(const std::string &url) {
@@ -73,6 +74,18 @@ static void drawMenuBar(App &app) {
       ImGui::MenuItem("Right panel", "Ctrl+]", &app.gui.showRight);
       ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.gui.showFilmstrip);
 #endif
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Settings")) {
+      float fontPt = app.gui.uiFontSizePt;
+      ImGui::SetNextItemWidth(140.0f);
+      if (ImGui::SliderFloat("UI font size", &fontPt, 10.0f, 22.0f, "%.0f pt")) {
+        fontPt = std::round(fontPt);
+        if (fontPt != app.gui.uiFontSizePt) {
+          app.gui.uiFontSizePt = fontPt;
+          ImGuiBackend_SetUIFontSize(app.window, fontPt);
+        }
+      }
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Theme")) {
@@ -151,6 +164,14 @@ void drawUiFrame(App &app) {
     ImGui::End();
   }
   {
+    static ImGuiWindowClass previewDockClass;
+    static bool previewDockClassInit = false;
+    if (!previewDockClassInit) {
+      previewDockClass.ClassId = ImGui::GetID("PreviewPanelDock");
+      previewDockClass.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_AutoHideTabBar;
+      previewDockClassInit = true;
+    }
+    ImGui::SetNextWindowClass(&previewDockClass);
     ImGuiWindowFlags previewFlags =
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse;
     if (ImGui::Begin(DockLayout::kPreview, nullptr, previewFlags)) drawPreviewPanel(app);

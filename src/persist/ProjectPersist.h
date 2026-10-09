@@ -14,7 +14,7 @@ struct PersistGui {
   int themeIndex = 2;
   bool showLeft = true;
   bool showRight = true;
-  bool showFilmstrip = true;
+  bool showFilmstrip = false;
 };
 
 struct PersistNode {

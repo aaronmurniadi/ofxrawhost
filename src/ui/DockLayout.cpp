@@ -6,9 +6,9 @@
 namespace DockLayout {
 
 // Default split fractions used until ImGui's layout .ini supplies real geometry.
-static constexpr float kDefaultLeftRatio = 0.15f;
-static constexpr float kDefaultRightRatio = 0.22f;
+static constexpr float kDefaultRightRatio = 0.24f;
 static constexpr float kDefaultStripRatio = 0.09f;
+static constexpr float kDefaultPluginsShareOfRight = 0.38f;
 
 static void buildDefaultLayout(ImGuiID dockspaceId) {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
@@ -16,22 +16,27 @@ static void buildDefaultLayout(ImGuiID dockspaceId) {
   ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
   ImGui::DockBuilderSetNodeSize(dockspaceId, vp->WorkSize);
 
-  const float leftRatio = kDefaultLeftRatio;
   const float rightRatio = kDefaultRightRatio;
   const float stripRatio = kDefaultStripRatio;
 
   ImGuiID dockMain = dockspaceId;
-  ImGuiID dockLeft = 0;
   ImGuiID dockRight = 0;
   ImGuiID dockBottom = 0;
-  ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, leftRatio, &dockLeft, &dockMain);
-  ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, rightRatio / (1.0f - leftRatio), &dockRight, &dockMain);
   ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, stripRatio, &dockBottom, &dockMain);
+  ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, rightRatio, &dockRight, &dockMain);
 
-  ImGui::DockBuilderDockWindow(kLeft, dockLeft);
-  ImGui::DockBuilderDockWindow(kParams, dockRight);
+  ImGuiID dockPlugins = 0;
+  ImGuiID dockParams = 0;
+  ImGui::DockBuilderSplitNode(dockRight, ImGuiDir_Up, kDefaultPluginsShareOfRight, &dockPlugins, &dockParams);
+
+  ImGui::DockBuilderDockWindow(kLeft, dockPlugins);
+  ImGui::DockBuilderDockWindow(kParams, dockParams);
   ImGui::DockBuilderDockWindow(kFilmstrip, dockBottom);
   ImGui::DockBuilderDockWindow(kPreview, dockMain);
+
+  if (ImGuiDockNode *previewNode = ImGui::DockBuilderGetNode(dockMain))
+    previewNode->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
+
   ImGui::DockBuilderFinish(dockspaceId);
 }
 
