@@ -4,7 +4,8 @@
 
 struct GLFWwindow;
 
-void ImGuiBackend_Init(GLFWwindow *window, int themeIndex);
+void ImGuiBackend_Init(GLFWwindow *window, int themeIndex, float uiFontSizePt);
+void ImGuiBackend_SetUIFontSize(GLFWwindow *window, float uiFontSizePt);
 void ImGuiBackend_NewFrame();
 void ImGuiBackend_Render();
 void ImGuiBackend_Shutdown();

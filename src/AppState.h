@@ -58,8 +58,9 @@ inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
 struct GuiState {
   bool showLeft = true;
   bool showRight = true;
-  bool showFilmstrip = true;
+  bool showFilmstrip = false;
   int themeIndex = 2;  // Photoshop
+  float uiFontSizePt = 13.0f;  // logical UI font size (before Retina scale)
   float previewZoom = 1.0f;  // 1 = fit in view
   float previewPanX = 0.0f;
   float previewPanY = 0.0f;

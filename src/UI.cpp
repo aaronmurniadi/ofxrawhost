@@ -43,7 +43,7 @@ int runApp(const std::string &optionalPath) {
   MacPinch_Install();
 #endif
 
-  ImGuiBackend_Init(app.window, app.gui.themeIndex);
+  ImGuiBackend_Init(app.window, app.gui.themeIndex, app.gui.uiFontSizePt);
 
   gOnMessage = [&app](const std::string &msg) { app.setStatus(msg); };
   loadPlugins();

@@ -11,20 +11,23 @@
 #include <cstdio>
 #include <string>
 
-static void drawPencilIcon(ImVec2 a, ImVec2 b) {
-  ImDrawList *dl = ImGui::GetWindowDrawList();
-  const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
-  const float pad = (b.x - a.x) * 0.22f;
-  const ImVec2 p0(a.x + pad, b.y - pad);
-  const ImVec2 p1(b.x - pad, a.y + pad);
-  const ImVec2 dir(p1.x - p0.x, p1.y - p0.y);
-  const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-  if (len < 1.0f) return;
-  const ImVec2 n(-dir.y / len * 1.6f, dir.x / len * 1.6f);
-  dl->AddLine(ImVec2(p0.x + n.x, p0.y + n.y), ImVec2(p1.x + n.x, p1.y + n.y), col, 1.2f);
-  dl->AddLine(ImVec2(p0.x - n.x, p0.y - n.y), ImVec2(p1.x - n.x, p1.y - n.y), col, 1.2f);
-  dl->AddLine(p0, ImVec2(p0.x + dir.x * 0.2f, p0.y + dir.y * 0.2f), col, 1.2f);
-  dl->AddLine(ImVec2(p1.x + n.x, p1.y + n.y), ImVec2(p1.x - n.x, p1.y - n.y), col, 1.2f);
+// DaVinci-style row: label | control/slider | value box | reset (fixed columns).
+static constexpr float kLabelW = 140.0f;
+static constexpr float kValueBoxW = 64.0f;
+
+static ImGuiTableFlags paramTableFlags() {
+  return ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoPadInnerX | ImGuiTableFlags_NoPadOuterX |
+         ImGuiTableFlags_NoBordersInBodyUntilResize;
+}
+
+static void tableLabelCell(const char *text) {
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const float w = ImGui::GetContentRegionAvail().x;
+  const float h = ImGui::GetFrameHeight();
+  ImGui::PushClipRect(p0, ImVec2(p0.x + w, p0.y + h), true);
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(text);
+  ImGui::PopClipRect();
 }
 
 static void drawResetIcon(ImVec2 a, ImVec2 b) {
@@ -43,24 +46,6 @@ static void drawResetIcon(ImVec2 a, ImVec2 b) {
   dl->AddTriangleFilled(tip, t1, t2, col);
 }
 
-static void drawMinusIcon(ImVec2 a, ImVec2 b) {
-  ImDrawList *dl = ImGui::GetWindowDrawList();
-  const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
-  const float cy = (a.y + b.y) * 0.5f;
-  const float pad = (b.x - a.x) * 0.28f;
-  dl->AddLine(ImVec2(a.x + pad, cy), ImVec2(b.x - pad, cy), col, 1.4f);
-}
-
-static void drawPlusIcon(ImVec2 a, ImVec2 b) {
-  ImDrawList *dl = ImGui::GetWindowDrawList();
-  const ImU32 col = ImGui::GetColorU32(ImGuiCol_Text);
-  const float cx = (a.x + b.x) * 0.5f;
-  const float cy = (a.y + b.y) * 0.5f;
-  const float pad = (b.x - a.x) * 0.28f;
-  dl->AddLine(ImVec2(a.x + pad, cy), ImVec2(b.x - pad, cy), col, 1.4f);
-  dl->AddLine(ImVec2(cx, a.y + pad), ImVec2(cx, b.y - pad), col, 1.4f);
-}
-
 static bool resetParamButton(Param *p) {
   const float h = ImGui::GetFrameHeight();
   const bool clicked = ImGui::Button("##reset", ImVec2(h, h));
@@ -71,37 +56,24 @@ static bool resetParamButton(Param *p) {
   return true;
 }
 
-static bool paramStepButton(bool plus) {
-  const float h = ImGui::GetFrameHeight();
-  const bool clicked = ImGui::Button(plus ? "##stepup" : "##stepdown", ImVec2(h, h));
-  if (plus) drawPlusIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-  else drawMinusIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip(plus ? "Increase" : "Decrease");
-  return clicked;
+static bool beginParamRowTable(float labelW, float valueBoxW, float resetW) {
+  if (!ImGui::BeginTable("##row", 4, paramTableFlags(), ImVec2(-FLT_MIN, 0.0f))) return false;
+  ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, labelW);
+  ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch);
+  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed, valueBoxW);
+  ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed, resetW);
+  ImGui::TableNextRow();
+  return true;
 }
 
-static bool paramEditButton(double &v, bool asInt, double lo, double hi) {
-  const float h = ImGui::GetFrameHeight();
-  if (ImGui::Button("##edit", ImVec2(h, h))) ImGui::OpenPopup("##type");
-  drawPencilIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Type value");
-
-  if (!ImGui::BeginPopup("##type")) return false;
-  ImGui::SetKeyboardFocusHere();
-  bool commit = false;
-  if (asInt) {
-    int iv = (int)std::lround(v);
-    if (ImGui::InputInt("##v", &iv, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-      v = std::clamp((double)iv, lo, hi);
-      commit = true;
-    }
-  } else if (ImGui::InputDouble("##v", &v, 0, 0, "%.6g", ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-    v = std::clamp(v, lo, hi);
-    commit = true;
-  }
-  if (commit) ImGui::CloseCurrentPopup();
-  ImGui::EndPopup();
-  return commit;
+// Choice rows: no separate value column (dropdown uses control + value width).
+static bool beginParamRowTableChoice(float labelW, float resetW) {
+  if (!ImGui::BeginTable("##row", 3, paramTableFlags(), ImVec2(-FLT_MIN, 0.0f))) return false;
+  ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, labelW);
+  ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch);
+  ImGui::TableSetupColumn("reset", ImGuiTableColumnFlags_WidthFixed, resetW);
+  ImGui::TableNextRow();
+  return true;
 }
 
 static void drawParam(App &app, Param *p) {
@@ -110,109 +82,148 @@ static void drawParam(App &app, Param *p) {
   if (!ui.enabled) ImGui::BeginDisabled();
 
   const float btn = ImGui::GetFrameHeight();
-  const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
-  const float labelW = ImGui::CalcTextSize(ui.label.c_str()).x;
-  auto valueWidth = [&] { return std::max(40.0f, ImGui::GetContentRegionAvail().x - gap - labelW); };
+  const float valueBoxW = kValueBoxW;
+  const float labelW = kLabelW;
 
   bool changed = false;
-  if (p->kind == ParamType::Double || p->kind == ParamType::Integer) {
-    const bool isInt = p->kind == ParamType::Integer;
-    const double lo = ui.displayMin;
-    const double hi = ui.displayMax;
-    const double hardLo = ui.hardMin;
-    const double hardHi = ui.hardMax;
-    const double step = ui.step;
-    auto nudge = [&](double d) {
-      const double v = std::clamp(paramScalar(p, 0) + d, lo, hi);
-      setParamScalar(p, 0, isInt ? std::round(v) : v);
-      changed = true;
-    };
 
-    if (resetParamButton(p)) changed = true;
-    ImGui::SameLine(0, gap);
-    double typed = paramScalar(p, 0);
-    if (paramEditButton(typed, isInt, hardLo, hardHi)) {
-      setParamScalar(p, 0, typed);
-      changed = true;
-    }
-    ImGui::SameLine(0, gap);
-    if (paramStepButton(false)) nudge(-step);
-    ImGui::SameLine(0, gap);
-    if (paramStepButton(true)) nudge(step);
-    ImGui::SameLine(0, gap);
-    ImGui::SetNextItemWidth(valueWidth());
-    float fv = (float)paramScalar(p, 0);
-    const float range = (float)(hi - lo);
-    const float dragSpeed = (float)std::max(step, 1e-6);
-    const bool fineDrag = !isInt && (range > 100.0f || step < 1.0);
-    if (fineDrag) {
-      if (ImGui::DragFloat(ui.idLabel.c_str(), &fv, dragSpeed, (float)lo, (float)hi, "%.3f")) {
-        setParamScalar(p, 0, fv);
-        changed = true;
-      }
-    } else if (ImGui::SliderFloat(ui.idLabel.c_str(), &fv, (float)lo, (float)hi)) {
-      setParamScalar(p, 0, isInt ? std::round(fv) : fv);
-      changed = true;
-    }
-  } else if (p->kind == ParamType::Boolean) {
-    if (resetParamButton(p)) changed = true;
-    ImGui::SameLine(0, gap);
-    bool v = paramScalar(p, 0) != 0;
-    if (ImGui::Checkbox(ui.idLabel.c_str(), &v)) {
-      setParamScalar(p, 0, v ? 1.0 : 0.0);
-      changed = true;
-    }
-  } else if (p->kind == ParamType::Choice) {
-    if (resetParamButton(p)) changed = true;
-    ImGui::SameLine(0, gap);
+  if (p->kind == ParamType::PushButton) {
+    if (ImGui::Button(ui.idLabel.c_str())) changed = true;
+  } else if (p->kind == ParamType::String && ui.stringIsLabel) {
+    ImGui::Text("%s: %s", ui.label.c_str(), paramText(p).c_str());
+  } else if (p->kind == ParamType::Choice && beginParamRowTableChoice(labelW, btn)) {
+    ImGui::TableSetColumnIndex(0);
+    tableLabelCell(ui.label.c_str());
+    ImGui::TableSetColumnIndex(1);
+    ImGui::SetNextItemWidth(-FLT_MIN);
     int cur = (int)paramScalar(p, 0);
-    ImGui::SetNextItemWidth(valueWidth());
-    if (!ui.choicePtrs.empty() && ImGui::Combo(ui.idLabel.c_str(), &cur, ui.choicePtrs.data(), (int)ui.choicePtrs.size())) {
+    if (!ui.choicePtrs.empty() && ImGui::Combo("##v", &cur, ui.choicePtrs.data(), (int)ui.choicePtrs.size())) {
       setParamScalar(p, 0, cur);
       changed = true;
     }
-  } else if (p->kind == ParamType::PushButton) {
-    if (ImGui::Button(ui.idLabel.c_str())) changed = true;
-  } else if (p->kind == ParamType::String) {
-    char buf[512];
-    std::snprintf(buf, sizeof buf, "%s", paramText(p).c_str());
-    if (!ui.stringIsLabel) {
+    ImGui::TableSetColumnIndex(2);
+    if (resetParamButton(p)) changed = true;
+    ImGui::EndTable();
+  } else if (beginParamRowTable(labelW, valueBoxW, btn)) {
+    ImGui::TableSetColumnIndex(0);
+    tableLabelCell(ui.label.c_str());
+
+    if (p->kind == ParamType::Double || p->kind == ParamType::Integer) {
+      const bool isInt = p->kind == ParamType::Integer;
+      const double lo = ui.displayMin, hi = ui.displayMax;
+      const double hardLo = ui.hardMin, hardHi = ui.hardMax;
+
+      ImGui::TableSetColumnIndex(1);
+      ImGui::SetNextItemWidth(-FLT_MIN);
+      double v = paramScalar(p, 0);
+      if (isInt) {
+        int iv = (int)std::lround(v);
+        if (ImGui::SliderInt("##slider", &iv, (int)lo, (int)hi, "")) {
+          v = iv;
+          changed = true;
+        }
+      } else {
+        float fv = (float)v;
+        if (ImGui::SliderFloat("##slider", &fv, (float)lo, (float)hi, "")) {
+          v = fv;
+          changed = true;
+        }
+      }
+
+      ImGui::TableSetColumnIndex(2);
+      ImGui::SetNextItemWidth(-FLT_MIN);
+      if (isInt) {
+        int iv = (int)std::lround(v);
+        if (ImGui::InputInt("##value", &iv, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue)) {
+          v = std::clamp((double)iv, hardLo, hardHi);
+          changed = true;
+        }
+      } else {
+        if (ImGui::InputDouble("##value", &v, 0, 0, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue)) {
+          v = std::clamp(v, hardLo, hardHi);
+          changed = true;
+        }
+      }
+      if (changed) setParamScalar(p, 0, isInt ? std::round(v) : v);
+
+      ImGui::TableSetColumnIndex(3);
       if (resetParamButton(p)) changed = true;
-      ImGui::SameLine(0, gap);
-      ImGui::SetNextItemWidth(valueWidth());
-      if (ImGui::InputText(ui.idLabel.c_str(), buf, sizeof buf)) {
+    } else if (p->kind == ParamType::Boolean) {
+      ImGui::TableSetColumnIndex(1);
+      bool v = paramScalar(p, 0) != 0;
+      if (ImGui::Checkbox("##v", &v)) {
+        setParamScalar(p, 0, v ? 1.0 : 0.0);
+        changed = true;
+      }
+      ImGui::TableSetColumnIndex(3);
+      if (resetParamButton(p)) changed = true;
+    } else if (p->kind == ParamType::String) {
+      char buf[512];
+      std::snprintf(buf, sizeof buf, "%s", paramText(p).c_str());
+      ImGui::TableSetColumnIndex(1);
+      ImGui::SetNextItemWidth(-FLT_MIN);
+      if (ImGui::InputText("##v", buf, sizeof buf)) {
         setParamString(p, buf);
         changed = true;
       }
-    } else {
-      ImGui::Text("%s: %s", ui.label.c_str(), paramText(p).c_str());
-    }
-  } else if (paramDimension(p->kind) > 1) {
-    const int dim = paramDimension(p->kind);
-    const bool isInt = paramIsInteger(p->kind);
-    const float rowW = ImGui::CalcItemWidth();
-    if (resetParamButton(p)) changed = true;
-    ImGui::SameLine(0, gap);
-    ImGui::TextUnformatted(ui.label.c_str());
-    ImGui::Indent();
-    for (int i = 0; i < dim; ++i) {
-      const double val = paramScalar(p, i);
-      float fv = (float)val;
-      ImGui::PushID(i);
-      double typed = val;
-      if (paramEditButton(typed, isInt, -1e7, 1e7)) {
-        setParamScalar(p, i, typed);
-        changed = true;
+      ImGui::TableSetColumnIndex(3);
+      if (resetParamButton(p)) changed = true;
+    } else if (paramDimension(p->kind) > 1) {
+      const int dim = paramDimension(p->kind);
+      const bool isInt = paramIsInteger(p->kind);
+
+      ImGui::TableSetColumnIndex(3);
+      if (resetParamButton(p)) changed = true;
+      ImGui::EndTable();
+
+      for (int i = 0; i < dim; ++i) {
+        ImGui::PushID(i);
+        if (!beginParamRowTable(labelW, valueBoxW, btn)) {
+          ImGui::PopID();
+          continue;
+        }
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        double v = paramScalar(p, i);
+        if (isInt) {
+          int iv = (int)std::lround(v);
+          if (ImGui::DragInt("##d", &iv, 1.0f, 0, 0, "")) {
+            setParamScalar(p, i, iv);
+            changed = true;
+          }
+          ImGui::TableSetColumnIndex(2);
+          ImGui::SetNextItemWidth(-FLT_MIN);
+          if (ImGui::InputInt("##v", &iv, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue)) {
+            setParamScalar(p, i, iv);
+            changed = true;
+          }
+        } else {
+          float fv = (float)v;
+          if (ImGui::DragFloat("##d", &fv, 0.01f, 0, 0, "")) {
+            setParamScalar(p, i, fv);
+            changed = true;
+          }
+          ImGui::TableSetColumnIndex(2);
+          ImGui::SetNextItemWidth(-FLT_MIN);
+          double dv = fv;
+          if (ImGui::InputDouble("##v", &dv, 0, 0, "%.4g", ImGuiInputTextFlags_EnterReturnsTrue)) {
+            setParamScalar(p, i, dv);
+            changed = true;
+          }
+        }
+        ImGui::EndTable();
+        ImGui::PopID();
       }
-      ImGui::SameLine(0, gap);
-      ImGui::SetNextItemWidth(std::max(40.0f, rowW - btn - gap));
-      if (ImGui::DragFloat("##v", &fv, isInt ? 1.0f : 0.01f)) {
-        setParamScalar(p, i, isInt ? std::round(fv) : fv);
-        changed = true;
-      }
+      if (!ui.enabled) ImGui::EndDisabled();
       ImGui::PopID();
+      if (changed) {
+        Node *node = selectedNode(app);
+        if (node) commitParamEdit(app, *node, p);
+      }
+      return;
     }
-    ImGui::Unindent();
+
+    ImGui::EndTable();
   }
 
   if (!ui.enabled) ImGui::EndDisabled();
