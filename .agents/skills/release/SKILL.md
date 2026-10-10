@@ -57,7 +57,7 @@ Run only the branch that matches the confirmed kind.
 2. Commit any outstanding work on the branch.
 3. Confirm the push with the user one more time.
 4. Run `git push -u origin release/vX.X.X`.
-5. Watch the workflow with `gh run list` and `gh run watch`.
+5. Do not wait for the workflow. Report the pushed branch and the tag `vX.X.X-dev`, then stop.
 
 Every later push to the branch republishes `vX.X.X-dev`. The build keeps the numeric version `X.X.X`.
 
@@ -69,7 +69,7 @@ Every later push to the branch republishes `vX.X.X-dev`. The build keeps the num
 4. Add or update `docs/releases/vX.X.X.md` before the tag.
 5. Confirm the push with the user one more time.
 6. Run `git push origin main`, then `git tag vX.X.X`, then `git push origin vX.X.X`.
-7. Watch the workflow with `gh run list` and `gh run watch`.
+7. Do not wait for the workflow. Report the pushed tag `vX.X.X`, then stop.
 
 ## Notes
 
@@ -77,3 +77,4 @@ Every later push to the branch republishes `vX.X.X-dev`. The build keeps the num
 - The `prepare` job derives the version, the tag, and the pre-release flag from the git ref.
 - The guard `if: needs.prepare.outputs.is_release == 'true'` keeps `workflow_dispatch` runs from publishing.
 - Keep `docs/releases/<tag>.md` next to the release notes, because the publish job copies that file into the release body.
+- Never sleep, poll, or watch a GitHub Actions run to wait for a release. Report the push and stop.
