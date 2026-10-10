@@ -17,7 +17,7 @@ struct GLFWwindow;
 inline constexpr const char *kOutputSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
 inline constexpr int kOutputSpaceCount = 4;
 
-enum class ExportFormat { PNG = 0, JPEG = 1 };
+enum class ExportFormat { PNG = 0, JPEG = 1, TIFF = 2 };
 
 enum class PreviewRes { R720p = 0, R1080p, R1440p, Full };
 

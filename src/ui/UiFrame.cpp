@@ -112,7 +112,7 @@ static void drawMenuBar(App &app) {
 
 void exportImage(App &app) {
   if (!canExport(app)) return;
-  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
+  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg", "TIFF (16-bit)", "*.tif *.tiff"};
   const int fmt = static_cast<int>(app.gui.exportFormat);
   auto sel = pfd::save_file("Export", defaultExportName(app), {filters[fmt * 2], filters[fmt * 2 + 1]});
   const std::string outPath = sel.result();

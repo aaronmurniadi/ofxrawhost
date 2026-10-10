@@ -12,7 +12,7 @@
 
 A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) **plugin host**.
 Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through one or more OFX filter plugins, preview the result,
-and export to PNG or JPEG — no video NLE required.
+and export to PNG, JPEG, or 16-bit TIFF — no video NLE required.
 
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts,
 on still photos and a simple processing chain.

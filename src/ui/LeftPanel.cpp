@@ -118,7 +118,8 @@ void drawLeftPanel(App &app) {
     if (ImGui::Combo("Preview", &res, items, kPreviewResCount)) setPreviewRes(app, res);
   }
   int fmt = static_cast<int>(app.gui.exportFormat);
-  if (ImGui::Combo("Export format", &fmt, "PNG (8-bit)\0JPEG\0")) app.gui.exportFormat = static_cast<ExportFormat>(fmt);
+  if (ImGui::Combo("Export format", &fmt, "PNG (8-bit)\0JPEG\0TIFF (16-bit)\0"))
+    app.gui.exportFormat = static_cast<ExportFormat>(fmt);
   if (app.gui.exportFormat == ExportFormat::JPEG) ImGui::SliderInt("JPEG quality", &app.gui.jpegQuality, 1, 100);
   ImGui::Separator();
   const std::string status = app.getStatus();

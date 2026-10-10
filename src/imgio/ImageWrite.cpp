@@ -1,6 +1,7 @@
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
 
+#include <tiffio.h>
 #include <zlib.h>
 
 #include <algorithm>
@@ -119,6 +120,37 @@ static bool writePngWithIcc(const Image &img, const std::string &path, const std
   return ok;
 }
 
+static bool writeTiff16(const Image &img, const std::string &path, const std::vector<uint8_t> &icc) {
+  TIFF *tif = TIFFOpen(path.c_str(), "w");
+  if (!tif) return false;
+  const uint32_t w = (uint32_t)img.w, h = (uint32_t)img.h;
+  TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, w);
+  TIFFSetField(tif, TIFFTAG_IMAGELENGTH, h);
+  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 4);
+  TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 16);
+  TIFFSetField(tif, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
+  TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+  TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  if (!icc.empty()) TIFFSetField(tif, TIFFTAG_ICCPROFILE, (uint32_t)icc.size(), icc.data());
+
+  std::vector<uint16_t> row((size_t)w * 4);
+  for (uint32_t y = 0; y < h; ++y) {
+    const float *src = img.px.data() + (size_t)(img.h - 1 - (int)y) * img.w * 4;
+    for (uint32_t x = 0; x < w; ++x) {
+      for (int c = 0; c < 4; ++c)
+        row[(size_t)x * 4 + c] = (uint16_t)std::lround(std::clamp(src[c], 0.0f, 1.0f) * 65535.0f);
+      src += 4;
+    }
+    if (TIFFWriteScanline(tif, row.data(), y, 0) < 0) {
+      TIFFClose(tif);
+      return false;
+    }
+  }
+  TIFFClose(tif);
+  return true;
+}
+
 static bool writeJpgWithIcc(const Image &img, const std::string &path, const std::vector<uint8_t> &icc, int quality) {
   quality = std::clamp(quality, 1, 100);
   std::vector<unsigned char> px8;
@@ -190,5 +222,6 @@ bool writeImage(const Image &img, const std::string &path, ColorSpace space, int
 
   if (e == ".png") return writePngWithIcc(img, path, icc);
   if (e == ".jpg" || e == ".jpeg") return writeJpgWithIcc(img, path, icc, jpegQuality);
+  if (e == ".tif" || e == ".tiff") return writeTiff16(img, path, icc);
   return false;
 }

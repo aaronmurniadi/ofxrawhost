@@ -21,7 +21,7 @@ PersistGui captureGui(const App &app) {
 
 void applyGui(App &app, const PersistGui &g) {
   app.outputTag = outputSpace(g.outputIndex);
-  app.gui.exportFormat = static_cast<ExportFormat>(std::clamp(g.exportFormat, 0, 1));
+  app.gui.exportFormat = static_cast<ExportFormat>(std::clamp(g.exportFormat, 0, 2));
   app.gui.jpegQuality = std::clamp(g.jpegQuality, 1, 100);
   app.gui.previewRes = static_cast<PreviewRes>(std::clamp(g.previewRes, 0, kPreviewResCount - 1));
   if (g.themeIndex >= 0 && g.themeIndex < themeCount()) app.gui.themeIndex = g.themeIndex;

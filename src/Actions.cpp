@@ -75,7 +75,14 @@ void openPath(App &app, const std::string &path) {
 }
 
 static const char *exportExtension(ExportFormat fmt) {
-  return fmt == ExportFormat::PNG ? ".png" : ".jpg";
+  switch (fmt) {
+    case ExportFormat::PNG:
+      return ".png";
+    case ExportFormat::TIFF:
+      return ".tif";
+    default:
+      return ".jpg";
+  }
 }
 
 bool canExport(const App &app) { return !app.doc.full.px.empty() && !app.chain.nodes.empty(); }
