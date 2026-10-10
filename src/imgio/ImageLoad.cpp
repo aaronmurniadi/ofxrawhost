@@ -467,7 +467,7 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
 
   if (format && format->codec == ImageCodec::Raw) {
     if (!loadRaw(path, out)) return false;
-    detected = ColorSpace::LinearRec2020;
+    detected = ColorSpace::LinearRec709;
     return true;
   }
   if (format && format->codec == ImageCodec::Exr) {
@@ -492,7 +492,7 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
   }
   // A RAW file whose extension the table does not list.
   if (loadRaw(path, out)) {
-    detected = ColorSpace::LinearRec2020;
+    detected = ColorSpace::LinearRec709;
     return true;
   }
   return false;
