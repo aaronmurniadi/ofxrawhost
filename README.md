@@ -38,7 +38,7 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 
 ### Transform
 
-A bundled OFX plugin that crops, rotates, and zooms the image. It is compiled into the
+A bundled OFX plugin that zooms into an aspect-ratio region and rotates the image. It is compiled into the
 Windows executable and shipped as an OFX bundle on macOS and Linux. Intended at the
 **beginning of a plugin
 chain** so downstream plugins process fewer pixels, it implements `getRegionOfDefinition` to report
@@ -46,11 +46,10 @@ the output dimensions directly to the host.
 
 **Parameters:**
 
-- **Crop** — crop amount from 0 to 100, default 0. At 0 the plugin outputs the full image (identity). At 100 the region is 2% of the source in each dimension, which is 0.04% of the source area.
 - **Aspect Ratio** — crop window aspect ratio. The list holds landscape ratios: _Original_ (source ratio), _1:1 (Square)_, _6:5 (Photo)_, _5:4 (Large Format)_, _4:3 (Classic TV)_, _1.37:1 (Academy)_, _7:5 (Photo)_, _1.43:1 (IMAX)_, _3:2 (Film Landscape)_, _16:10 (Widescreen)_, _1.66:1 (Super 16)_, _5:3 (Wide)_, _7:4 (Wide)_, _16:9 (Widescreen)_, _1.85:1 (Cinema Flat)_, _2:1 (Univisium)_, _21:9 (Ultrawide)_, _2.39:1 (Anamorphic)_, _3:1 (Panorama)_, and _4:1 (Extreme Wide)_. The default is _Original_.
 - **Orientation** — _Landscape_ or _Portrait_, default _Landscape_. Portrait swaps the width and height of the chosen aspect ratio. _Original_ keeps the source shape and ignores this parameter.
-- **Zoom** — magnification inside the crop window, from 1 to 1000, default 100. 100 samples the crop window at 1:1. Higher values sample a smaller source region and magnify; lower values sample a wider region and shrink. The output size does not change.
-- **Rotate** — rotate the cropped image about its center, in degrees, from -180 to 180, default 0. The crop window stays the output size; the image scales up as needed so the frame stays filled (straight edges, no black corner wedges).
+- **Zoom** — zoom amount from 100 to 1000, default 100. At 100 the plugin outputs the full image (identity). Higher values crop to a centered region that matches the aspect ratio and sample it one to one. The output shrinks with the region, so downstream plugins process fewer pixels. At 1000 the region is 10% of the source in each dimension.
+- **Rotate** — rotate the zoomed image about its center, in degrees, from -180 to 180, default 0. The crop window stays the output size; the image scales up as needed so the frame stays filled (straight edges, no black corner wedges).
 - **Offset X / Offset Y** — pan the crop window from -100 to 100, default 0. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a portrait aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge. The out-of-bounds area is filled with **black pixels**.
 
 ---
@@ -238,6 +237,9 @@ build/OfxRawHost --selftest
 | Packaged macOS, Linux, and single-file Windows releases                 | Done (v0.4.0)  |
 | Release pipeline: cached, release-only dependency builds                | Done (v0.4.1)  |
 | Windows: message box on a start-up failure, legacy OpenGL fallback      | Done (v0.4.1)  |
+| spektrafilm `.spkpreset` import button on the parameter panel           | Done (v0.4.2)  |
+| Preview size "Fit to preview" (matches the preview panel pixels)        | Done (v0.4.2)  |
+| Bundled Transform: Crop and Zoom merge into one Zoom control            | Done (v0.4.2)  |
 
 ---
 
