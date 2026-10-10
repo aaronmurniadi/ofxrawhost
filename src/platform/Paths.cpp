@@ -11,6 +11,8 @@
 #include <unistd.h>
 #endif
 
+#include <cstdlib>
+
 namespace fs = std::filesystem;
 
 fs::path exeDir() {
@@ -34,4 +36,28 @@ fs::path exeDir() {
   buf[n] = '\0';
   return fs::path(buf).parent_path();
 #endif
+}
+
+fs::path userConfigDir() {
+  fs::path dir;
+#if defined(_WIN32)
+  const char *appData = std::getenv("APPDATA");
+  if (appData && appData[0]) dir = fs::path(appData) / "OfxRawHost";
+#elif defined(__APPLE__)
+  const char *home = std::getenv("HOME");
+  if (home && home[0]) dir = fs::path(home) / "Library" / "Application Support" / "OfxRawHost";
+#else
+  const char *xdg = std::getenv("XDG_CONFIG_HOME");
+  if (xdg && xdg[0]) {
+    dir = fs::path(xdg) / "ofxrawhost";
+  } else {
+    const char *home = std::getenv("HOME");
+    if (home && home[0]) dir = fs::path(home) / ".config" / "ofxrawhost";
+  }
+#endif
+  if (dir.empty()) return dir;
+  // ImGui writes the layout .ini here, so the directory has to exist first.
+  std::error_code ec;
+  fs::create_directories(dir, ec);
+  return dir;
 }

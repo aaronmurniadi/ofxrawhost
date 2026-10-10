@@ -14,8 +14,8 @@
 // Forward-declared so this header does not pull in GLFW/OpenGL.
 struct GLFWwindow;
 
-inline constexpr const char *kOutputSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
-inline constexpr int kOutputSpaceCount = 4;
+inline constexpr const char *kColorSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
+inline constexpr int kColorSpaceCount = 4;
 
 enum class ExportFormat { PNG = 0, JPEG = 1, TIFF = 2, WEBP = 3, JXL = 4 };
 inline constexpr int kExportFormatCount = 5;
@@ -57,30 +57,26 @@ inline ColorSpace outputSpace(int index) {
   return static_cast<ColorSpace>(index);
 }
 
-// Working buffers are scene-linear (stbi_loadf / LibRaw). Gamma tags (sRGB, Display P3)
-// describe the *file*; for CMS display of unprocessed source use the linear counterpart.
-inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
-  switch (fileOrTag) {
-    case ColorSpace::sRGB:
-      return ColorSpace::LinearRec709;
-    case ColorSpace::DisplayP3:
-      // No linear-P3 tag yet; Rec.2020 is the closest wider linear space we have.
-      return ColorSpace::LinearRec2020;
-    case ColorSpace::LinearRec709:
-    case ColorSpace::LinearRec2020:
-      return fileOrTag;
-  }
-  return ColorSpace::LinearRec709;
+// The interface font is the bundled Inter face, so only its scale is a setting.
+// The sizes come from the operating system default: Smaller and Bigger scale it
+// while Normal uses it unchanged.
+enum class UiFontScale { Smaller = 0, Normal, Bigger };
+inline constexpr int kUiFontScaleCount = 3;
+
+// Multiplier each scale applies to the operating system font size.
+inline float uiFontScaleFactor(UiFontScale scale) {
+  if (scale == UiFontScale::Smaller) return 0.85f;
+  if (scale == UiFontScale::Bigger) return 1.2f;
+  return 1.0f;
 }
 
 // UI-only state: layout, theme, view transform, persistable preferences.
 struct GuiState {
-  bool showLeft = true;
-  bool showRight = true;
+  bool showPlugins = true;
+  bool showParameters = true;
   bool showFilmstrip = false;
   int themeIndex = 2;  // Photoshop
-  int uiFontSizePt = 13;       // UI font size in points, before the Retina scale
-  std::string uiFontFamily;    // absolute path to the font file; empty is the system default
+  UiFontScale uiFontScale = UiFontScale::Normal;
   int settingsSection = 0;     // row selected in the settings modal sidebar
   float previewZoom = 1.0f;  // 1 = fit in view
   float previewPanX = 0.0f;
@@ -89,6 +85,12 @@ struct GuiState {
   int exportBitDepth = 8;
   int exportQuality = 92;
   bool exportLossless = false;
+  ColorSpace exportSpace = ColorSpace::sRGB;  // color space of the exported file
+  RenderIntent exportIntent = RenderIntent::Perceptual;
+  // Color space the preview is encoded in. The host converts the chain output
+  // into it and shows those values, so the preview shows what a file in that
+  // space looks like in a viewer without color management. Default sRGB.
+  ColorSpace previewSpace = ColorSpace::sRGB;
   PreviewRes previewRes = PreviewRes::Fit;
   // Preview canvas size in framebuffer pixels, republished by the preview panel
   // every frame. "Fit to preview" renders the preview at this size.
@@ -97,13 +99,10 @@ struct GuiState {
   double previewFitSettleTime = 0.0;  // ImGui time when the fit size last changed
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
-  // Node index the parameter tab bar selected last frame. The tab bar pushes
-  // SetSelected only when the node list or the graph changed the selection, so
-  // a tab click and the node list do not fight over the visible tab.
-  int paramTabSync = -1;
   bool showAbout = false;
   bool showDonate = false;
   bool showExportDialog = false;
+  bool showResetParamsConfirm = false;
   bool showSettings = false;
   bool themeApplyPending = false;
   bool fontApplyPending = false;
@@ -134,7 +133,11 @@ struct App {
   RenderState render;
   Filmstrip filmstrip;
 
-  std::atomic<ColorSpace> outputTag{ColorSpace::sRGB};  // written on the UI thread while renders are in flight
+  // Color space the plugin chain writes, derived by walking the chain: the first
+  // plugin is told the document input space, and every later plugin is told the
+  // space the previous plugin declares. Written on the UI thread while renders
+  // are in flight, so it is atomic.
+  std::atomic<ColorSpace> chainOutputSpace{ColorSpace::sRGB};
   std::atomic<bool> quit{false};                        // app lifetime; stops both workers
 
   std::mutex statusMutex;

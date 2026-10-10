@@ -84,7 +84,15 @@ int runApp(const std::string &optionalPath) {
   MacPinch_Install();
 #endif
 
-  ImGuiBackend_Init(app.window, legacyGl, app.gui.themeIndex, app.gui.uiFontSizePt);
+  // Restore the per-user preferences before the ImGui backend applies the theme
+  // and loads the font, so the saved theme, font, and view show on the first
+  // frame. A workspace or sidecar opens later and overrides these values.
+  {
+    PersistGui saved;
+    if (loadGlobalSettings(saved)) applyGui(app, saved);
+  }
+
+  ImGuiBackend_Init(app.window, legacyGl, app.gui.themeIndex, static_cast<int>(app.gui.uiFontScale));
 
   gOnMessage = [&app](const std::string &msg) { app.setStatus(msg); };
   loadPlugins();
@@ -112,7 +120,7 @@ int runApp(const std::string &optionalPath) {
     // previous frame referenced, so a rebuild during a frame leaves that frame
     // with a dangling font.
     if (app.gui.fontApplyPending) {
-      ImGuiBackend_SetUIFont(app.window, (float)app.gui.uiFontSizePt, app.gui.uiFontFamily);
+      ImGuiBackend_SetUIFont(app.window, static_cast<int>(app.gui.uiFontScale));
       app.gui.fontApplyPending = false;
     }
 

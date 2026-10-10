@@ -12,14 +12,22 @@
 #include "persist/ChainIO.h"
 #include "persist/ProjectPersist.h"
 #include "platform/EmbeddedResource.h"
+#include "platform/Paths.h"
+#include "platform/SystemUiFont.h"
+#include "ui/ParamEdit.h"
+
+#include "imgui.h"
 
 #include <tiffio.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -35,11 +43,57 @@ static bool selftestExcluded(const PluginEntry &pe) {
   return pe.plugin && pe.plugin->pluginIdentifier && !strcmp(pe.plugin->pluginIdentifier, "org.spektrafilm.dev");
 }
 
-// The Windows release is one executable, so the icon font must travel inside it.
-static int testEmbeddedIconFont() {
+// The release bundles the interface font (Inter) and the icon font, so the host
+// never depends on a system font. The interface font must also be loadable: a
+// truncated or unsupported file would fail here instead of at startup.
+static int testBundledFonts() {
 #if defined(_WIN32)
   if (embeddedResource(kIconFontResourceId).empty()) return fail("embedded icon font is missing");
+  if (embeddedResource(kUiFontResourceId).empty()) return fail("embedded interface font is missing");
 #endif
+
+  // Read the interface font from the same places the UI does.
+  std::vector<unsigned char> bytes = embeddedResource(kUiFontResourceId);
+  if (bytes.empty()) {
+    const fs::path exe = exeDir();
+    const std::vector<std::string> cands = {
+        OFX_UI_FONT_PATH,
+        (exe / "Inter.ttf").string(),
+        (exe / ".." / "Resources" / "Inter.ttf").string(),
+        "Inter.ttf",
+    };
+    for (const std::string &path : cands) {
+      if (path.empty() || !fs::exists(path)) continue;
+      std::ifstream in(path, std::ios::binary);
+      if (!in) continue;
+      bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+      if (!bytes.empty()) break;
+    }
+  }
+  if (bytes.empty()) return fail("bundled interface font not found");
+
+  ImFontAtlas atlas;
+  ImFontConfig cfg;
+  cfg.SizePixels = 18.0f;
+  // ImGui takes ownership of the buffer, so hand it a heap copy.
+  void *copy = std::malloc(bytes.size());
+  if (!copy) return fail("bundled interface font: out of memory");
+  std::memcpy(copy, bytes.data(), bytes.size());
+  ImFont *font = atlas.AddFontFromMemoryTTF(copy, (int)bytes.size(), cfg.SizePixels, &cfg);
+  if (!font) return fail("bundled interface font did not load");
+  if (!atlas.Build()) return fail("bundled interface font atlas did not build");
+  unsigned char *pixels = nullptr;
+  int texW = 0, texH = 0;
+  atlas.GetTexDataAsAlpha8(&pixels, &texW, &texH);
+  if (!pixels || texW <= 0 || texH <= 0) return fail("bundled interface font has no atlas texture");
+  if (!font->FindGlyphNoFallback('A')) return fail("bundled interface font has no glyphs");
+
+  // The interface font size follows the operating system, so it must resolve to
+  // a usable size on every platform and in a headless run.
+  const float systemPt = systemUiFontSizePt();
+  if (!(systemPt > 4.0f) || systemPt > 40.0f) return fail("system UI font size is out of range");
+
+  printf("ok  bundled fonts (system size %.1f pt)\n", systemPt);
   return 0;
 }
 
@@ -70,23 +124,30 @@ static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
   return ok;
 }
 
-// Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB.
+// Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB. The working space
+// of an integer TIFF is its tag, because the samples stay encoded.
 static int testTiffDecode() {
   for (bool half : {false, true}) {
     const fs::path p = fs::temp_directory_path() / (half ? "ofxrawhost-selftest-half.tif" : "ofxrawhost-selftest.tif");
     if (!writeTinyTiff(p, half)) return fail(half ? "tiff write half" : "tiff write");
     Image img;
     ColorSpace cs = ColorSpace::sRGB;
-    if (!loadImage(p.string(), img, cs) || img.w != 2 || img.h != 2) return fail(half ? "tiff load half" : "tiff load");
+    ColorSpace working = ColorSpace::sRGB;
+    if (!loadImage(p.string(), img, cs, working) || img.w != 2 || img.h != 2) {
+      if (half) return fail("tiff load half");
+      return fail("tiff load");
+    }
     if (img.px[(size_t)1 * 2 * 4 + 0] < 0.9f) return fail(half ? "tiff pixels half" : "tiff pixels");
     if (half && cs != ColorSpace::LinearRec2020) return fail("tiff half colorspace");
     if (!half && cs != ColorSpace::sRGB) return fail("tiff uint colorspace");
+    if (working != cs) return fail("tiff working space");
     fs::remove(p);
   }
   return 0;
 }
 
-// Minimal 1x1 RGB PNG, no iCCP (untagged LDR → sRGB).
+// Minimal 1x1 RGB PNG, no iCCP (untagged LDR → sRGB tag, linear working space,
+// because stb removes the transfer curve while it converts to float).
 static int testPngColorSpace() {
   static const unsigned char kPng[] = {
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
@@ -102,7 +163,9 @@ static int testPngColorSpace() {
   fclose(f);
   Image img;
   ColorSpace cs = ColorSpace::LinearRec2020;
-  if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
+  ColorSpace working = ColorSpace::sRGB;
+  if (!loadImage(p.string(), img, cs, working) || cs != ColorSpace::sRGB) return fail("png colorspace");
+  if (working != ColorSpace::LinearRec709) return fail("png working space");
   fs::remove(p);
   return 0;
 }
@@ -119,6 +182,67 @@ static int testRowOrder() {
   }
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
   return 0;
+}
+
+// The per-user settings file must round-trip the preference fields, so a
+// restart restores the theme, font, panel visibility, and export defaults. The
+// case points the config directory at a temp folder, so it never reads or
+// writes the real user settings.
+static int testGlobalSettingsRoundTrip() {
+  const fs::path base = fs::temp_directory_path() / "ofxrawhost-selftest-config";
+  std::error_code ec;
+  fs::remove_all(base, ec);
+
+#ifdef _WIN32
+  const char *envKey = "APPDATA";
+#else
+  const char *envKey = "HOME";
+#endif
+  const char *oldEnv = std::getenv(envKey);
+  std::string oldValue;
+  if (oldEnv) oldValue = oldEnv;
+#ifdef _WIN32
+  _putenv_s(envKey, base.string().c_str());
+#else
+  setenv(envKey, base.string().c_str(), 1);
+#endif
+
+  PersistGui saved;
+  saved.themeIndex = 5;
+  saved.uiFontScale = 2;
+  saved.showPlugins = false;
+  saved.showParameters = true;
+  saved.showFilmstrip = true;
+  saved.previewRes = 3;
+  saved.outputIndex = 2;
+  saved.exportIndex = 3;
+  saved.exportIntent = 2;
+  saved.exportQuality = 71;
+
+  int rc = 0;
+  if (!saveGlobalSettings(saved)) rc = fail("settings: save");
+  PersistGui loaded;
+  if (rc == 0 && !loadGlobalSettings(loaded)) rc = fail("settings: load");
+  if (rc == 0) {
+    bool same = loaded.themeIndex == saved.themeIndex && loaded.uiFontScale == saved.uiFontScale &&
+                loaded.showPlugins == saved.showPlugins &&
+                loaded.showParameters == saved.showParameters && loaded.showFilmstrip == saved.showFilmstrip &&
+                loaded.previewRes == saved.previewRes && loaded.outputIndex == saved.outputIndex &&
+                loaded.exportIndex == saved.exportIndex && loaded.exportIntent == saved.exportIntent &&
+                loaded.exportQuality == saved.exportQuality;
+    if (!same) rc = fail("settings: values did not round-trip");
+  }
+
+#ifdef _WIN32
+  if (oldValue.empty()) _putenv_s(envKey, "");
+  else _putenv_s(envKey, oldValue.c_str());
+#else
+  if (oldValue.empty()) unsetenv(envKey);
+  else setenv(envKey, oldValue.c_str(), 1);
+#endif
+  fs::remove_all(base, ec);
+  if (rc == 0) printf("ok  global settings round-trip\n");
+  return rc;
 }
 
 // A gray ramp that gives every plugin something with a large dynamic range.
@@ -316,6 +440,152 @@ static int testAutoExposurePlugin() {
   return 0;
 }
 
+// The preview color space follows the plug-in that declares one, so the map from
+// a plug-in option name to a host ICC tag must cover the common names and reject
+// the rest instead of guessing.
+static int testPluginColorSpaceMapping() {
+  struct Case {
+    const char *name;
+    ColorSpace host;
+    bool mapped;
+  };
+  static const Case cases[] = {
+      {"sRGB", ColorSpace::sRGB, true},
+      {"Rec.709 Gamma 2.2", ColorSpace::sRGB, true},
+      {"Rec.709 Gamma 2.4", ColorSpace::sRGB, true},
+      {"Display P3", ColorSpace::DisplayP3, true},
+      {"DCI-P3", ColorSpace::DisplayP3, true},
+      {"P3-D65 Gamma 2.2", ColorSpace::DisplayP3, true},
+      {"P3-D65 Gamma 2.6", ColorSpace::DisplayP3, true},
+      {"Linear Rec.709", ColorSpace::LinearRec709, true},
+      {"Linear P3-D65", ColorSpace::LinearRec2020, true},
+      {"Linear Rec.2020", ColorSpace::LinearRec2020, true},
+      {"ProPhoto RGB", ColorSpace::LinearRec2020, true},
+      {"Adobe RGB (1998)", ColorSpace::LinearRec2020, true},
+      {"ACES2065-1", ColorSpace::sRGB, false},
+      {"Sony S-Log3 S-Gamut3", ColorSpace::sRGB, false},
+      {"", ColorSpace::sRGB, false},
+  };
+  for (const Case &c : cases) {
+    ColorSpace mapped = ColorSpace::sRGB;
+    const bool ok = hostSpaceForPluginName(c.name, mapped);
+    if (ok != c.mapped) return fail("color space map: wrong match");
+    if (ok && mapped != c.host) return fail("color space map: wrong target");
+  }
+  printf("ok  plug-in color space mapping\n");
+  return 0;
+}
+
+// The export converts the chain output from the preview space into the export
+// space with a rendering intent. A same-space request must be an exact no-op,
+// and a real conversion must change the pixels, stay finite, and round-trip back
+// to the original values within a small tolerance.
+static int testColorSpaceConversion() {
+  Image img;
+  img.w = 16;
+  img.h = 8;
+  img.px.assign((size_t)img.w * img.h * 4, 0.0f);
+  for (int y = 0; y < img.h; ++y)
+    for (int x = 0; x < img.w; ++x) {
+      const size_t i = ((size_t)y * img.w + x) * 4;
+      img.px[i + 0] = 0.18f + 0.02f * (float)x;
+      img.px[i + 1] = 0.30f;
+      img.px[i + 2] = 0.60f - 0.01f * (float)y;
+      img.px[i + 3] = 1.0f;
+    }
+  const Image original = img;
+
+  if (!convertColorSpace(img, ColorSpace::sRGB, ColorSpace::sRGB, RenderIntent::Perceptual))
+    return fail("convert: same space failed");
+  if (img.px != original.px) return fail("convert: same space changed pixels");
+
+  if (!convertColorSpace(img, ColorSpace::sRGB, ColorSpace::LinearRec709, RenderIntent::RelativeColorimetric))
+    return fail("convert: sRGB to Linear Rec.709 failed");
+  bool finite = true;
+  bool changed = false;
+  bool alphaKept = true;
+  for (size_t i = 0; i < img.px.size(); i += 4) {
+    for (int c = 0; c < 3; ++c) {
+      finite &= std::isfinite(img.px[i + c]);
+      changed |= std::abs(img.px[i + c] - original.px[i + c]) > 1e-6f;
+    }
+    alphaKept &= img.px[i + 3] == 1.0f;
+  }
+  if (!finite) return fail("convert: output is not finite");
+  if (!changed) return fail("convert: a real conversion changed nothing");
+  if (!alphaKept) return fail("convert: alpha was not preserved");
+
+  if (!convertColorSpace(img, ColorSpace::LinearRec709, ColorSpace::sRGB, RenderIntent::RelativeColorimetric))
+    return fail("convert: round trip failed");
+  for (size_t i = 0; i < img.px.size(); ++i) {
+    if (std::abs(img.px[i] - original.px[i]) > 2e-3f) return fail("convert: round trip drifted");
+  }
+  printf("ok  color space conversion\n");
+  return 0;
+}
+
+// "Reset Parameters" must return every value parameter to its OFX default, so a
+// plugin that was edited returns to the state it has when it is added.
+static int testResetNodeParams() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == gPlugins.end()) return fail("reset: bundled Transform plugin not found");
+  const int index = (int)(it - gPlugins.begin());
+
+  App app;
+  if (!addNode(app, index)) return fail("reset: addNode");
+  Node &node = app.chain.nodes.back();
+  Param *zoom = findParam(node.instance.get(), "zoom");
+  Param *rotate = findParam(node.instance.get(), "rotate");
+  if (!zoom || zoom->v.empty()) return fail("reset: zoom param missing");
+  if (!rotate || rotate->v.empty()) return fail("reset: rotate param missing");
+  zoom->v[0] = 500;
+  rotate->v[0] = 45;
+
+  const int count = resetNodeParamsToDefaults(app, node);
+  if (count <= 0) return fail("reset: nothing was reset");
+  if (std::abs(zoom->v[0] - 100.0) > 1e-9) return fail("reset: zoom did not return to 100");
+  if (std::abs(rotate->v[0] - 0.0) > 1e-9) return fail("reset: rotate did not return to 0");
+  clearNodes(app);
+  printf("ok  reset parameters\n");
+  return 0;
+}
+
+// The chain walk hands the document input space to the first plugin and carries
+// the space each plugin declares to the next one. A plugin that declares no
+// output space passes the carried space through. The space that leaves the chain
+// is what the preview and the export start from, and the preview destination is
+// independent of it.
+static int testChainColorSpaceFlow() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == gPlugins.end()) return fail("chain space: bundled Transform plugin not found");
+
+  App app;
+  if (app.gui.previewSpace != ColorSpace::sRGB) return fail("chain space: preview default is not sRGB");
+  if (app.gui.exportSpace != ColorSpace::sRGB) return fail("chain space: export default is not sRGB");
+
+  app.doc.fileSpace = ColorSpace::LinearRec709;
+  app.doc.workingSpace = ColorSpace::LinearRec709;
+  app.doc.inputSpace = ColorSpace::LinearRec709;
+  if (!addNode(app, (int)(it - gPlugins.begin()))) return fail("chain space: addNode");
+  if (app.chainOutputSpace.load() != ColorSpace::LinearRec709) return fail("chain space: space not carried through");
+
+  // The document input space reaches the chain output, because Transform declares
+  // no output space of its own.
+  setInputSpace(app, 0);  // sRGB
+  if (app.doc.inputSpace != ColorSpace::sRGB) return fail("chain space: input space not set");
+  if (app.chainOutputSpace.load() != ColorSpace::sRGB) return fail("chain space: input space not carried");
+
+  // The preview destination is the last conversion, so it must not move the
+  // chain.
+  setPreviewSpace(app, 3);  // Linear Rec.2020
+  if (app.gui.previewSpace != ColorSpace::LinearRec2020) return fail("chain space: preview space not set");
+  if (app.chainOutputSpace.load() != ColorSpace::sRGB) return fail("chain space: preview changed the chain");
+
+  clearNodes(app);
+  printf("ok  chain color space flow\n");
+  return 0;
+}
+
 // Renders the test image through every installed filter plugin and writes both
 // export formats.
 static int testEveryPlugin(Image &src) {
@@ -399,9 +669,11 @@ static int testConcurrency(const Image &src) {
     scheduleRender(app);
     if (i % 11 == 0) scheduleDisplayRecolor(app);
     if (i % 13 == 0) {
-      // UI keeps writing outputTag while renders run (ParamWidgets/output combo).
-      app.outputTag = app.outputTag.load() == ColorSpace::sRGB ? ColorSpace::LinearRec709 : ColorSpace::sRGB;
-      syncOutputTag(app);
+      // UI keeps writing the preview destination while renders run (the
+      // Plugins panel colorspace combo).
+      if (app.gui.previewSpace == ColorSpace::sRGB) app.gui.previewSpace = ColorSpace::LinearRec709;
+      else app.gui.previewSpace = ColorSpace::sRGB;
+      syncChainColorSpaces(app);
     }
     if (i % 17 == 0) rebuildPreview(app);  // preview rewrite must wait out the worker
     if (i == 50) {
@@ -432,13 +704,18 @@ static int testConcurrency(const Image &src) {
 }
 
 int runSelfTest() {
-  if (const int rc = testEmbeddedIconFont()) return rc;
+  if (const int rc = testBundledFonts()) return rc;
   if (const int rc = testTiffDecode()) return rc;
   if (const int rc = testPngColorSpace()) return rc;
   Image src = makeTestImage();
   if (const int rc = testRowOrder()) return rc;
+  if (const int rc = testGlobalSettingsRoundTrip()) return rc;
+  if (const int rc = testColorSpaceConversion()) return rc;
+  if (const int rc = testPluginColorSpaceMapping()) return rc;
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
+  if (const int rc = testResetNodeParams()) return rc;
+  if (const int rc = testChainColorSpaceFlow()) return rc;
   if (const int rc = testTransformPlugin(src)) return rc;
   if (const int rc = testTransformLegacyMigration()) return rc;
   if (const int rc = testAutoExposurePlugin()) return rc;

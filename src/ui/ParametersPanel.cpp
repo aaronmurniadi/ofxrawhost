@@ -30,40 +30,53 @@ static void drawParamSearch(App &app) {
   }
 }
 
-// The spektrafilm plugins carry their own preset format, so the import lives
-// next to their parameter list rather than in the generic parameter UI.
-static bool drawPresetImport(App &app, Node &node) {
-  if (!node.instance) return false;
-  if (node.pluginIndex < 0 || node.pluginIndex >= (int)gPlugins.size()) return false;
-  OfxPlugin *plugin = gPlugins[node.pluginIndex].plugin;
-  if (!isSpektrafilmPlugin(plugin ? plugin->pluginIdentifier : nullptr)) return false;
-
-  if (!ImGui::Button("Import *.spkpreset", ImVec2(-1.0f, 0.0f))) return true;
-  auto files = pfd::open_file("Import spektrafilm preset", "", {"spektrafilm preset", "*.spkpreset"}).result();
-  if (files.empty()) return true;
-
-  std::string error;
-  std::vector<Param *> changed = applySpektrafilmPreset(files.front(), node.instance.get(), error);
-  if (!error.empty()) {
-    app.setStatus("Preset import failed: " + error);
-    return true;
+// One row of actions above the parameter list: the spektrafilm preset import when
+// the plugin carries that format, and a reset of every parameter to its OFX
+// default. The reset opens a confirmation modal, because one click would discard
+// the whole edit.
+static void drawParamActions(App &app, Node &node) {
+  if (!node.instance) return;
+  bool hasPresetImport = false;
+  if (node.pluginIndex >= 0 && node.pluginIndex < (int)gPlugins.size()) {
+    OfxPlugin *plugin = gPlugins[node.pluginIndex].plugin;
+    if (plugin) hasPresetImport = isSpektrafilmPlugin(plugin->pluginIdentifier);
   }
-  if (changed.empty()) {
-    app.setStatus("Preset has no parameters this plugin knows");
-    return true;
+
+  const float gap = ImGui::GetStyle().ItemSpacing.x;
+  const float full = ImGui::GetContentRegionAvail().x;
+  float buttonW = full;
+  if (hasPresetImport) buttonW = (full - gap) * 0.5f;
+
+  if (hasPresetImport) {
+    if (ImGui::Button("Import *.spkpreset", ImVec2(buttonW, 0.0f))) {
+      auto files = pfd::open_file("Import spektrafilm preset", "", {"spektrafilm preset", "*.spkpreset"}).result();
+      if (!files.empty()) {
+        std::string error;
+        std::vector<Param *> changed = applySpektrafilmPreset(files.front(), node.instance.get(), error);
+        if (!error.empty()) {
+          app.setStatus("Preset import failed: " + error);
+        } else if (changed.empty()) {
+          app.setStatus("Preset has no parameters this plugin knows");
+        } else {
+          for (Param *p : changed) notifyChanged(node, p);
+          syncChainColorSpaces(app);
+          scheduleRender(app);
+          app.setStatus("Imported " + std::to_string(changed.size()) + " parameters from " +
+                        std::filesystem::path(files.front()).filename().string());
+        }
+      }
+    }
+    ImGui::SameLine(0.0f, gap);
   }
-  for (Param *p : changed) notifyChanged(node, p);
-  syncOutputTag(app);
-  scheduleRender(app);
-  app.setStatus("Imported " + std::to_string(changed.size()) + " parameters from " +
-                std::filesystem::path(files.front()).filename().string());
-  return true;
+
+  if (ImGui::Button("Reset Parameters", ImVec2(buttonW, 0.0f))) app.gui.showResetParamsConfirm = true;
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+    ImGui::SetTooltip("Return every parameter of this plugin to its default value.");
 }
 
-void drawRightPanel(App &app) {
+void drawParametersPanel(App &app) {
   if (app.chain.nodes.empty()) {
     ImGui::TextDisabled("Add a plugin to edit parameters.");
-    app.gui.paramTabSync = -1;
     return;
   }
 
@@ -72,31 +85,15 @@ void drawRightPanel(App &app) {
   drawParamSearch(app);
   ImGui::Separator();
 
-  // ImGui applies ImGuiTabItemFlags_SetSelected on the next frame. Pushing it
-  // every frame for the selected node fights a tab click and makes the visible
-  // tab alternate between the clicked tab and the selected one. Push the flag
-  // only when the node list or the graph changed the selection, and let the tab
-  // bar drive the selection otherwise.
-  const int selected = app.chain.selectedNode;
-  const bool selectionFromOutside = (app.gui.paramTabSync != selected);
-  if (ImGui::BeginTabBar("##paramNodeTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
-    for (int i = 0; i < (int)app.chain.nodes.size(); ++i) {
-      const Node &node = app.chain.nodes[i];
-      const std::string tabLabel = gPlugins[node.pluginIndex].label + "##tab" + std::to_string(i);
-      ImGuiTabItemFlags tabFlags = 0;
-      if (selectionFromOutside && selected == i) tabFlags |= ImGuiTabItemFlags_SetSelected;
-      if (ImGui::BeginTabItem(tabLabel.c_str(), nullptr, tabFlags)) {
-        if (!selectionFromOutside) app.chain.selectedNode = i;
-        ImGui::EndTabItem();
-      }
-    }
-    ImGui::EndTabBar();
-  }
-  app.gui.paramTabSync = app.chain.selectedNode;
-
-  ImGui::Separator();
+  // The node list in the Plugins panel selects which plugin to edit, so this
+  // panel only names the plugin whose parameters it shows.
   Node *node = selectedNode(app);
-  if (node && drawPresetImport(app, *node)) ImGui::Separator();
+  if (node) ImGui::SeparatorText(gPlugins[node->pluginIndex].label.c_str());
+  if (node) {
+    drawParamActions(app, *node);
+    ImGui::Separator();
+  }
+
   ImGui::BeginChild("paramsScroll", ImVec2(0, 0), ImGuiChildFlags_None);
   if (node) drawParams(app, *node, "");
   ImGui::EndChild();

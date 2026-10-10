@@ -6,9 +6,12 @@
 namespace DockLayout {
 
 // Default split fractions used until ImGui's layout .ini supplies real geometry.
+// The right column holds the plugin list over the parameter list, one third over
+// two thirds. ImGui writes the .ini on the first run and reloads it afterwards,
+// so a user who moves a splitter keeps that arrangement.
 static constexpr float kDefaultRightRatio = 0.24f;
 static constexpr float kDefaultStripRatio = 0.09f;
-static constexpr float kDefaultPluginsShareOfRight = 0.38f;
+static constexpr float kDefaultPluginsShareOfRight = 1.0f / 3.0f;
 
 static void buildDefaultLayout(ImGuiID dockspaceId) {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
@@ -26,11 +29,11 @@ static void buildDefaultLayout(ImGuiID dockspaceId) {
   ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, rightRatio, &dockRight, &dockMain);
 
   ImGuiID dockPlugins = 0;
-  ImGuiID dockParams = 0;
-  ImGui::DockBuilderSplitNode(dockRight, ImGuiDir_Up, kDefaultPluginsShareOfRight, &dockPlugins, &dockParams);
+  ImGuiID dockParameters = 0;
+  ImGui::DockBuilderSplitNode(dockRight, ImGuiDir_Up, kDefaultPluginsShareOfRight, &dockPlugins, &dockParameters);
 
-  ImGui::DockBuilderDockWindow(kLeft, dockPlugins);
-  ImGui::DockBuilderDockWindow(kParams, dockParams);
+  ImGui::DockBuilderDockWindow(kPlugins, dockPlugins);
+  ImGui::DockBuilderDockWindow(kParameters, dockParameters);
   ImGui::DockBuilderDockWindow(kFilmstrip, dockBottom);
   ImGui::DockBuilderDockWindow(kPreview, dockMain);
 

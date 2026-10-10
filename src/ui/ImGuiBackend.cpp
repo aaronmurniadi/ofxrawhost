@@ -1,7 +1,9 @@
 #include "ui/ImGuiBackend.h"
 
+#include "AppState.h"
 #include "platform/EmbeddedResource.h"
 #include "platform/Paths.h"
+#include "platform/SystemUiFont.h"
 #include "ui/Themes.h"
 
 #include "IconsFontAwesome6.h"
@@ -23,48 +25,51 @@
 
 namespace fs = std::filesystem;
 
-static std::string gIniPath = "ofxrawhost.ini";
+// Path of the ImGui layout .ini. ImGuiBackend_Init points it at the per-user
+// config directory; a workspace overrides it through ImGuiBackend_SetWorkspaceIni.
+static std::string gIniPath;
 
 // True when the window holds a context without OpenGL 3.3, which the OpenGL2
 // backend draws instead. ImGuiBackend_Init sets it.
 static bool gLegacyGl = false;
 
-// Loads the requested font file first, then the standard system sans font, then
-// the ImGui built-in font. preferred may be empty for the default look.
-static ImFont *addSystemSansFont(ImFontAtlas *fonts, ImFontConfig *cfg, const std::string &preferred) {
-  if (!preferred.empty() && fs::exists(preferred)) {
-    if (ImFont *font = fonts->AddFontFromFileTTF(preferred.c_str(), cfg->SizePixels, cfg)) return font;
-    std::fprintf(stderr, "warning: could not load the selected font '%s'\n", preferred.c_str());
+// Loads the bundled Inter font so the interface looks the same on every
+// platform, with no dependency on a system font. The build compiles it into the
+// Windows executable and copies it next to the binary (or into the bundle
+// resources) elsewhere. Falls back to the ImGui built-in font.
+static ImFont *addUiFont(ImFontAtlas *fonts, ImFontConfig *cfg) {
+  // The atlas owns the buffer handed to AddFontFromMemoryTTF and frees it with
+  // the atlas, so hand it a heap copy rather than the read-only image.
+  const std::vector<unsigned char> embedded = embeddedResource(kUiFontResourceId);
+  if (!embedded.empty()) {
+    void *copy = std::malloc(embedded.size());
+    if (copy) {
+      std::memcpy(copy, embedded.data(), embedded.size());
+      if (ImFont *font = fonts->AddFontFromMemoryTTF(copy, (int)embedded.size(), cfg->SizePixels, cfg)) return font;
+    }
   }
-#if defined(__APPLE__)
-  const char *cands[] = {
-      "/System/Library/Fonts/SFNS.ttf",
-      "/System/Library/Fonts/HelveticaNeue.ttc",
-      "/System/Library/Fonts/Helvetica.ttc",
-      "/System/Library/Fonts/Supplemental/Arial.ttf",
+  const fs::path exe = exeDir();
+  const std::vector<std::string> cands = {
+      OFX_UI_FONT_PATH,
+      (exe / "Inter.ttf").string(),
+      (exe / ".." / "Resources" / "Inter.ttf").string(),
+      "Inter.ttf",
   };
-#elif defined(_WIN32)
-  const char *cands[] = {
-      "C:\\Windows\\Fonts\\segoeui.ttf",
-      "C:\\Windows\\Fonts\\arial.ttf",
-  };
-#else
-  const char *cands[] = {
-      "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-      "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-      "/usr/share/fonts/TTF/DejaVuSans.ttf",
-  };
-#endif
-  for (const char *path : cands) {
-    if (!path || !fs::exists(path)) continue;
-    if (ImFont *font = fonts->AddFontFromFileTTF(path, cfg->SizePixels, cfg)) return font;
+  for (const std::string &path : cands) {
+    if (path.empty() || !fs::exists(path)) continue;
+    if (ImFont *font = fonts->AddFontFromFileTTF(path.c_str(), cfg->SizePixels, cfg)) return font;
   }
-  std::fprintf(stderr, "warning: system sans font not found, using ImGui default\n");
+  std::fprintf(stderr, "warning: could not load the bundled Inter font, using the ImGui default\n");
   return fonts->AddFontDefault(cfg);
 }
 
 static void ImGuiBackend_SetDefaultIni() {
-  gIniPath = "ofxrawhost.ini";
+  const fs::path dir = userConfigDir();
+  if (dir.empty()) {
+    gIniPath = "ofxrawhost.ini";
+  } else {
+    gIniPath = (dir / "layout.ini").string();
+  }
   if (ImGui::GetCurrentContext()) ImGui::GetIO().IniFilename = gIniPath.c_str();
 }
 
@@ -84,17 +89,28 @@ bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir) {
   return false;
 }
 
-static void loadUiFonts(GLFWwindow *window, float uiFontSizePt, const std::string &fontPath) {
+// Resolves the configured scale against the operating system font size, so a
+// new install is the native size and the two other choices scale it.
+float resolveUiFontSizePt(int uiFontScale) {
+  UiFontScale scale = UiFontScale::Normal;
+  if (uiFontScale == static_cast<int>(UiFontScale::Smaller)) scale = UiFontScale::Smaller;
+  else if (uiFontScale == static_cast<int>(UiFontScale::Bigger)) scale = UiFontScale::Bigger;
+  const float pt = systemUiFontSizePt() * uiFontScaleFactor(scale);
+  if (!std::isfinite(pt) || pt < 1.0f) return 11.0f;
+  return pt;
+}
+
+static void loadUiFonts(GLFWwindow *window, int uiFontScale) {
   ImGuiIO &io = ImGui::GetIO();
   float dpiX = 1.0f, dpiY = 1.0f;
   glfwGetWindowContentScale(window, &dpiX, &dpiY);
   const float dpi = std::max(1.0f, std::max(dpiX, dpiY));
   ImFontConfig fontCfg;
-  fontCfg.SizePixels = std::round(uiFontSizePt * dpi);
+  fontCfg.SizePixels = std::round(resolveUiFontSizePt(uiFontScale) * dpi);
   fontCfg.OversampleH = 2;
   fontCfg.OversampleV = 2;
   io.Fonts->Clear();
-  addSystemSansFont(io.Fonts, &fontCfg, fontPath);
+  addUiFont(io.Fonts, &fontCfg);
 #if defined(__APPLE__)
   {
     ImFontConfig symbolsCfg;
@@ -160,9 +176,9 @@ static void loadUiFonts(GLFWwindow *window, float uiFontSizePt, const std::strin
   io.FontGlobalScale = 1.0f / dpi;
 }
 
-void ImGuiBackend_SetUIFont(GLFWwindow *window, float uiFontSizePt, const std::string &fontPath) {
+void ImGuiBackend_SetUIFont(GLFWwindow *window, int uiFontScale) {
   if (!ImGui::GetCurrentContext() || !window) return;
-  loadUiFonts(window, uiFontSizePt, fontPath);
+  loadUiFonts(window, uiFontScale);
   if (gLegacyGl) {
     ImGui_ImplOpenGL2_DestroyFontsTexture();
     ImGui_ImplOpenGL2_CreateFontsTexture();
@@ -172,15 +188,15 @@ void ImGuiBackend_SetUIFont(GLFWwindow *window, float uiFontSizePt, const std::s
   ImGui_ImplOpenGL3_CreateFontsTexture();
 }
 
-void ImGuiBackend_Init(GLFWwindow *window, bool legacyGl, int themeIndex, float uiFontSizePt) {
+void ImGuiBackend_Init(GLFWwindow *window, bool legacyGl, int themeIndex, int uiFontScale) {
   gLegacyGl = legacyGl;
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-  io.IniFilename = gIniPath.c_str();
+  ImGuiBackend_SetDefaultIni();
 
-  loadUiFonts(window, uiFontSizePt, std::string());
+  loadUiFonts(window, uiFontScale);
   applyTheme(themeIndex);
   ImGui_ImplGlfw_InitForOpenGL(window, true);
   if (gLegacyGl) {

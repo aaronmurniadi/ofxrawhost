@@ -5,14 +5,21 @@
 #include "ui/Widgets.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
 
-// DaVinci-style row: label | control/slider | value box | reset (fixed columns).
-static constexpr float kLabelW = 140.0f;
+// DaVinci-style row: label | control/slider | value box | reset.
+// The label column follows the panel width, so widening the Parameters
+// panel gives a long parameter name more room. It stays between a floor that
+// keeps the name readable and a ceiling that leaves the slider and the value
+// box usable.
+static constexpr float kLabelMinW = 140.0f;
+static constexpr float kLabelMaxW = 320.0f;
+static constexpr float kLabelShare = 0.32f;
 static constexpr float kValueBoxW = 64.0f;
 
 static ImGuiTableFlags paramTableFlags() {
@@ -20,14 +27,33 @@ static ImGuiTableFlags paramTableFlags() {
          ImGuiTableFlags_NoBordersInBodyUntilResize;
 }
 
+static float paramLabelWidth() {
+  const float avail = ImGui::GetContentRegionAvail().x;
+  float w = avail * kLabelShare;
+  if (w < kLabelMinW) w = kLabelMinW;
+  if (w > kLabelMaxW) w = kLabelMaxW;
+  return w;
+}
+
+// Draws the label centered in a frame-height cell. A name wider than the cell
+// gets an ellipsis instead of a hard clip, and the full name shows in a
+// tooltip, so a long name is readable without widening the panel first.
 static void tableLabelCell(const char *text) {
-  const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const float w = ImGui::GetContentRegionAvail().x;
   const float h = ImGui::GetFrameHeight();
-  ImGui::PushClipRect(p0, ImVec2(p0.x + w, p0.y + h), true);
-  ImGui::AlignTextToFramePadding();
-  ImGui::TextUnformatted(text);
-  ImGui::PopClipRect();
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const ImVec2 textSize = ImGui::CalcTextSize(text);
+  // Same vertical placement AlignTextToFramePadding gives a plain text item.
+  const ImVec2 textPos(p0.x, p0.y + (h - textSize.y) * 0.5f);
+  ImGui::ItemSize(ImVec2(w, h));
+  // The label pointer is a stable per-parameter identity, so two parameters
+  // with the same label text do not share one item ID.
+  ImGui::ItemAdd(ImRect(p0, ImVec2(p0.x + w, p0.y + h)), ImGui::GetID(static_cast<const void *>(text)));
+  // RenderTextEllipsis renders the whole text when it fits and an ellipsis when
+  // it does not, so the label never spills into the control column.
+  ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), textPos, ImVec2(p0.x + w, p0.y + h), p0.x + w, p0.x + w,
+                            text, nullptr, &textSize);
+  if (textSize.x > w && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", text);
 }
 
 static void drawResetIcon(ImVec2 a, ImVec2 b) {
@@ -76,6 +102,40 @@ static bool beginParamRowTableChoice(float labelW, float resetW) {
   return true;
 }
 
+// Choice dropdown that applies a newly highlighted option at once when the user
+// steps through the list with the arrow keys, instead of waiting for Enter or a
+// click. The plugin and the preview therefore follow the highlight live. Returns
+// true when the value changed.
+static bool choiceCombo(const ParamUiCache &ui, int &cur) {
+  const int count = (int)ui.choicePtrs.size();
+  if (count <= 0) return false;
+  if (cur < 0) cur = 0;
+  if (cur >= count) cur = count - 1;
+  const char *preview = "";
+  if (cur < (int)ui.choiceLabels.size()) preview = ui.choiceLabels[(size_t)cur].c_str();
+
+  bool changed = false;
+  if (ImGui::BeginCombo("##v", preview)) {
+    for (int i = 0; i < count; ++i) {
+      if (ImGui::Selectable(ui.choicePtrs[(size_t)i], i == cur)) {
+        cur = i;
+        changed = true;
+      }
+    }
+    // ImGui moves its highlight on an arrow key but only activates on Enter, so
+    // step the value here to preview the highlighted option immediately.
+    int stepped = cur;
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) stepped = std::min(cur + 1, count - 1);
+    else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) stepped = std::max(cur - 1, 0);
+    if (stepped != cur) {
+      cur = stepped;
+      changed = true;
+    }
+    ImGui::EndCombo();
+  }
+  return changed;
+}
+
 static void drawParam(App &app, Param *p) {
   const ParamUiCache &ui = p->ui;
   ImGui::PushID(p->name.c_str());
@@ -83,7 +143,7 @@ static void drawParam(App &app, Param *p) {
 
   const float btn = ImGui::GetFrameHeight();
   const float valueBoxW = kValueBoxW;
-  const float labelW = kLabelW;
+  const float labelW = paramLabelWidth();
 
   bool changed = false;
 
@@ -97,7 +157,7 @@ static void drawParam(App &app, Param *p) {
     ImGui::TableSetColumnIndex(1);
     ImGui::SetNextItemWidth(-FLT_MIN);
     int cur = (int)paramScalar(p, 0);
-    if (!ui.choicePtrs.empty() && ImGui::Combo("##v", &cur, ui.choicePtrs.data(), (int)ui.choicePtrs.size())) {
+    if (choiceCombo(ui, cur)) {
       setParamScalar(p, 0, cur);
       changed = true;
     }

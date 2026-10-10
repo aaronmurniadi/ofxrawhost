@@ -3,6 +3,8 @@
 #include "ui/Themes.h"
 #include "imgui.h"
 
+#include <algorithm>
+
 static ImVec4 rgba(float r, float g, float b, float a) { return ImVec4(r, g, b, a); }
 
 // Dark — dougbinks
@@ -709,13 +711,69 @@ const char *themeName(int i) {
   if (i < 0 || i >= themeCount()) return "";
   return kThemes[i].name;
 }
+// The host's canonical layout metrics, taken from the default theme
+// (Photoshop, themeIndex 2), so the default look is unchanged and every other
+// theme matches it. A theme only changes colors; it can never resize or respace
+// a widget. This is a fixed block, not a copy of whatever the previously
+// applied theme left in the style.
+static void applyCanonicalMetrics(ImGuiStyle &s) {
+  s.Alpha = 1.0f;
+  s.DisabledAlpha = 0.6f;
+  s.WindowRounding = 4.0f;
+  s.WindowBorderSize = 1.0f;
+  s.ChildRounding = 4.0f;
+  s.ChildBorderSize = 1.0f;
+  s.PopupRounding = 2.0f;
+  s.PopupBorderSize = 1.0f;
+  s.FrameRounding = 2.0f;
+  s.FrameBorderSize = 1.0f;
+  s.IndentSpacing = 21.0f;
+  s.ColumnsMinSpacing = 6.0f;
+  s.ScrollbarSize = 13.0f;
+  s.ScrollbarRounding = 12.0f;
+  s.GrabMinSize = 7.0f;
+  s.GrabRounding = 0.0f;
+  s.TabRounding = 0.0f;
+  s.TabBorderSize = 1.0f;
+  s.WindowPadding = ImVec2(8.0f, 8.0f);
+  s.WindowMinSize = ImVec2(32.0f, 32.0f);
+  s.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+  s.FramePadding = ImVec2(4.0f, 3.0f);
+  s.ItemSpacing = ImVec2(8.0f, 4.0f);
+  s.ItemInnerSpacing = ImVec2(4.0f, 4.0f);
+  s.CellPadding = ImVec2(4.0f, 2.0f);
+  s.TouchExtraPadding = ImVec2(0.0f, 0.0f);
+  s.ButtonTextAlign = ImVec2(0.5f, 0.5f);
+  s.SelectableTextAlign = ImVec2(0.0f, 0.0f);
+}
+
+// The overlay ImGui draws behind a modal must read as a neutral shade. One
+// bundled theme ships a saturated dim (Deep Dark ships pure red), which tints
+// the whole interface while a modal is open. A tinted dim becomes a gray of the
+// same brightness and alpha, so the theme keeps its colors but never casts a
+// hue over the interface. An already neutral dim is left alone.
+static void neutralizeModalDim(ImGuiStyle &style) {
+  ImVec4 &dim = style.Colors[ImGuiCol_ModalWindowDimBg];
+  const float hi = std::max(dim.x, std::max(dim.y, dim.z));
+  const float lo = std::min(dim.x, std::min(dim.y, dim.z));
+  if (hi - lo <= 0.05f) return;
+  const float gray = 0.2126f * dim.x + 0.7152f * dim.y + 0.0722f * dim.z;
+  dim = ImVec4(gray, gray, gray, dim.w);
+}
+
 void applyTheme(int i) {
   if (i < 0 || i >= themeCount()) return;
+  ImGuiStyle &style = ImGui::GetStyle();
   kThemes[i].apply();
+  // A community theme sets both colors and layout metrics, so switching themes
+  // would resize and respace widgets. Restore the canonical metrics, so a theme
+  // changes colors only.
+  applyCanonicalMetrics(style);
+  neutralizeModalDim(style);
   // Docked panels use ChildBg/WindowBg; many community themes leave ChildBg transparent.
-  ImVec4 &child = ImGui::GetStyle().Colors[ImGuiCol_ChildBg];
+  ImVec4 &child = style.Colors[ImGuiCol_ChildBg];
   if (child.w < 1.0f) {
-    const ImVec4 win = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+    const ImVec4 win = style.Colors[ImGuiCol_WindowBg];
     child = ImVec4(win.x, win.y, win.z, 1.0f);
   }
 }

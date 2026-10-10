@@ -39,8 +39,9 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" \
          "$APPDIR/usr/share/metainfo"
 
 cp "$BIN" "$APPDIR/usr/bin/$NAME"
-# The host reads the icon font next to its own binary.
+# The host reads the interface and icon fonts next to its own binary.
 cp "$BUILD/fa-solid-900.ttf" "$APPDIR/usr/bin/"
+cp "$BUILD/Inter.ttf" "$APPDIR/usr/bin/"
 # Bundled OFX plugins are found in <exe dir>/Plugins.
 if [ -d "$BUILD/Plugins/OfxRawHost.ofx.bundle" ]; then
   mkdir -p "$APPDIR/usr/bin/Plugins"

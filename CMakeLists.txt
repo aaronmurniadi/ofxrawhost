@@ -132,7 +132,7 @@ add_executable(OfxRawHost
   src/platform/Console.cpp
   src/platform/EmbeddedResource.cpp
   src/platform/Paths.cpp
-  src/platform/SystemFonts.cpp
+  src/platform/SystemUiFont.cpp
   src/platform/Report.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
@@ -160,8 +160,8 @@ add_executable(OfxRawHost
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
   src/ui/ParamEdit.cpp
-  src/ui/LeftPanel.cpp
-  src/ui/RightPanel.cpp
+  src/ui/PluginsPanel.cpp
+  src/ui/ParametersPanel.cpp
   src/ui/PreviewPanel.cpp
   src/ui/FilmstripPanel.cpp
   third_party/tinyexr/tinyexr.cc
@@ -206,10 +206,12 @@ target_include_directories(OfxRawHost PRIVATE
   third_party/tinyexr
   third_party/portable-file-dialogs
   third_party/fontawesome
+  third_party/inter
 )
 
 target_compile_definitions(OfxRawHost PRIVATE
   "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
+  "OFX_UI_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf\""
   GL_SILENCE_DEPRECATION
 )
 
@@ -217,6 +219,9 @@ add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
     $<TARGET_FILE_DIR:OfxRawHost>/fa-solid-900.ttf
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
+    $<TARGET_FILE_DIR:OfxRawHost>/Inter.ttf
 )
 
 if(TARGET PkgConfig::LIBRAW)
@@ -277,7 +282,7 @@ if(WIN32 AND VCPKG_TARGET_TRIPLET MATCHES "-static$")
 endif()
 
 if(APPLE)
-  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
+  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal" "-framework CoreText")
 elseif(WIN32)
   target_link_libraries(OfxRawHost PRIVATE opengl32)
 else()
@@ -357,6 +362,7 @@ if(WIN32)
   endwhile()
   string(REPLACE ";" "," OFX_VERSION_COMMAS "${_ofx_ver_parts}")
   set(OFX_ICON_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf")
+  set(OFX_UI_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf")
   configure_file(packaging/windows/OfxRawHost.rc.in "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc" @ONLY)
 
   target_sources(OfxRawHost PRIVATE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
@@ -412,6 +418,9 @@ if(APPLE)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/fa-solid-900.ttf
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
+      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/Inter.ttf
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       ${OFX_BUNDLE}
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle

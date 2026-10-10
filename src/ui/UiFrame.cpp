@@ -1,11 +1,13 @@
 #include "ui/UiFrame.h"
 
 #include "Actions.h"
+#include "NodeGraph.h"
+#include "ofx/OfxHost.h"
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
-#include "platform/SystemFonts.h"
 #include "RenderScheduler.h"
 #include "ui/Themes.h"
+#include "ui/ParamEdit.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
 
@@ -87,12 +89,12 @@ static void drawMenuBar(App &app) {
     }
     if (ImGui::BeginMenu("View")) {
 #ifdef __APPLE__
-      ImGui::MenuItem("Left panel", "⌘+[", &app.gui.showLeft);
-      ImGui::MenuItem("Right panel", "⌘+]", &app.gui.showRight);
+      ImGui::MenuItem("Plugins", "⌘+[", &app.gui.showPlugins);
+      ImGui::MenuItem("Parameters", "⌘+]", &app.gui.showParameters);
       ImGui::MenuItem("Filmstrip", "⌘+\\", &app.gui.showFilmstrip);
 #else
-      ImGui::MenuItem("Left panel", "Ctrl+[", &app.gui.showLeft);
-      ImGui::MenuItem("Right panel", "Ctrl+]", &app.gui.showRight);
+      ImGui::MenuItem("Plugins", "Ctrl+[", &app.gui.showPlugins);
+      ImGui::MenuItem("Parameters", "Ctrl+]", &app.gui.showParameters);
       ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.gui.showFilmstrip);
 #endif
       ImGui::EndMenu();
@@ -143,6 +145,16 @@ static void drawExportDialog(App &app) {
   int fmt = static_cast<int>(app.gui.exportFormat);
   if (ImGui::Combo("Format", &fmt, kFormats, kExportFormatCount)) app.gui.exportFormat = static_cast<ExportFormat>(fmt);
 
+  // The color space the exported file is written in. The chain writes the preview
+  // space, so the export converts into this one with the chosen intent.
+  static const char *const kIntents[kRenderIntentCount] = {"Perceptual", "Relative colorimetric", "Saturation",
+                                                          "Absolute colorimetric"};
+  int outSpace = static_cast<int>(app.gui.exportSpace);
+  if (ImGui::Combo("Export colorspace", &outSpace, kColorSpaces, kColorSpaceCount))
+    setExportSpace(app, outSpace);
+  int intent = static_cast<int>(app.gui.exportIntent);
+  if (ImGui::Combo("Intent", &intent, kIntents, kRenderIntentCount)) setExportIntent(app, intent);
+
   const ExportFormat format = app.gui.exportFormat;
   if (exportUsesBitDepth(format)) {
     int depth = 0;
@@ -175,24 +187,12 @@ static void drawExportDialog(App &app) {
 
 // One row per section of the settings sidebar. The index is the value kept in
 // GuiState::settingsSection.
-static const char *const kSettingsSections[] = {"Fonts"};
+static const char *const kSettingsSections[] = {"Font"};
 static constexpr int kSettingsSectionCount = 1;
 
-// The settings modal offers whole points only, from 8 pt through 18 pt.
-static constexpr int kFontSizeMinPt = 8;
-static constexpr int kFontSizeMaxPt = 18;
-static constexpr int kFontSizeCount = kFontSizeMaxPt - kFontSizeMinPt + 1;
-static const char *const kFontSizeLabels[kFontSizeCount] = {
-    "8 pt", "9 pt", "10 pt", "11 pt", "12 pt", "13 pt",
-    "14 pt", "15 pt", "16 pt", "17 pt", "18 pt",
-};
-
-// The system font list comes from the disk, so it is read once and kept for the
-// life of the process.
-static const std::vector<SystemFont> &systemFonts() {
-  static const std::vector<SystemFont> fonts = listSystemFonts();
-  return fonts;
-}
+// The settings modal offers three scales of the bundled Inter font. Normal is
+// the operating system font size, so a new install looks native.
+static const char *const kFontScaleLabels[kUiFontScaleCount] = {"Smaller", "Normal", "Bigger"};
 
 // A font change rebuilds the ImGui font atlas, which frees the font objects the
 // running frame still points at. Raise a flag instead, and let the main loop
@@ -202,49 +202,24 @@ static void requestUiFont(App &app) {
 }
 
 static void drawFontsSettings(App &app) {
-  const std::vector<SystemFont> &fonts = systemFonts();
-
-  int selectedFamily = 0;
-  for (int i = 0; i < (int)fonts.size(); ++i) {
-    if (fonts[i].path == app.gui.uiFontFamily) {
-      selectedFamily = i + 1;
-      break;
-    }
-  }
-  const char *familyLabel = "System default";
-  if (selectedFamily > 0) familyLabel = fonts[selectedFamily - 1].name.c_str();
-
+  // The UI font is bundled (Inter), so only its scale is configurable. This
+  // keeps the interface identical on every platform.
   ImGui::TextUnformatted("Font");
   ImGui::Separator();
-  ImGui::SetNextItemWidth(300.0f);
-  if (ImGui::BeginCombo("Font family", familyLabel)) {
-    if (ImGui::Selectable("System default", selectedFamily == 0)) {
-      app.gui.uiFontFamily.clear();
+  ImGui::TextUnformatted("Inter");
+  ImGui::TextDisabled("The interface font is bundled and cannot be changed.");
+
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Font size");
+  int scale = static_cast<int>(app.gui.uiFontScale);
+  if (scale < 0 || scale >= kUiFontScaleCount) scale = static_cast<int>(UiFontScale::Normal);
+  for (int i = 0; i < kUiFontScaleCount; ++i) {
+    if (ImGui::RadioButton(kFontScaleLabels[i], scale == i)) {
+      app.gui.uiFontScale = static_cast<UiFontScale>(i);
       requestUiFont(app);
     }
-    for (int i = 0; i < (int)fonts.size(); ++i) {
-      if (ImGui::Selectable(fonts[i].name.c_str(), selectedFamily == i + 1)) {
-        app.gui.uiFontFamily = fonts[i].path;
-        requestUiFont(app);
-      }
-    }
-    ImGui::EndCombo();
   }
-  if (fonts.empty()) ImGui::TextDisabled("No system fonts were found.");
-
-  int sizeIndex = app.gui.uiFontSizePt - kFontSizeMinPt;
-  if (sizeIndex < 0) sizeIndex = 0;
-  if (sizeIndex >= kFontSizeCount) sizeIndex = kFontSizeCount - 1;
-  ImGui::SetNextItemWidth(120.0f);
-  if (ImGui::BeginCombo("Font size", kFontSizeLabels[sizeIndex])) {
-    for (int i = 0; i < kFontSizeCount; ++i) {
-      if (ImGui::Selectable(kFontSizeLabels[i], sizeIndex == i)) {
-        app.gui.uiFontSizePt = kFontSizeMinPt + i;
-        requestUiFont(app);
-      }
-    }
-    ImGui::EndCombo();
-  }
+  ImGui::TextDisabled("Normal follows the system font size.");
 }
 
 // A modal with a section sidebar on the left and the controls of the selected
@@ -259,7 +234,12 @@ static void drawSettingsModal(App &app) {
 
   // The footer holds the Close button, so both children stop above it.
   const float footer = ImGui::GetFrameHeightWithSpacing();
-  if (ImGui::BeginChild("settings_sidebar", ImVec2(170.0f, -footer), ImGuiChildFlags_Borders)) {
+  // The sidebar follows the modal width instead of a fixed 170 px, so a long
+  // section name has room and the panel uses the space when the modal grows.
+  float sidebarW = ImGui::GetContentRegionAvail().x * 0.25f;
+  if (sidebarW < 140.0f) sidebarW = 140.0f;
+  if (sidebarW > 260.0f) sidebarW = 260.0f;
+  if (ImGui::BeginChild("settings_sidebar", ImVec2(sidebarW, -footer), ImGuiChildFlags_Borders)) {
     for (int i = 0; i < kSettingsSectionCount; ++i) {
       bool selected = app.gui.settingsSection == i;
       if (ImGui::Selectable(kSettingsSections[i], selected)) app.gui.settingsSection = i;
@@ -296,6 +276,33 @@ static void applyFitPreviewSize(App &app) {
   rebuildPreview(app);
 }
 
+// Confirms a parameter reset, because one click discards the whole edit of the
+// selected plugin.
+static void drawResetParamsConfirm(App &app) {
+  if (app.gui.showResetParamsConfirm) {
+    ImGui::OpenPopup("Reset Parameters");
+    app.gui.showResetParamsConfirm = false;
+  }
+  if (!ImGui::BeginPopupModal("Reset Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  Node *node = selectedNode(app);
+  std::string label;
+  if (node) label = gPlugins[node->pluginIndex].label;
+  ImGui::TextWrapped("Return every parameter of %s to its default value?", label.c_str());
+  ImGui::TextDisabled("This cannot be undone.");
+  ImGui::Spacing();
+  if (ImGui::Button("Reset", ImVec2(120.0f, 0.0f))) {
+    ImGui::CloseCurrentPopup();
+    if (node) {
+      const int count = resetNodeParamsToDefaults(app, *node);
+      app.setStatus("Reset " + std::to_string(count) + " parameters of " + label);
+    }
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
 void drawUiFrame(App &app) {
   if (app.gui.themeApplyPending) {
     applyTheme(app.gui.themeIndex);
@@ -312,10 +319,10 @@ void drawUiFrame(App &app) {
 
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_LeftBracket))
-    app.gui.showLeft = !app.gui.showLeft;
+    app.gui.showPlugins = !app.gui.showPlugins;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
-    app.gui.showRight = !app.gui.showRight;
+    app.gui.showParameters = !app.gui.showParameters;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
     app.gui.showFilmstrip = !app.gui.showFilmstrip;
@@ -331,12 +338,12 @@ void drawUiFrame(App &app) {
 
   DockLayout::BeginMainDockSpace(app);
 
-  if (app.gui.showLeft) {
-    if (ImGui::Begin(DockLayout::kLeft, &app.gui.showLeft)) drawLeftPanel(app);
+  if (app.gui.showPlugins) {
+    if (ImGui::Begin(DockLayout::kPlugins, &app.gui.showPlugins)) drawPluginsPanel(app);
     ImGui::End();
   }
-  if (app.gui.showRight) {
-    if (ImGui::Begin(DockLayout::kParams, &app.gui.showRight)) drawRightPanel(app);
+  if (app.gui.showParameters) {
+    if (ImGui::Begin(DockLayout::kParameters, &app.gui.showParameters)) drawParametersPanel(app);
     ImGui::End();
   }
   {
@@ -396,6 +403,7 @@ void drawUiFrame(App &app) {
     ImGui::EndPopup();
   }
 
+  drawResetParamsConfirm(app);
   drawExportDialog(app);
   drawSettingsModal(app);
 }
