@@ -13,10 +13,10 @@
 
 #define kPluginName "Transform"
 #define kPluginGrouping "OFX Raw Host"
-#define kPluginDescription "Crop to an aspect ratio, then rotate and zoom the result."
+#define kPluginDescription "Zoom into an aspect-ratio region, then rotate the result."
 #define kPluginIdentifier "com.aaronmurniadi.ofxrawhost.transform"
 #define kPluginVersionMajor 1
-#define kPluginVersionMinor 0
+#define kPluginVersionMinor 1
 
 namespace {
 
@@ -60,7 +60,6 @@ public:
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
     aspect_ = fetchChoiceParam("aspect");
     orientation_ = fetchChoiceParam("orientation");
-    crop_ = fetchDoubleParam("crop");
     zoom_ = fetchDoubleParam("zoom");
     rotate_ = fetchDoubleParam("rotate");
     offsetX_ = fetchDoubleParam("offsetX");
@@ -82,7 +81,6 @@ private:
   OFX::Clip *srcClip_;
   OFX::ChoiceParam *aspect_;
   OFX::ChoiceParam *orientation_;
-  OFX::DoubleParam *crop_;
   OFX::DoubleParam *zoom_;
   OFX::DoubleParam *rotate_;
   OFX::DoubleParam *offsetX_;
@@ -106,10 +104,12 @@ void TransformPlugin::computeCropWindow(double time, double srcW, double srcH,
   if (!original && orient == 1)
     ar = 1.0 / ar;
 
-  const double cropVal = std::clamp(crop_->getValueAtTime(time), 0.0, 100.0);
-  const double scale = std::max(1.0 - cropVal / 100.0, 0.02);
+  // Zoom sets how far the crop window shrinks: 100 keeps the full source shape
+  // and higher values shrink the window toward the center in both dimensions.
+  const double zoomVal = std::clamp(zoom_->getValueAtTime(time), 100.0, 1000.0);
+  const double scale = 100.0 / zoomVal;
 
-  // Largest rectangle with the target aspect ratio that fits the source, scaled by the crop slider.
+  // Largest rectangle with the target aspect ratio that fits the source, scaled by the zoom.
   const double fitW = (ar >= srcW / srcH) ? srcW : srcH * ar;
   const double fitH = fitW / ar;
   w = fitW * scale;
@@ -155,15 +155,14 @@ void TransformPlugin::render(const OFX::RenderArguments &args) {
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
 
-  // Zoom magnifies inside the fixed crop window. zoom > 1 samples a smaller
-  // source region (magnify), zoom < 1 a wider one.
-  const double zoom = std::clamp(zoom_->getValueAtTime(args.time), 1.0, 1000.0) / 100.0;
+  // The crop window is already sized by the zoom slider, so it is sampled one
+  // to one. The rotation center stays at the window center.
   const double scx = x0 + w * 0.5;
   const double scy = y0 + h * 0.5;
-  const double sampleW = w / zoom;
-  const double sampleH = h / zoom;
-  const double sx0 = scx - sampleW * 0.5;
-  const double sy0 = scy - sampleH * 0.5;
+  const double sampleW = w;
+  const double sampleH = h;
+  const double sx0 = x0;
+  const double sy0 = y0;
 
   const double angle = std::clamp(rotate_->getValueAtTime(args.time), -180.0, 180.0) * kPi / 180.0;
   const double cosA = std::cos(angle);
@@ -312,21 +311,12 @@ void TransformPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc,
   orientation->appendOption("Portrait");
   page->addChild(*orientation);
 
-  DoubleParamDescriptor *crop = desc.defineDoubleParam("crop");
-  crop->setLabels("Crop", "Crop", "Amount to crop in, in percent: 0 outputs the full image.");
-  crop->setHint("Amount to crop in, in percent. 0 outputs the full image (identity). Higher values crop to a centered region matching the aspect ratio, shrinking the output so downstream plugins process fewer pixels. At 100 the region is 2% of the source.");
-  crop->setDefault(0);
-  crop->setRange(0, 100);
-  crop->setDisplayRange(0, 100);
-  crop->setIncrement(1);
-  page->addChild(*crop);
-
   DoubleParamDescriptor *zoom = desc.defineDoubleParam("zoom");
-  zoom->setLabels("Zoom", "Zoom", "Magnify inside the crop window; 100 is 1:1 and higher values magnify.");
-  zoom->setHint("Magnify inside the crop window. 100 samples the crop window at 1:1. Higher values sample a smaller source region and magnify. Lower values sample a wider region and shrink. The output size does not change.");
+  zoom->setLabels("Zoom", "Zoom", "Zoom in from the source; 100 outputs the full image and higher values crop to a smaller region.");
+  zoom->setHint("Zoom in from the source. 100 outputs the full image (identity). Higher values crop to a centered region that matches the aspect ratio, then sample it one to one. The output shrinks as the region shrinks, so downstream plugins process fewer pixels. At 1000 the region is 10% of the source in each dimension.");
   zoom->setDefault(100);
-  zoom->setRange(1, 1000);
-  zoom->setDisplayRange(10, 400);
+  zoom->setRange(100, 1000);
+  zoom->setDisplayRange(100, 400);
   zoom->setIncrement(1);
   page->addChild(*zoom);
 

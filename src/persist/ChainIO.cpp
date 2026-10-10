@@ -6,7 +6,9 @@
 #include "ofx/OfxHost.h"
 #include "ofxParam.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <sstream>
 
 static std::string paramValueJson(Param *p) {
@@ -93,6 +95,24 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
   return -1;
 }
 
+// The bundled Transform plugin merged its Crop and Zoom parameters into one
+// Zoom parameter. A project saved before the merge stores a "crop" key, so
+// fold both old values into the merged Zoom and keep the field of view the
+// node showed. New projects have no "crop" key and are left untouched. A
+// plugin that still declares Crop keeps its own value.
+static void migrateMergedTransformParams(const PersistNode &pn, Effect *effect) {
+  if (pn.pluginIdentifier != "com.aaronmurniadi.ofxrawhost.transform") return;
+  auto cropIt = pn.paramsJson.find("crop");
+  if (cropIt == pn.paramsJson.end()) return;
+  if (findParam(effect, "crop")) return;
+  Param *zoom = findParam(effect, "zoom");
+  if (!zoom || zoom->v.empty()) return;
+  const double cropVal = std::strtod(cropIt->second.c_str(), nullptr);
+  const double scale = std::max(1.0 - cropVal / 100.0, 0.02);
+  std::lock_guard<std::mutex> lock(gValueMutex);
+  zoom->v[0] = std::clamp(zoom->v[0] / scale, 100.0, 1000.0);
+}
+
 PersistChain captureChain(const App &app) {
   std::lock_guard<std::mutex> lock(gValueMutex);
   PersistChain chain;
@@ -132,6 +152,7 @@ void applyChain(App &app, const PersistChain &chain) {
         auto it = pn.paramsJson.find(p->name);
         if (it != pn.paramsJson.end()) applyParamValueJson(p, it->second);
       }
+      migrateMergedTransformParams(pn, node.instance.get());
     }
   }
   if (chain.selectedNode >= 0 && chain.selectedNode < (int)app.chain.nodes.size())

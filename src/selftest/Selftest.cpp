@@ -9,6 +9,7 @@
 #include "imgio/ImageIO.h"
 #include "ParamBridge.h"
 #include "ofx/OfxHost.h"
+#include "persist/ChainIO.h"
 #include "persist/ProjectPersist.h"
 #include "platform/EmbeddedResource.h"
 
@@ -133,7 +134,7 @@ static Image makeTestImage() {
 }
 
 // Bundled Transform plugin: defaults must be an identity pass-through with a
-// full-size RoD; the crop slider must shrink the RoD and change the rendered
+// full-size RoD; the zoom slider must shrink the RoD and change the rendered
 // output. Checked first so a flaky third-party plugin later in the list
 // cannot mask a regression here.
 static int testTransformPlugin(Image &src) {
@@ -142,25 +143,25 @@ static int testTransformPlugin(Image &src) {
   auto e = createInstance(*it);
   if (!e) return fail("createInstance: Transform");
 
-  // At default (crop=0): RoD matches source size and render is identity.
+  // At default (zoom=100): RoD matches source size and render is identity.
   int ow = src.w, oh = src.h;
   queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
-  if (ow != src.w || oh != src.h) return fail("crop RoD at default != source size");
+  if (ow != src.w || oh != src.h) return fail("zoom RoD at default != source size");
   Image out;
   out.w = src.w;
   out.h = src.h;
   out.px.assign(src.px.size(), -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, src.w, src.h, 0) != kOfxStatOK)
     return fail("render: Transform (defaults)");
-  if (out.px != src.px) return fail("crop defaults are not identity");
+  if (out.px != src.px) return fail("zoom defaults are not identity");
 
-  // At crop=80: RoD should shrink and render to the smaller output should differ.
-  Param *crop = findParam(e.get(), "crop");
-  if (!crop || crop->v.empty()) return fail("crop param missing");
-  crop->v[0] = 80;
+  // At zoom=500: RoD should shrink to 20% and render to the smaller output should differ.
+  Param *zoom = findParam(e.get(), "zoom");
+  if (!zoom || zoom->v.empty()) return fail("zoom param missing");
+  zoom->v[0] = 500;
   ow = src.w; oh = src.h;
   queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
-  if (ow >= src.w || oh >= src.h) return fail("crop RoD did not shrink at 80%");
+  if (ow >= src.w || oh >= src.h) return fail("zoom RoD did not shrink at 500");
   out.w = ow;
   out.h = oh;
   out.px.assign((size_t)ow * oh * 4, -1.0f);
@@ -171,13 +172,13 @@ static int testTransformPlugin(Image &src) {
     finite &= std::isfinite(v);
     changed |= v != -1.0f;
   }
-  if (!finite || !changed) return fail("crop zoom output");
-  if (out.px == src.px) return fail("crop slider had no effect");
+  if (!finite || !changed) return fail("zoom output");
+  if (out.px == src.px) return fail("zoom slider had no effect");
 
-  // At crop=0 the window fills the source, so both pan ranges must fall back
-  // to half the crop size (not zero). Panning ±100 should slide the window
+  // At zoom=100 the window fills the source, so both pan ranges must fall back
+  // to half the window size (not zero). Panning ±100 should slide the window
   // past the source edge, producing black where no source data exists.
-  crop->v[0] = 0;
+  zoom->v[0] = 100;
   Param *offsetX = findParam(e.get(), "offsetX");
   Param *offsetY = findParam(e.get(), "offsetY");
   if (!offsetX || offsetX->v.empty()) return fail("offsetX param missing");
@@ -190,7 +191,7 @@ static int testTransformPlugin(Image &src) {
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
     return fail("render: Transform (centered)");
   for (float v : out.px)
-    if (v == 0.0f) return fail("centered crop should have no black pixels");
+    if (v == 0.0f) return fail("centered window should have no black pixels");
   offsetY->v[0] = 100;
   std::fill(out.px.begin(), out.px.end(), -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
@@ -231,7 +232,33 @@ static int testTransformPlugin(Image &src) {
   if (!finiteRot || !touched) return fail("rotate output");
   if (hasBlack) return fail("rotate left black pixels in frame");
   callAction(it->plugin, kOfxActionDestroyInstance, e.get());
-  printf("ok  Transform crop/zoom/rotate\n");
+  printf("ok  Transform zoom/rotate\n");
+  return 0;
+}
+
+// A project saved before the Crop/Zoom merge stores both names. Loading it must
+// fold them into the merged Zoom and keep the field of view the node showed.
+static int testTransformLegacyMigration() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == gPlugins.end()) return fail("migration: bundled Transform plugin not found");
+
+  PersistChain chain;
+  PersistNode pn;
+  pn.pluginIdentifier = it->plugin->pluginIdentifier;
+  pn.pluginLabel = "Transform";
+  pn.paramsJson["crop"] = "50";
+  pn.paramsJson["zoom"] = "100";
+  chain.nodes.push_back(std::move(pn));
+
+  App app;
+  applyChain(app, chain);
+  if (app.chain.nodes.size() != 1) return fail("migration: node missing");
+  Param *zoom = findParam(app.chain.nodes[0].instance.get(), "zoom");
+  if (!zoom || zoom->v.empty()) return fail("migration: zoom param missing");
+  // crop 50 keeps half the source, so the merged Zoom must show the same field.
+  if (std::abs(zoom->v[0] - 200.0) > 1e-9) return fail("migration: crop 50 and zoom 100 did not fold to 200");
+  clearNodes(app);
+  printf("ok  Transform legacy migration\n");
   return 0;
 }
 
@@ -359,6 +386,7 @@ int runSelfTest() {
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
   if (const int rc = testTransformPlugin(src)) return rc;
+  if (const int rc = testTransformLegacyMigration()) return rc;
   if (const int rc = testEveryPlugin(src)) return rc;
   if (const int rc = testConcurrency(src)) return rc;
   return 0;
