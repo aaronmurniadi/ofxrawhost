@@ -1,5 +1,6 @@
 .cache/
 build/
 .DS_Store
+.pi/
 .pi-lens.json
 .pi-web/
