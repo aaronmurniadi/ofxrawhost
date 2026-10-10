@@ -5,6 +5,8 @@
 #include <windows.h>
 #endif
 
+#include "BundledPlugins.h"
+
 #include "ofxsImageEffect.h"
 
 #include <algorithm>
@@ -352,13 +354,7 @@ OFX::ImageEffect *TransformPluginFactory::createInstance(OfxImageEffectHandle ha
   return new TransformPlugin(handle);
 }
 
-namespace OFX {
-namespace Plugin {
-
-void getPluginIDs(OFX::PluginFactoryArray &ids) {
+void registerTransformPlugin(OFX::PluginFactoryArray &ids) {
   static TransformPluginFactory p(kPluginIdentifier, kPluginVersionMajor, kPluginVersionMinor);
   ids.push_back(&p);
 }
-
-}  // namespace Plugin
-}  // namespace OFX

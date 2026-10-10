@@ -285,7 +285,7 @@ else()
   target_link_libraries(OfxRawHost PRIVATE OpenGL::GL)
 endif()
 
-# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform) ---
+# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform, Auto Exposure) ---
 find_package(Threads REQUIRED)
 
 # The support lib's log-indent counter is a process-global int (upstream calls it
@@ -315,8 +315,9 @@ target_include_directories(OfxSupport PUBLIC
 target_link_libraries(OfxSupport PUBLIC Threads::Threads)
 set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Bundled plugin: the Transform effect ships inside the Windows executable so
-# the release is one file, and as an OfxRawHost.ofx.bundle everywhere else.
+# Bundled plugins: the Transform and Auto Exposure effects ship inside the
+# Windows executable so the release is one file, and as an
+# OfxRawHost.ofx.bundle everywhere else.
 if(WIN32)
   enable_language(RC)
   set(OFX_VERSION "0.0.0" CACHE STRING "Version stamped into the Windows executable")
@@ -335,7 +336,7 @@ if(WIN32)
   set(OFX_ICON_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf")
   configure_file(packaging/windows/OfxRawHost.rc.in "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc" @ONLY)
 
-  target_sources(OfxRawHost PRIVATE plugins/Transform.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
+  target_sources(OfxRawHost PRIVATE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
   target_link_libraries(OfxRawHost PRIVATE OfxSupport)
   target_compile_definitions(OfxRawHost PRIVATE OFX_EMBEDDED_PLUGIN)
   # Release build opens no console window. The host keeps main(), so name the CRT
@@ -345,14 +346,14 @@ if(WIN32)
 else()
   # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
   # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
-  add_library(OfxRawHostTransform MODULE plugins/Transform.cpp)
-  set_target_properties(OfxRawHostTransform PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
-  target_link_libraries(OfxRawHostTransform PRIVATE OfxSupport)
+  add_library(OfxRawHostBundled MODULE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp)
+  set_target_properties(OfxRawHostBundled PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
+  target_link_libraries(OfxRawHostBundled PRIVATE OfxSupport)
   if(APPLE)
-    target_link_libraries(OfxRawHostTransform PRIVATE "-framework OpenGL")
+    target_link_libraries(OfxRawHostBundled PRIVATE "-framework OpenGL")
   else()
     find_package(OpenGL REQUIRED)
-    target_link_libraries(OfxRawHostTransform PRIVATE OpenGL::GL)
+    target_link_libraries(OfxRawHostBundled PRIVATE OpenGL::GL)
   endif()
 
   # Arch subdir must match pluginBinary() in src/ofx/OfxPlugins.cpp.
@@ -365,15 +366,15 @@ else()
   endif()
 
   set(OFX_BUNDLE "${CMAKE_BINARY_DIR}/Plugins/OfxRawHost.ofx.bundle")
-  add_custom_command(TARGET OfxRawHostTransform POST_BUILD
+  add_custom_command(TARGET OfxRawHostBundled POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}"
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostTransform>"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostBundled>"
       "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}/OfxRawHost.ofx"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${CMAKE_SOURCE_DIR}/plugins/Info.plist" "${OFX_BUNDLE}/Contents/Info.plist"
     COMMENT "Assembling OfxRawHost.ofx.bundle"
   )
-  add_dependencies(OfxRawHost OfxRawHostTransform)
+  add_dependencies(OfxRawHost OfxRawHostBundled)
 endif()
 
 # macOS app bundle packaging (optional convenience target)
@@ -392,6 +393,6 @@ if(APPLE)
       ${OFX_BUNDLE}
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle
     COMMAND ${CMAKE_COMMAND} -E echo "Built ${CMAKE_BINARY_DIR}/OfxRawHost.app"
-    DEPENDS OfxRawHost OfxRawHostTransform
+    DEPENDS OfxRawHost OfxRawHostBundled
   )
 endif()

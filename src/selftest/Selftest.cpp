@@ -1,4 +1,4 @@
-// Self-test cases: decode and color checks, the bundled Transform plugin, every
+// Self-test cases: decode and color checks, the bundled plugins, every
 // installed plugin, and a concurrency smoke case. Run with --selftest.
 
 #include "selftest/Selftest.h"
@@ -262,6 +262,60 @@ static int testTransformLegacyMigration() {
   return 0;
 }
 
+// Bundled Auto Exposure plugin: a mid-gray frame must stay unchanged, a dark
+// frame must brighten, a bright frame must darken, and a compensation bias must
+// add to the gain.
+static int testAutoExposurePlugin() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Auto Exposure"; });
+  if (it == gPlugins.end()) return fail("bundled Auto Exposure plugin not found");
+  auto e = createInstance(*it);
+  if (!e) return fail("createInstance: Auto Exposure");
+
+  // Meter on linear values so a flat frame maps straight to the gain.
+  Param *space = findParam(e.get(), "inputSpace");
+  Param *method = findParam(e.get(), "method");
+  Param *comp = findParam(e.get(), "compensation");
+  if (!space || space->v.empty()) return fail("auto exposure: inputSpace missing");
+  if (!method || method->v.empty()) return fail("auto exposure: method missing");
+  if (!comp || comp->v.empty()) return fail("auto exposure: compensation missing");
+  space->v[0] = 2;  // Linear Rec.709
+  method->v[0] = 0;  // Average, so a flat frame has one meter value
+  comp->v[0] = 0;
+
+  const int w = 16, h = 12;
+  auto renderFlat = [&](float value, Image &out) {
+    Image in;
+    in.w = w;
+    in.h = h;
+    in.px.assign((size_t)w * h * 4, value);
+    out.w = w;
+    out.h = h;
+    out.px.assign((size_t)w * h * 4, -1.0f);
+    return renderEffect(it->plugin, e.get(), in.px.data(), out.px.data(), w, h, w, h, 0);
+  };
+
+  Image out;
+  // 18.4% gray meters to 0 EV, so the frame is unchanged.
+  if (renderFlat(0.184f, out) != kOfxStatOK) return fail("render: Auto Exposure (mid gray)");
+  for (float v : out.px)
+    if (std::abs(v - 0.184f) > 1e-4f) return fail("auto exposure changed mid gray");
+
+  // A dark frame must brighten and a bright frame must darken toward mid gray.
+  if (renderFlat(0.046f, out) != kOfxStatOK) return fail("render: Auto Exposure (dark)");
+  if (out.px[0] <= 0.046f + 1e-4f) return fail("auto exposure did not brighten a dark frame");
+  if (renderFlat(0.736f, out) != kOfxStatOK) return fail("render: Auto Exposure (bright)");
+  if (out.px[0] >= 0.736f - 1e-4f) return fail("auto exposure did not darken a bright frame");
+
+  // One stop of compensation doubles a mid-gray frame.
+  comp->v[0] = 1.0;
+  if (renderFlat(0.184f, out) != kOfxStatOK) return fail("render: Auto Exposure (compensation)");
+  if (std::abs(out.px[0] - 0.368f) > 1e-3f) return fail("auto exposure compensation != 1 EV");
+
+  callAction(it->plugin, kOfxActionDestroyInstance, e.get());
+  printf("ok  Auto Exposure\n");
+  return 0;
+}
+
 // Renders the test image through every installed filter plugin and writes both
 // export formats.
 static int testEveryPlugin(Image &src) {
@@ -387,6 +441,7 @@ int runSelfTest() {
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
   if (const int rc = testTransformPlugin(src)) return rc;
   if (const int rc = testTransformLegacyMigration()) return rc;
+  if (const int rc = testAutoExposurePlugin()) return rc;
   if (const int rc = testEveryPlugin(src)) return rc;
   if (const int rc = testConcurrency(src)) return rc;
   return 0;

@@ -52,6 +52,19 @@ the output dimensions directly to the host.
 - **Rotate** — rotate the zoomed image about its center, in degrees, from -180 to 180, default 0. The crop window stays the output size; the image scales up as needed so the frame stays filled (straight edges, no black corner wedges).
 - **Offset X / Offset Y** — pan the crop window from -100 to 100, default 0. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a portrait aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge. The out-of-bounds area is filled with **black pixels**.
 
+### Auto Exposure
+
+A bundled OFX plugin that meters the frame brightness and applies one exposure
+gain so the metered level lands on 18.4% gray. It is compiled into the Windows
+executable and shipped in the same OFX bundle as Transform. The meter follows
+the metering methods of the spektrafilm pipeline.
+
+**Parameters:**
+
+- **Metering**: _Average_, _Median_, _Center Weighted_ (default), _Partial_, _Matrix_, _Multi Zone_, or _Highlight Weighted_. Average and Median use the whole frame. Center Weighted, Partial, Matrix, and Multi Zone weight the center like a camera meter. Highlight Weighted favors the bright pixels.
+- **Exposure Compensation**: bias added to the measured exposure, in EV, from -10 to 10, default 0. Negative values darken the image. Positive values brighten it.
+- **Input Color Space**: color space of the source pixels, one of _sRGB_, _Display P3_, _Linear Rec.709_, or _Linear Rec.2020_. The host sets this from the opened image. The meter decodes the transfer curve and uses the matching luminance weights.
+
 ---
 
 ## Install
@@ -240,6 +253,7 @@ build/OfxRawHost --selftest
 | spektrafilm `.spkpreset` import button on the parameter panel           | Done (v0.4.2)  |
 | Preview size "Fit to preview" (matches the preview panel pixels)        | Done (v0.4.2)  |
 | Bundled Transform: Crop and Zoom merge into one Zoom control            | Done (v0.4.2)  |
+| Bundled Auto Exposure plugin (spektrafilm metering methods)            | Done (v0.4.2)  |
 
 ---
 

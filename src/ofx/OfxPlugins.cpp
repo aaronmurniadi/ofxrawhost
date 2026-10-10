@@ -143,9 +143,10 @@ static void loadBundle(const fs::path &bundle) {
   registerPlugins(count, get);
 }
 
-// The bundled Transform effect is compiled into the Windows executable, so the
-// release is a single file. The OFX support library supplies these entry points
-// for the factories linked in, and reports zero when there are none.
+// The bundled Transform and Auto Exposure effects are compiled into the Windows
+// executable, so the release is a single file. The OFX support library supplies
+// these entry points for the factories linked in, and reports zero when there
+// are none.
 static void loadEmbeddedPlugins() {
 #if defined(OFX_EMBEDDED_PLUGIN)
   registerPlugins(OfxGetNumberOfPlugins, OfxGetPlugin);

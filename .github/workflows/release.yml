@@ -164,6 +164,7 @@ jobs:
           OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$APP" --selftest 2>&1)
           printf '%s\n' "$OUT" | tail -3
           printf '%s\n' "$OUT" | grep -q "ok  Transform"
+          printf '%s\n' "$OUT" | grep -q "ok  Auto Exposure"
           # Start the interface and stop it again: this loads the bundled
           # libraries, opens a GL context, and reports a missing icon font.
           # Exit code 124 means the timeout stopped a running application.
@@ -252,7 +253,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $exe = 'build/OfxRawHost-Windows-x64.exe'
-          # One file: the icon font and the Transform effect must live inside it,
+          # One file: the icon font and the bundled effects must live inside it,
           # the C runtime must not be a DLL the user has to install, and the
           # executable must not open a console window.
           $image = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe))
@@ -269,7 +270,7 @@ jobs:
             Write-Host '::warning::dumpbin not found; the static runtime and subsystem checks were skipped'
           }
           # Runs every plugin on a small image, so this fails when a dependency is
-          # missing or the linked-in Transform effect cannot be registered.
+          # missing or a linked-in bundled effect cannot be registered.
           # Start-Process waits for the process and captures the streams, which
           # works the same for the GUI subsystem.
           $stdout = 'build/selftest.stdout.txt'
@@ -280,6 +281,7 @@ jobs:
           Write-Host $out
           if ($proc.ExitCode -ne 0) { throw "selftest exited with $($proc.ExitCode)" }
           if ($out -notmatch 'ok  Transform') { throw 'the executable does not register the Transform effect' }
+          if ($out -notmatch 'ok  Auto Exposure') { throw 'the executable does not register the Auto Exposure effect' }
           $expected = '${{ needs.prepare.outputs.version }}'
           $actual = (Get-Item $exe).VersionInfo.FileVersion
           if ($actual -ne $expected) { throw "the file version is '$actual', expected '$expected'" }
