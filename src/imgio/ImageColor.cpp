@@ -26,6 +26,26 @@ const char *colorSpaceName(ColorSpace cs) {
   return "sRGB";
 }
 
+ColorSpace colorSpaceFromName(const std::string &name, ColorSpace fallback) {
+  for (int i = 0; i < 4; ++i) {
+    const ColorSpace cs = static_cast<ColorSpace>(i);
+    if (name == colorSpaceName(cs)) return cs;
+  }
+  return fallback;
+}
+
+// The order matches the lcms2 INTENT_ constants, so a value passes straight
+// through as the intent argument.
+const char *renderIntentName(RenderIntent intent) {
+  switch (intent) {
+    case RenderIntent::Perceptual: return "Perceptual";
+    case RenderIntent::RelativeColorimetric: return "Relative colorimetric";
+    case RenderIntent::Saturation: return "Saturation";
+    case RenderIntent::AbsoluteColorimetric: return "Absolute colorimetric";
+  }
+  return "Perceptual";
+}
+
 static cmsToneCurve *srgbCurve() {
   // Same parametric curve cmsCreate_sRGBProfile uses.
   cmsFloat64Number params[5] = {2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045};
@@ -351,84 +371,76 @@ ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
   return pick;
 }
 
-void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {
+// Converts an image in place between two color spaces with the given rendering
+// intent. Returns false when a profile or a transform cannot be built, and then
+// leaves the pixels untouched. A request where both spaces are equal succeeds
+// without touching the pixels.
+bool convertColorSpace(Image &img, ColorSpace from, ColorSpace to, RenderIntent intent) {
+  if (img.w <= 0 || img.h <= 0) return false;
+  if (from == to) return true;
+  PerfScope _ps("convertColorSpace");
+  cmsHPROFILE src = cachedProfile(from);
+  cmsHPROFILE dst = cachedProfile(to);
+  if (!src || !dst) return false;
+  cmsHTRANSFORM xform = cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_FLT, (cmsUInt32Number)intent,
+                                           cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
+  if (!xform) return false;
+  // One row at a time, so the transform never reads and writes one buffer.
+  std::vector<float> row((size_t)img.w * 4);
+  for (int y = 0; y < img.h; ++y) {
+    const size_t off = (size_t)y * (size_t)img.w * 4;
+    cmsDoTransform(xform, img.px.data() + off, row.data(), (cmsUInt32Number)img.w);
+    std::memcpy(img.px.data() + off, row.data(), row.size() * sizeof(float));
+  }
+  cmsDeleteTransform(xform);
+  return true;
+}
+
+void toDisplayRGBA8(const Image &img, ColorSpace from, ColorSpace to, std::vector<unsigned char> &out) {
   PerfScope _ps("toDisplayRGBA8");
   if (img.w <= 0 || img.h <= 0) {
     out.clear();
     return;
   }
-
   const size_t n = (size_t)img.w * img.h * 4;
   if (out.size() != n) out.resize(n);
 
-  cmsHTRANSFORM xform = cachedTransform(space);
-  const int rowFloats = img.w * 4;
-
-  unsigned int nThreads = std::min(std::max(1u, std::thread::hardware_concurrency()), 4u);
-  if ((size_t)img.h < nThreads) nThreads = (unsigned int)img.h;
-  const size_t totalPx = (size_t)img.w * (size_t)img.h;
-  bool parallel = false;
-  if (nThreads > 1 && totalPx >= ((size_t)1 << 20)) parallel = true;
-
-  if (!parallel) {
-    if (xform) {
-      for (int y = 0; y < img.h; ++y) {
-        const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-        unsigned char *dst = out.data() + (size_t)y * rowFloats;
-        cmsDoTransform(xform, src, dst, (cmsUInt32Number)img.w);
-      }
-    } else {
-      for (int y = 0; y < img.h; ++y) {
-        const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-        unsigned char *dst = out.data() + (size_t)y * rowFloats;
-        for (int i = 0; i < rowFloats; ++i)
-          dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
-      }
-    }
-    return;
+  // The bytes handed to the screen are the encoding of `to`, so convert when the
+  // chain wrote a different space and leave the pixels alone otherwise.
+  Image converted;
+  const Image *src = &img;
+  if (from != to) {
+    converted = img;
+    if (convertColorSpace(converted, from, to, RenderIntent::RelativeColorimetric)) src = &converted;
   }
 
-  // cmsDoTransform is not safe to call concurrently on one shared handle, so
-  // build an independent transform per worker from the same cached profiles.
-  std::vector<cmsHTRANSFORM> xforms;
-  if (xform) {
-    xforms.resize(nThreads);
-    for (unsigned int t = 0; t < nThreads; ++t) {
-      xforms[t] = cmsCreateTransform(cachedProfile(space), TYPE_RGBA_FLT, srgbProfile(), TYPE_RGBA_8,
-                                     INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
+  const int rowFloats = src->w * 4;
+  auto quantizeRows = [src, &out, rowFloats](int y0, int y1) {
+    for (int y = y0; y < y1; ++y) {
+      const float *row = src->px.data() + (size_t)(src->h - 1 - y) * rowFloats;
+      unsigned char *dst = out.data() + (size_t)y * rowFloats;
+      for (int i = 0; i < rowFloats; ++i)
+        dst[i] = (unsigned char)std::lround(std::clamp(row[i], 0.0f, 1.0f) * 255.0f);
     }
+  };
+
+  const size_t totalPx = (size_t)src->w * (size_t)src->h;
+  unsigned int nThreads = std::min(std::max(1u, std::thread::hardware_concurrency()), 4u);
+  if ((size_t)src->h < nThreads) nThreads = (unsigned int)src->h;
+  if (nThreads <= 1 || totalPx < ((size_t)1 << 20)) {
+    quantizeRows(0, src->h);
+    return;
   }
 
   std::vector<std::thread> threads;
   threads.reserve(nThreads);
-  const int rowsPerThread = (img.h + (int)nThreads - 1) / (int)nThreads;
+  const int rowsPerThread = (src->h + (int)nThreads - 1) / (int)nThreads;
   for (unsigned int t = 0; t < nThreads; ++t) {
     const int y0 = (int)t * rowsPerThread;
-    if (y0 >= img.h) break;
+    if (y0 >= src->h) break;
     int y1 = y0 + rowsPerThread;
-    if (y1 > img.h) y1 = img.h;
-    if (xform) {
-      cmsHTRANSFORM xf = xforms[t];
-      threads.emplace_back([&img, &out, xf, y0, y1, rowFloats] {
-        for (int y = y0; y < y1; ++y) {
-          const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-          unsigned char *dst = out.data() + (size_t)y * rowFloats;
-          cmsDoTransform(xf, src, dst, (cmsUInt32Number)img.w);
-        }
-      });
-    } else {
-      threads.emplace_back([&img, &out, y0, y1, rowFloats] {
-        for (int y = y0; y < y1; ++y) {
-          const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-          unsigned char *dst = out.data() + (size_t)y * rowFloats;
-          for (int i = 0; i < rowFloats; ++i)
-            dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
-        }
-      });
-    }
+    if (y1 > src->h) y1 = src->h;
+    threads.emplace_back([&quantizeRows, y0, y1] { quantizeRows(y0, y1); });
   }
   for (auto &th : threads) th.join();
-  for (cmsHTRANSFORM t : xforms) {
-    if (t) cmsDeleteTransform(t);
-  }
 }

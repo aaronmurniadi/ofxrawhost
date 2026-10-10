@@ -2,6 +2,7 @@
 #include "persist/ProjectPersistPriv.h"
 
 #include "imgio/ImageIO.h"
+#include "platform/Paths.h"
 
 #include <algorithm>
 #include <cctype>
@@ -19,16 +20,17 @@ JsonValue makeGuiJson(const PersistGui &g) {
   // Panel geometry lives in ImGui's layout .ini, not in this JSON.
   JsonValue gui = JsonValue::makeObject();
   gui.set("outputIndex", JsonValue::makeInt(g.outputIndex));
+  gui.set("exportIndex", JsonValue::makeInt(g.exportIndex));
+  gui.set("exportIntent", JsonValue::makeInt(g.exportIntent));
   gui.set("exportFormat", JsonValue::makeInt(g.exportFormat));
   gui.set("exportBitDepth", JsonValue::makeInt(g.exportBitDepth));
   gui.set("exportQuality", JsonValue::makeInt(g.exportQuality));
   gui.set("exportLossless", JsonValue::makeBool(g.exportLossless));
   gui.set("previewRes", JsonValue::makeInt(g.previewRes));
   gui.set("themeIndex", JsonValue::makeInt(g.themeIndex));
-  gui.set("uiFontSizePt", JsonValue::makeInt(g.uiFontSizePt));
-  gui.set("uiFontFamily", JsonValue::makeString(g.uiFontFamily));
-  gui.set("showLeft", JsonValue::makeBool(g.showLeft));
-  gui.set("showRight", JsonValue::makeBool(g.showRight));
+  gui.set("uiFontScale", JsonValue::makeInt(g.uiFontScale));
+  gui.set("showPlugins", JsonValue::makeBool(g.showPlugins));
+  gui.set("showParameters", JsonValue::makeBool(g.showParameters));
   gui.set("showFilmstrip", JsonValue::makeBool(g.showFilmstrip));
   return gui;
 }
@@ -66,6 +68,12 @@ bool writeFile(const fs::path &path, const std::string &body) {
 
 std::string workspaceProjectPath(const std::string &workspaceDir) {
   return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
+}
+
+std::string globalSettingsPath() {
+  const fs::path dir = userConfigDir();
+  if (dir.empty()) return std::string();
+  return (dir / "settings.json").string();
 }
 
 std::string inputSidecarPath(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
@@ -134,6 +142,16 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
   return writeFile(workspaceProjectPath(workspaceDir), root.dump());
 }
 
+bool saveGlobalSettings(const PersistGui &gui) {
+  const std::string path = globalSettingsPath();
+  if (path.empty()) return false;
+  JsonValue root = JsonValue::makeObject();
+  root.set("format", JsonValue::makeString("ofxrawhost-settings"));
+  root.set("version", JsonValue::makeInt(1));
+  root.set("gui", makeGuiJson(gui));
+  return writeFile(path, root.dump());
+}
+
 static std::string iso8601Now() {
   using namespace std::chrono;
   const auto now = system_clock::now();
@@ -150,27 +168,28 @@ static std::string iso8601Now() {
   return buf;
 }
 
-bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
-                      const PersistChain &chain) {
+bool saveInputSidecar(const std::string &imagePath, ColorSpace fileSpace, ColorSpace chainInputSpace,
+                      const PersistGui &gui, const PersistChain &chain) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
   root.set("version", JsonValue::makeInt(1));
   root.set("kind", JsonValue::makeString("input"));
   root.set("sourcePath", JsonValue::makeString(fs::path(imagePath).filename().string()));
-  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(inputSpace)));
+  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(fileSpace)));
+  root.set("chainInputColorSpace", JsonValue::makeString(colorSpaceName(chainInputSpace)));
   root.set("gui", makeGuiJson(gui));
   root.set("chain", makeChainJson(chain));
   return writeFile(inputSidecarPath(imagePath), root.dump());
 }
 
-bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
+bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace fileSpace,
                        const PersistGui &gui, const PersistChain &chain) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
   root.set("version", JsonValue::makeInt(1));
   root.set("kind", JsonValue::makeString("export"));
   root.set("sourcePath", JsonValue::makeString(sourceImagePath));
-  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(inputSpace)));
+  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(fileSpace)));
   root.set("exportedAt", JsonValue::makeString(iso8601Now()));
   root.set("gui", makeGuiJson(gui));
   root.set("chain", makeChainJson(chain));

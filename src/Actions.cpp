@@ -6,6 +6,7 @@
 #include "RenderScheduler.h"
 #include "imgio/ImageIO.h"
 #include "ofx/OfxHost.h"
+#include "ParamBridge.h"
 #include "persist/DocumentActions.h"
 #include "persist/ChainIO.h"
 #include "persist/ProjectPersist.h"
@@ -52,14 +53,17 @@ void openPath(App &app, const std::string &path) {
   if (!app.doc.path.empty() && app.doc.path != path) saveCurrentInputSidecar(app);
   Image img;
   ColorSpace detected = ColorSpace::LinearRec2020;
-  if (!loadImage(path, img, detected)) {
+  ColorSpace working = ColorSpace::LinearRec709;
+  if (!loadImage(path, img, detected, working)) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
   waitRenderIdle(app);  // worker reads inputSpace; stop it before swapping the image
   app.doc.path = path;
   app.doc.full = std::move(img);
-  app.doc.inputSpace = detected;
+  app.doc.fileSpace = detected;
+  app.doc.workingSpace = working;
+  app.doc.inputSpace = working;
   app.gui.previewZoom = 1.0f;
   app.gui.previewPanX = 0.0f;
   app.gui.previewPanY = 0.0f;
@@ -67,10 +71,15 @@ void openPath(App &app, const std::string &path) {
   app.filmstrip.index = filmstripIndexForPath(app.filmstrip, path);
   PersistSidecar sc;
   if (loadSidecarFile(inputSidecarPath(path), sc)) {
+    // A sidecar that recorded a chain input space restores that choice.
+    app.doc.inputSpace = colorSpaceFromName(sc.chainInputColorSpace, app.doc.workingSpace);
     applyGui(app, sc.gui);
     applyChain(app, sc.chain);
   }
   rebuildPreview(app);
+  // The chain carries the document input space into its first plugin, and no
+  // sidecar may have run, so re-derive it for the image that is now open.
+  syncChainColorSpaces(app);
   persistWorkspace(app);
 }
 
@@ -100,9 +109,28 @@ std::string defaultExportName(const App &app) {
   return stem + exportExtension(app.gui.exportFormat);
 }
 
-void setOutputTag(App &app, int index) {
-  app.outputTag = outputSpace(index);
+void setInputSpace(App &app, int index) {
+  app.doc.inputSpace = outputSpace(std::clamp(index, 0, kColorSpaceCount - 1));
+  // The chain carries this space into its first plugin, and a later plugin can
+  // change what leaves the chain, so the whole walk and a render are needed.
+  syncChainColorSpaces(app);
+  scheduleRender(app);
+}
+
+void setPreviewSpace(App &app, int index) {
+  // The preview is the destination of the last conversion: the chain output is
+  // encoded into this space and shown as it is. Only the display conversion
+  // changes, so a re-render is not needed.
+  app.gui.previewSpace = outputSpace(std::clamp(index, 0, kColorSpaceCount - 1));
   scheduleDisplayRecolor(app);
+}
+
+void setExportSpace(App &app, int index) {
+  app.gui.exportSpace = outputSpace(std::clamp(index, 0, kColorSpaceCount - 1));
+}
+
+void setExportIntent(App &app, int intentIndex) {
+  app.gui.exportIntent = static_cast<RenderIntent>(std::clamp(intentIndex, 0, kRenderIntentCount - 1));
 }
 
 void setPreviewRes(App &app, int index) {
@@ -129,8 +157,12 @@ void doExport(App &app, const std::string &path) {
   }
   const int pw = app.doc.preview.w, ph = app.doc.preview.h;
   Image src = app.doc.full;
-  const ColorSpace space = app.outputTag;
-  const ColorSpace inSpace = app.doc.inputSpace;
+  // The chain writes the preview space; the export converts from it to the
+  // chosen export space with the chosen rendering intent.
+  const ColorSpace space = app.chainOutputSpace;
+  const ColorSpace exportSpace = app.gui.exportSpace;
+  const RenderIntent intent = app.gui.exportIntent;
+  const ColorSpace inSpace = app.doc.fileSpace;
   EncodeOptions opts;
   opts.bitDepth = app.gui.exportBitDepth;
   opts.quality = app.gui.exportQuality;
@@ -139,7 +171,8 @@ void doExport(App &app, const std::string &path) {
   const PersistChain persistChain = captureChain(app);
   const std::string sourcePath = app.doc.path;
   app.render.exportThread =
-      std::thread([&, src, outPath, pw, ph, space, opts, persistGui, persistChain, sourcePath, inSpace]() mutable {
+      std::thread([&, src, outPath, pw, ph, space, exportSpace, intent, opts, persistGui, persistChain, sourcePath,
+                   inSpace]() mutable {
         RenderSchedule::Guard busy(&app.render.schedule, true);
         for (auto &n : app.chain.nodes)
           if (n.instance) n.instance->setInputSize(src.w, src.h);
@@ -148,7 +181,13 @@ void doExport(App &app, const std::string &path) {
         OfxStatus st = renderer.render(app.chain, gPlugins, src, out, 0);
         for (auto &n : app.chain.nodes)
           if (n.instance) n.instance->setInputSize(pw, ph);
-        bool ok = st == kOfxStatOK && writeImage(out, outPath, space, opts);
+        bool converted = true;
+        if (st == kOfxStatOK && space != exportSpace) converted = convertColorSpace(out, space, exportSpace, intent);
+        // A conversion failure leaves the pixels in the preview space, so tag
+        // them with the space they are really in rather than mislabel the file.
+        ColorSpace writeSpace = exportSpace;
+        if (!converted) writeSpace = space;
+        bool ok = st == kOfxStatOK && writeImage(out, outPath, writeSpace, opts);
         if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
         app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
                                 std::to_string(src.h) + ")"

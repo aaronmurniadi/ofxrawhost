@@ -31,45 +31,102 @@ void notifyChanged(Node &node, Param *p) {
   refreshParamUiCache(node.instance.get());
 }
 
-void applyColorDefaults(App &app, Node &node) {
+// Writes spaceName into the node parameter that carries the given label, when
+// the plugin offers that option. Returns the parameter it changed.
+static Param *writeNodeColorParam(Node &node, const char *label, const char *spaceName) {
+  if (!node.instance || !spaceName) return nullptr;
   for (auto &up : node.instance->params) {
     Param *p = up.get();
-    if (p->kind != ParamType::Choice) continue;
-    const std::string label = sprop(p->props, kOfxPropLabel);
-    const char *want = label == kInputColorSpaceLabel  ? colorSpaceName(app.doc.inputSpace)
-                       : label == kOutputColorSpaceLabel ? "sRGB"
-                                                         : nullptr;
-    if (!want) continue;
+    if (p->kind != ParamType::Choice || sprop(p->props, kOfxPropLabel) != label) continue;
+    if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
     const auto &options = choiceOptions(p);
     for (size_t i = 0; i < options.size(); ++i) {
-      if (options[i].s != want) continue;
-      {
-        std::lock_guard<std::mutex> lock(gValueMutex);
-        p->v[0] = (double)i;
-      }
-      notifyChanged(node, p);
-      break;
+      if (options[i].s != spaceName) continue;
+      if (p->v.empty()) return nullptr;
+      if ((size_t)p->v[0] == i) return nullptr;  // already there, nothing to notify
+      p->v[0] = (double)i;
+      return p;
     }
+    return nullptr;
   }
+  return nullptr;
 }
 
-void syncOutputTag(App &app) {
-  std::lock_guard<std::mutex> lock(gValueMutex);  // p->v may be written by an in-flight render
-  for (int n = (int)app.chain.nodes.size() - 1; n >= 0; --n) {
-    for (auto &up : app.chain.nodes[n].instance->params) {
-      Param *p = up.get();
-      if (p->kind != ParamType::Choice || sprop(p->props, kOfxPropLabel) != kOutputColorSpaceLabel ||
-          dprop(p->props, kOfxParamPropSecret, 0, 0) != 0)
-        continue;
-      const auto &options = choiceOptions(p);
-      const size_t index = (size_t)p->v[0];
-      if (index < options.size()) {
-        for (int i = 0; i < kOutputSpaceCount; ++i)
-          if (options[index].s == kOutputSpaces[i]) {
-            app.outputTag = outputSpace(i);
-            return;
-          }
-      }
-    }
+// Reads the node parameter that carries the given label and maps its selected
+// option onto a host color space. Returns false when the node has no such
+// parameter or the option has no close host tag.
+static bool readNodeColorParam(const Node &node, const char *label, ColorSpace &out) {
+  if (!node.instance) return false;
+  for (auto &up : node.instance->params) {
+    Param *p = up.get();
+    if (p->kind != ParamType::Choice || sprop(p->props, kOfxPropLabel) != label) continue;
+    if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
+    const auto &options = choiceOptions(p);
+    if (p->v.empty()) return false;
+    const size_t index = (size_t)p->v[0];
+    if (index >= options.size()) return false;
+    return hostSpaceForPluginName(options[index].s, out);
   }
+  return false;
+}
+
+void syncChainColorSpaces(App &app) {
+  // Walk the chain in order: the first plugin is told the document input space,
+  // and every later plugin is told the space the previous plugin declares. The
+  // space that leaves the last enabled plugin is what the preview and the export
+  // start from.
+  ColorSpace carried = app.doc.inputSpace;
+  std::vector<Node *> changedNodes;
+  std::vector<Param *> changedParams;
+  {
+    std::lock_guard<std::mutex> lock(gValueMutex);  // p->v may be written by an in-flight render
+    for (Node &node : app.chain.nodes) {
+      if (!node.enabled || !node.instance) continue;
+      if (Param *p = writeNodeColorParam(node, kInputColorSpaceLabel, colorSpaceName(carried))) {
+        changedNodes.push_back(&node);
+        changedParams.push_back(p);
+      }
+      if (readNodeColorParam(node, kOutputColorSpaceLabel, carried)) continue;
+      // The plugin does not describe its output, so the space it received passes
+      // through unchanged.
+    }
+    app.chainOutputSpace = carried;
+  }
+  for (size_t i = 0; i < changedParams.size(); ++i) notifyChanged(*changedNodes[i], changedParams[i]);
+}
+
+// Maps a plug-in output color space option to the host color space that can
+// describe it. The host owns four ICC profiles, so several plug-in names share
+// one host tag: the Rec.709 gamma variants match sRGB, the P3 variants and
+// DCI-P3 match Display P3, and the wide-gamut encodings match Linear Rec.2020.
+bool hostSpaceForPluginName(const std::string &name, ColorSpace &out) {
+  static const struct {
+    const char *pluginName;
+    ColorSpace host;
+  } kMap[] = {
+      {"sRGB", ColorSpace::sRGB},
+      {"Rec.709 Gamma 2.2", ColorSpace::sRGB},
+      {"Rec.709 Gamma 2.4", ColorSpace::sRGB},
+      {"Display P3", ColorSpace::DisplayP3},
+      {"DCI-P3", ColorSpace::DisplayP3},
+      {"P3-D65 Gamma 2.2", ColorSpace::DisplayP3},
+      {"P3-D65 Gamma 2.6", ColorSpace::DisplayP3},
+      {"Linear Rec.709", ColorSpace::LinearRec709},
+      {"Linear P3-D65", ColorSpace::LinearRec2020},
+      {"Linear Rec.2020", ColorSpace::LinearRec2020},
+      {"ProPhoto RGB", ColorSpace::LinearRec2020},
+      {"Adobe RGB (1998)", ColorSpace::LinearRec2020},
+  };
+  for (const auto &entry : kMap) {
+    if (name != entry.pluginName) continue;
+    out = entry.host;
+    return true;
+  }
+  return false;
+}
+
+bool chainHasEnabledNode(App &app) {
+  for (const Node &node : app.chain.nodes)
+    if (node.enabled && node.instance) return true;
+  return false;
 }

@@ -159,6 +159,6 @@ void applyChain(App &app, const PersistChain &chain) {
     app.chain.selectedNode = chain.selectedNode;
   else if (!app.chain.nodes.empty())
     app.chain.selectedNode = 0;
-  syncOutputTag(app);
+  syncChainColorSpaces(app);
   scheduleRender(app);
 }

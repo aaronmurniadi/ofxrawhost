@@ -35,6 +35,28 @@ void resetParamToDefault(Param *p) {
 
 void commitParamEdit(App &app, Node &node, Param *p) {
   notifyChanged(node, p);
-  syncOutputTag(app);
+  syncChainColorSpaces(app);
   scheduleRender(app);
+}
+
+int resetNodeParamsToDefaults(App &app, Node &node) {
+  if (!node.instance) return 0;
+  std::vector<Param *> reset;
+  for (auto &up : node.instance->params) {
+    Param *p = up.get();
+    if (p->ui.secret) continue;
+    if (p->kind == ParamType::Group || p->kind == ParamType::Page || p->kind == ParamType::PushButton) continue;
+    // The host drives the color-space parameters from the document and the
+    // chain, so a plugin reset must not move them. syncChainColorSpaces below
+    // puts them back on the host values.
+    const std::string label = sprop(p->props, kOfxPropLabel);
+    if (label == kInputColorSpaceLabel || label == kOutputColorSpaceLabel) continue;
+    resetParamToDefault(p);
+    reset.push_back(p);
+  }
+  // Notify after the values change, so the plugin sees the whole new state.
+  for (Param *p : reset) notifyChanged(node, p);
+  syncChainColorSpaces(app);
+  scheduleRender(app);
+  return (int)reset.size();
 }

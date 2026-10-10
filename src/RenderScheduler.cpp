@@ -12,9 +12,11 @@ static constexpr int kDraftMaxEdge = 1280;
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
-static void publishDisplay(RenderState &rs, Image img, ColorSpace space) {
+// Encodes the chain output into the preview color space and publishes the bytes
+// the screen shows, so the preview matches what a file in that space holds.
+static void publishDisplay(RenderState &rs, Image img, ColorSpace from, ColorSpace to) {
   std::vector<unsigned char> rgba;
-  toDisplayRGBA8(img, space, rgba);
+  toDisplayRGBA8(img, from, to, rgba);
   std::lock_guard<std::mutex> lock(rs.displayMutex);
   rs.display = std::move(img);
   rs.displayRGBA = std::move(rgba);
@@ -23,7 +25,7 @@ static void publishDisplay(RenderState &rs, Image img, ColorSpace space) {
 
 static void showSourcePreview(App &app) {
   if (app.doc.preview.px.empty()) return;
-  publishDisplay(app.render, app.doc.preview, linearWorkingSpace(app.doc.inputSpace));
+  publishDisplay(app.render, app.doc.preview, app.doc.workingSpace, app.gui.previewSpace);
 }
 
 void waitRenderIdle(App &app) {
@@ -93,15 +95,17 @@ void renderWorker(App *app) {
     RenderSchedule::Guard busy(&app->render.schedule);
     if (recolorOnly) {
       Image img;
-      ColorSpace space;
+      ColorSpace from;
+      ColorSpace to;
       {
         std::lock_guard<std::mutex> lock(app->render.displayMutex);
         if (app->render.display.px.empty()) continue;
         img = app->render.display;
-        if (app->chain.nodes.empty()) space = linearWorkingSpace(app->doc.inputSpace);
-        else space = app->outputTag.load();
+        if (app->chain.nodes.empty()) from = app->doc.workingSpace;
+        else from = app->chainOutputSpace.load();
+        to = app->gui.previewSpace;
       }
-      publishDisplay(app->render, std::move(img), space);
+      publishDisplay(app->render, std::move(img), from, to);
       continue;
     }
     if (app->chain.nodes.empty() || app->doc.preview.px.empty()) continue;
@@ -114,19 +118,16 @@ void renderWorker(App *app) {
       if (makePreview(app->doc.preview, kDraftMaxEdge, draftInput)) {
         const OfxStatus draftSt = renderer.render(app->chain, gPlugins, draftInput, out, gen, true);
         if (gen != gLatestGen) continue;
-        if (draftSt == kOfxStatOK) {
-          const ColorSpace space = app->outputTag;
-          publishDisplay(app->render, std::move(out), space);
-        }
+        if (draftSt == kOfxStatOK)
+          publishDisplay(app->render, std::move(out), app->chainOutputSpace, app->gui.previewSpace);
       }
     }
     if (gen != gLatestGen) continue;
     const OfxStatus st = renderer.render(app->chain, gPlugins, app->doc.preview, out, gen, false);
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
-      const ColorSpace space = app->outputTag;
       const int ow = out.w, oh = out.h;
-      publishDisplay(app->render, std::move(out), space);
+      publishDisplay(app->render, std::move(out), app->chainOutputSpace, app->gui.previewSpace);
       app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
       app->setStatus("Render failed (OFX status " + std::to_string(st) + ")");
