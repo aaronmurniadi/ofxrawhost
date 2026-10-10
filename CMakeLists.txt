@@ -318,13 +318,36 @@ set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Bundled plugins: the Transform and Auto Exposure effects ship inside the
 # Windows executable so the release is one file, and as an
 # OfxRawHost.ofx.bundle everywhere else.
+
+# Version shown in the About window. A dev build keeps the -dev suffix, for
+# example 0.4.2-dev. The release build passes OFX_VERSION_LABEL as the git tag;
+# a local build derives it from the nearest git tag.
+set(OFX_VERSION_LABEL "" CACHE STRING "OfxRawHost version label")
+if(OFX_VERSION_LABEL STREQUAL "")
+  execute_process(COMMAND git describe --tags --abbrev=0
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE _ofx_version_tag OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  set(OFX_VERSION_LABEL "${_ofx_version_tag}")
+endif()
+if(OFX_VERSION_LABEL MATCHES "^v(.*)$")
+  set(OFX_VERSION_LABEL "${CMAKE_MATCH_1}")
+endif()
+if(OFX_VERSION_LABEL STREQUAL "")
+  set(OFX_VERSION_LABEL "0.0.0")
+endif()
+
+# Numeric version for the Windows VERSIONINFO block.
+set(OFX_VERSION "${OFX_VERSION_LABEL}")
+if(OFX_VERSION MATCHES "^([0-9]+(\\.[0-9]+)*)")
+  set(OFX_VERSION "${CMAKE_MATCH_1}")
+else()
+  message(WARNING "version label '${OFX_VERSION_LABEL}' is not numeric; using 0.0.0")
+  set(OFX_VERSION "0.0.0")
+endif()
+target_compile_definitions(OfxRawHost PRIVATE OFXRAWHOST_VERSION="${OFX_VERSION_LABEL}")
+
 if(WIN32)
   enable_language(RC)
-  set(OFX_VERSION "0.0.0" CACHE STRING "Version stamped into the Windows executable")
-  if(NOT OFX_VERSION MATCHES "^[0-9]+(\\.[0-9]+)*$")
-    message(WARNING "OFX_VERSION '${OFX_VERSION}' is not numeric; using 0.0.0 for the file version")
-    set(OFX_VERSION "0.0.0")
-  endif()
   # VERSIONINFO takes four comma-separated numbers.
   string(REPLACE "." ";" _ofx_ver_parts "${OFX_VERSION}")
   list(LENGTH _ofx_ver_parts _ofx_ver_count)

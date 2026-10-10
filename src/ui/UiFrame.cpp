@@ -23,6 +23,12 @@
 
 #include <cmath>
 #include <cstdlib>
+
+// The build passes the release version in. Keep a fallback for builds that do
+// not, so the About window always shows a version.
+#ifndef OFXRAWHOST_VERSION
+#define OFXRAWHOST_VERSION "0.0.0"
+#endif
 #include <string>
 #include <vector>
 
@@ -101,14 +107,11 @@ static void drawMenuBar(App &app) {
       }
       ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("Help")) {
-      if (ImGui::MenuItem("About")) {
-        app.gui.showAbout = true;
-      }
-      if (ImGui::MenuItem("Donate")) {
-        app.gui.showDonate = true;
-      }
-      ImGui::EndMenu();
+    if (ImGui::MenuItem("Donate")) {
+      app.gui.showDonate = true;
+    }
+    if (ImGui::MenuItem("About")) {
+      app.gui.showAbout = true;
     }
     ImGui::EndMainMenuBar();
   }
@@ -363,6 +366,8 @@ void drawUiFrame(App &app) {
   }
   if (ImGui::BeginPopupModal("About", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextUnformatted("OfxRawHost");
+    ImGui::SameLine();
+    ImGui::TextDisabled("Version " OFXRAWHOST_VERSION);
     ImGui::Separator();
     ImGui::TextWrapped("A free and open-source OFX raw image host for color grading and plugin-based processing.");
     ImGui::Spacing();

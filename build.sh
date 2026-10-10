@@ -5,7 +5,17 @@
 set -e
 cd "$(dirname "$0")"
 BUILD=build
-CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release"
+# The release workflow passes VERSION_LABEL (the git tag) and VERSION. A local
+# build takes the nearest git tag for both.
+if [ -z "${VERSION_LABEL:-}" ]; then
+  VERSION_LABEL=$(git describe --tags --abbrev=0 2>/dev/null)
+fi
+VERSION_LABEL="${VERSION_LABEL:-v0.0.0}"
+if [ -z "${VERSION:-}" ]; then
+  VERSION=$(printf '%s' "$VERSION_LABEL" | sed -n 's/^v\([0-9][0-9.]*\).*/\1/p')
+fi
+VERSION="${VERSION:-0.0.0}"
+CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release -DOFX_VERSION_LABEL=$VERSION_LABEL"
 if [ -n "${ARCHS:-}" ] && [ "$(uname)" = Darwin ]; then
   CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_ARCHITECTURES=$ARCHS"
 fi
