@@ -21,4 +21,7 @@ struct RenderState {
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;
+  // Long-edge cap of the preview the worker is currently fed. The UI compares it
+  // against the requested cap to rebuild the preview when "Fit to preview" moves.
+  int builtPreviewMaxEdge = -1;
 };

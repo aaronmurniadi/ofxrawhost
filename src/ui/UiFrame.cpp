@@ -4,6 +4,7 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "platform/SystemFonts.h"
+#include "RenderScheduler.h"
 #include "ui/Themes.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
@@ -90,7 +91,7 @@ static void drawMenuBar(App &app) {
 #endif
       ImGui::EndMenu();
     }
-    if (ImGui::MenuItem("Settings...")) app.gui.showSettings = true;
+    if (ImGui::MenuItem("Settings")) app.gui.showSettings = true;
     if (ImGui::BeginMenu("Theme")) {
       for (int i = 0; i < themeCount(); ++i) {
         if (ImGui::MenuItem(themeName(i), nullptr, app.gui.themeIndex == i)) {
@@ -157,7 +158,7 @@ static void drawExportDialog(App &app) {
   if (exportUsesQuality(format) && !lossless) ImGui::SliderInt("Quality", &app.gui.exportQuality, 1, 100);
 
   ImGui::Separator();
-  if (ImGui::Button("Export...", ImVec2(120, 0))) {
+  if (ImGui::Button("Export", ImVec2(120, 0))) {
     ImGui::CloseCurrentPopup();
     const int idx = static_cast<int>(format);
     auto sel = pfd::save_file("Export", defaultExportName(app), {kExportFilters[idx * 2], kExportFilters[idx * 2 + 1]});
@@ -274,6 +275,24 @@ static void drawSettingsModal(App &app) {
   ImGui::EndPopup();
 }
 
+// "Fit to preview" follows the preview panel size. Wait for the size to settle,
+// so dragging a dock splitter does not queue a rebuild on every frame.
+static void applyFitPreviewSize(App &app) {
+  if (app.gui.previewRes != PreviewRes::Fit || app.doc.full.px.empty()) return;
+  if (previewMaxEdge(app.gui) == app.render.builtPreviewMaxEdge) {
+    app.gui.previewFitSettleTime = 0.0;
+    return;
+  }
+  const double now = ImGui::GetTime();
+  if (app.gui.previewFitSettleTime == 0.0) {
+    app.gui.previewFitSettleTime = now;
+    return;
+  }
+  if (now - app.gui.previewFitSettleTime < 0.25) return;
+  app.gui.previewFitSettleTime = 0.0;
+  rebuildPreview(app);
+}
+
 void drawUiFrame(App &app) {
   if (app.gui.themeApplyPending) {
     applyTheme(app.gui.themeIndex);
@@ -335,6 +354,8 @@ void drawUiFrame(App &app) {
     if (ImGui::Begin(DockLayout::kFilmstrip, &app.gui.showFilmstrip)) drawFilmstripPanel(app);
     ImGui::End();
   }
+
+  applyFitPreviewSize(app);
 
   if (app.gui.showAbout) {
     ImGui::OpenPopup("About");

@@ -32,19 +32,25 @@ inline bool exportSupportsLossless(ExportFormat fmt) {
   return fmt == ExportFormat::WEBP || fmt == ExportFormat::JXL;
 }
 
-enum class PreviewRes { R720p = 0, R1080p, R1440p, Full };
+// The combo shows these in enum order, so the values double as the persisted
+// setting. "Fit to preview" tracks the preview panel size; the fixed entries
+// cap the 16:9 long edge. maxEdge 0 keeps the full resolution, -1 means fit.
+enum class PreviewRes { Fit = 0, R720p, R1080p, R1440p, Full };
 
-// Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
   const char *label;
   int maxEdge;
 } kPreviewRes[] = {
+    {"Fit to preview", -1},
     {"720p", 1280},
     {"1080p", 1920},
     {"1440p", 2560},
     {"Full res", 0},
 };
-inline constexpr int kPreviewResCount = 4;
+inline constexpr int kPreviewResCount = 5;
+
+// Preview long-edge cap used before the panel has reported its size.
+inline constexpr int kFitPreviewFallbackMaxEdge = 1920;
 
 inline ColorSpace outputSpace(int index) {
   index = std::clamp(index, 0, 3);
@@ -83,7 +89,12 @@ struct GuiState {
   int exportBitDepth = 8;
   int exportQuality = 92;
   bool exportLossless = false;
-  PreviewRes previewRes = PreviewRes::R1080p;
+  PreviewRes previewRes = PreviewRes::Fit;
+  // Preview canvas size in framebuffer pixels, republished by the preview panel
+  // every frame. "Fit to preview" renders the preview at this size.
+  int previewAreaW = 0;
+  int previewAreaH = 0;
+  double previewFitSettleTime = 0.0;  // ImGui time when the fit size last changed
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
   bool showAbout = false;
@@ -95,6 +106,17 @@ struct GuiState {
   bool layoutApplyPending = false;
   std::string pendingWorkspaceDir;
 };
+
+// Long-edge cap for the current preview size. "Fit to preview" follows the
+// preview panel size in framebuffer pixels, so 100% zoom maps one image pixel to
+// one screen pixel. The fixed entries are their own cap.
+inline int previewMaxEdge(const GuiState &gui) {
+  const int cap = kPreviewRes[(int)gui.previewRes].maxEdge;
+  if (cap >= 0) return cap;
+  const int edge = std::max(gui.previewAreaW, gui.previewAreaH);
+  if (edge > 0) return edge;
+  return kFitPreviewFallbackMaxEdge;
+}
 
 // Composition root: owns the window and the cohesive state units. Domain modules
 // take the narrow unit they need (DocumentState&, ChainState&, RenderState&,

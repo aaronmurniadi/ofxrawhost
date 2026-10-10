@@ -12,7 +12,7 @@ struct PersistGui {
   int exportBitDepth = 8;
   int exportQuality = 92;
   bool exportLossless = false;
-  int previewRes = 1;
+  int previewRes = 0;
   int themeIndex = 2;
   int uiFontSizePt = 13;
   std::string uiFontFamily;

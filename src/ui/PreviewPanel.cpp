@@ -7,6 +7,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 void drawPreviewPanel(App &app) {
@@ -21,6 +22,12 @@ void drawPreviewPanel(App &app) {
   ImGui::InvisibleButton("##previewCanvas", canvasSize);
   const bool canvasHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
   const bool active = ImGui::IsItemActive();
+
+  // The preview render matches this size in framebuffer pixels, so at 100% zoom
+  // the image maps to the screen one pixel for one pixel.
+  const ImVec2 fbScale = ImGui::GetIO().DisplayFramebufferScale;
+  app.gui.previewAreaW = (int)std::lround(canvasSize.x * fbScale.x);
+  app.gui.previewAreaH = (int)std::lround(canvasSize.y * fbScale.y);
 
   if (!app.tex.id) {
     dl->AddText(ImVec2(canvasPos.x + 8.0f, canvasPos.y + 8.0f), ImGui::GetColorU32(ImGuiCol_Text),

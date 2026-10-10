@@ -14,7 +14,7 @@
 #include <string>
 
 static void drawPluginPicker(App &app) {
-  if (ImGui::Button("Add plugin...", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
+  if (ImGui::Button("Add Plugin", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
