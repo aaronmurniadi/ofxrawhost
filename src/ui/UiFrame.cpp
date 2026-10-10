@@ -110,14 +110,60 @@ static void drawMenuBar(App &app) {
   }
 }
 
+// Save-dialog filters, one pair per ExportFormat value.
+static const char *const kExportFilters[] = {
+    "PNG (8/16-bit)", "*.png",
+    "JPEG",            "*.jpg *.jpeg",
+    "TIFF (8/16-bit)", "*.tif *.tiff",
+    "WebP",            "*.webp",
+    "JPEG XL",         "*.jxl",
+};
+
+// Opens the export dialog; the destination is chosen from inside it.
 void exportImage(App &app) {
   if (!canExport(app)) return;
-  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg", "TIFF (16-bit)", "*.tif *.tiff"};
-  const int fmt = static_cast<int>(app.gui.exportFormat);
-  auto sel = pfd::save_file("Export", defaultExportName(app), {filters[fmt * 2], filters[fmt * 2 + 1]});
-  const std::string outPath = sel.result();
-  if (outPath.empty()) return;
-  doExport(app, outPath);
+  app.gui.showExportDialog = true;
+}
+
+static void drawExportDialog(App &app) {
+  if (app.gui.showExportDialog) {
+    ImGui::OpenPopup("Export");
+    app.gui.showExportDialog = false;
+  }
+  if (!ImGui::BeginPopupModal("Export", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  static const char *const kFormats[kExportFormatCount] = {"PNG", "JPEG", "TIFF", "WebP", "JPEG XL"};
+  int fmt = static_cast<int>(app.gui.exportFormat);
+  if (ImGui::Combo("Format", &fmt, kFormats, kExportFormatCount)) app.gui.exportFormat = static_cast<ExportFormat>(fmt);
+
+  const ExportFormat format = app.gui.exportFormat;
+  if (exportUsesBitDepth(format)) {
+    int depth = 0;
+    if (app.gui.exportBitDepth >= 16) depth = 1;
+    if (ImGui::Combo("Bit depth", &depth, "8-bit\0" "16-bit\0")) {
+      app.gui.exportBitDepth = 8;
+      if (depth == 1) app.gui.exportBitDepth = 16;
+    }
+  }
+
+  bool lossless = false;
+  if (exportSupportsLossless(format)) {
+    ImGui::Checkbox("Lossless", &app.gui.exportLossless);
+    lossless = app.gui.exportLossless;
+  }
+  if (exportUsesQuality(format) && !lossless) ImGui::SliderInt("Quality", &app.gui.exportQuality, 1, 100);
+
+  ImGui::Separator();
+  if (ImGui::Button("Export…", ImVec2(120, 0))) {
+    ImGui::CloseCurrentPopup();
+    const int idx = static_cast<int>(format);
+    auto sel = pfd::save_file("Export", defaultExportName(app), {kExportFilters[idx * 2], kExportFilters[idx * 2 + 1]});
+    const std::string outPath = sel.result();
+    if (!outPath.empty()) doExport(app, outPath);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 void drawUiFrame(App &app) {
@@ -215,4 +261,6 @@ void drawUiFrame(App &app) {
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }
+
+  drawExportDialog(app);
 }

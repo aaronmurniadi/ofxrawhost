@@ -20,7 +20,9 @@ JsonValue makeGuiJson(const PersistGui &g) {
   JsonValue gui = JsonValue::makeObject();
   gui.set("outputIndex", JsonValue::makeInt(g.outputIndex));
   gui.set("exportFormat", JsonValue::makeInt(g.exportFormat));
-  gui.set("jpegQuality", JsonValue::makeInt(g.jpegQuality));
+  gui.set("exportBitDepth", JsonValue::makeInt(g.exportBitDepth));
+  gui.set("exportQuality", JsonValue::makeInt(g.exportQuality));
+  gui.set("exportLossless", JsonValue::makeBool(g.exportLossless));
   gui.set("previewRes", JsonValue::makeInt(g.previewRes));
   gui.set("themeIndex", JsonValue::makeInt(g.themeIndex));
   gui.set("showLeft", JsonValue::makeBool(g.showLeft));

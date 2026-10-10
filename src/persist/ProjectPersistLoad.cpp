@@ -8,7 +8,11 @@
 void loadGui(const JsonValue &gui, PersistGui &g) {
   g.outputIndex = (int)gui.integer("outputIndex", g.outputIndex);
   g.exportFormat = (int)gui.integer("exportFormat", g.exportFormat);
-  g.jpegQuality = (int)gui.integer("jpegQuality", g.jpegQuality);
+  g.exportBitDepth = (int)gui.integer("exportBitDepth", g.exportBitDepth);
+  g.exportQuality = (int)gui.integer("exportQuality", g.exportQuality);
+  // Older sidecars stored the lossy quality under "jpegQuality".
+  if (!gui.find("exportQuality")) g.exportQuality = (int)gui.integer("jpegQuality", g.exportQuality);
+  g.exportLossless = gui.boolean("exportLossless", g.exportLossless);
   g.previewRes = (int)gui.integer("previewRes", g.previewRes);
   g.themeIndex = (int)gui.integer("themeIndex", g.themeIndex);
   g.showLeft = gui.boolean("showLeft", g.showLeft);

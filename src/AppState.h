@@ -17,7 +17,20 @@ struct GLFWwindow;
 inline constexpr const char *kOutputSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
 inline constexpr int kOutputSpaceCount = 4;
 
-enum class ExportFormat { PNG = 0, JPEG = 1, TIFF = 2 };
+enum class ExportFormat { PNG = 0, JPEG = 1, TIFF = 2, WEBP = 3, JXL = 4 };
+inline constexpr int kExportFormatCount = 5;
+
+// Per-format export settings. A format ignores settings it cannot honor, and the
+// export dialog hides them, so both stay in step with these three predicates.
+inline bool exportUsesBitDepth(ExportFormat fmt) {
+  return fmt == ExportFormat::PNG || fmt == ExportFormat::TIFF || fmt == ExportFormat::JXL;
+}
+inline bool exportUsesQuality(ExportFormat fmt) {
+  return fmt == ExportFormat::JPEG || fmt == ExportFormat::WEBP || fmt == ExportFormat::JXL;
+}
+inline bool exportSupportsLossless(ExportFormat fmt) {
+  return fmt == ExportFormat::WEBP || fmt == ExportFormat::JXL;
+}
 
 enum class PreviewRes { R720p = 0, R1080p, R1440p, Full };
 
@@ -65,12 +78,15 @@ struct GuiState {
   float previewPanX = 0.0f;
   float previewPanY = 0.0f;
   ExportFormat exportFormat = ExportFormat::JPEG;
-  int jpegQuality = 92;
+  int exportBitDepth = 8;
+  int exportQuality = 92;
+  bool exportLossless = false;
   PreviewRes previewRes = PreviewRes::R1080p;
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
   bool showAbout = false;
   bool showDonate = false;
+  bool showExportDialog = false;
   bool themeApplyPending = false;
   bool layoutApplyPending = false;
   std::string pendingWorkspaceDir;

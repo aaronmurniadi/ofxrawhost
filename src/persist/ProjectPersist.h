@@ -9,7 +9,9 @@ enum class ColorSpace;
 struct PersistGui {
   int outputIndex = 0;
   int exportFormat = 1;
-  int jpegQuality = 92;
+  int exportBitDepth = 8;
+  int exportQuality = 92;
+  bool exportLossless = false;
   int previewRes = 1;
   int themeIndex = 2;
   bool showLeft = true;

@@ -252,13 +252,21 @@ static int testEveryPlugin(Image &src) {
     }
     if (!finite || !touched) return fail(("output: " + pe.label).c_str());
     const fs::path dir = fs::temp_directory_path();
-    bool written = true;
-    for (const char *ext : {"png", "jpg"}) {
-      const fs::path p = dir / ("ofxrawhost-selftest." + std::string(ext));
-      written &= writeImage(out, p.string());
+    struct ExportCase {
+      const char *ext;
+      EncodeOptions opts;
+    };
+    static const ExportCase cases[] = {
+        {"png", {8, 92, false}},  {"png", {16, 92, false}}, {"jpg", {8, 92, false}},
+        {"tif", {8, 92, false}},  {"tif", {16, 92, false}}, {"webp", {8, 92, false}},
+        {"webp", {8, 92, true}},  {"jxl", {8, 92, false}},  {"jxl", {16, 92, false}},
+        {"jxl", {16, 92, true}},
+    };
+    for (const ExportCase &c : cases) {
+      const fs::path p = dir / ("ofxrawhost-selftest." + std::string(c.ext));
+      if (!writeImage(out, p.string(), ColorSpace::sRGB, c.opts)) return fail(("export: " + std::string(c.ext)).c_str());
       fs::remove(p);
     }
-    if (!written) return fail("export");
     printf("ok  %s\n", pe.label.c_str());
   }
   return 0;

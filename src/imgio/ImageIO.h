@@ -40,8 +40,18 @@ bool isSupportedImageExtension(const std::string &extLower);
 std::vector<std::string> supportedImageExtensions();
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
-// Format from path extension; PNG/JPEG embed ICC.
-bool writeImage(const Image &img, const std::string &path, ColorSpace space = ColorSpace::sRGB, int jpegQuality = 92);
+// Encoding settings for the raster export formats. Formats ignore what they cannot
+// use: PNG and TIFF honor bitDepth, JPEG ignores it (always 8-bit), and WebP is
+// always 8-bit. quality applies to JPEG, WebP, and JPEG XL; lossless applies to
+// WebP and JPEG XL only.
+struct EncodeOptions {
+  int bitDepth = 8;      // 8 or 16
+  int quality = 92;      // 1..100 (lossy formats)
+  bool lossless = false; // WebP / JPEG XL
+};
+
+// Format from path extension; PNG/JPEG/TIFF/WebP/JPEG XL embed ICC.
+bool writeImage(const Image &img, const std::string &path, ColorSpace space = ColorSpace::sRGB, EncodeOptions opts = {});
 // Top-down 8-bit RGBA for display (lcms2 transform into sRGB).
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out);
 // Small filmstrip preview (downscaled source, sRGB 8-bit RGBA).

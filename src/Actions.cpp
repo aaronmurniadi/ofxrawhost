@@ -80,6 +80,10 @@ static const char *exportExtension(ExportFormat fmt) {
       return ".png";
     case ExportFormat::TIFF:
       return ".tif";
+    case ExportFormat::WEBP:
+      return ".webp";
+    case ExportFormat::JXL:
+      return ".jxl";
     default:
       return ".jpg";
   }
@@ -122,12 +126,15 @@ void doExport(App &app, const std::string &path) {
   Image src = app.doc.full;
   const ColorSpace space = app.outputTag;
   const ColorSpace inSpace = app.doc.inputSpace;
-  const int jpegQuality = app.gui.jpegQuality;
+  EncodeOptions opts;
+  opts.bitDepth = app.gui.exportBitDepth;
+  opts.quality = app.gui.exportQuality;
+  opts.lossless = app.gui.exportLossless;
   const PersistGui persistGui = captureGui(app);
   const PersistChain persistChain = captureChain(app);
   const std::string sourcePath = app.doc.path;
   app.render.exportThread =
-      std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace]() mutable {
+      std::thread([&, src, outPath, pw, ph, space, opts, persistGui, persistChain, sourcePath, inSpace]() mutable {
         RenderSchedule::Guard busy(&app.render.schedule, true);
         for (auto &n : app.chain.nodes)
           if (n.instance) n.instance->setInputSize(src.w, src.h);
@@ -136,7 +143,7 @@ void doExport(App &app, const std::string &path) {
         OfxStatus st = renderer.render(app.chain, gPlugins, src, out, 0);
         for (auto &n : app.chain.nodes)
           if (n.instance) n.instance->setInputSize(pw, ph);
-        bool ok = st == kOfxStatOK && writeImage(out, outPath, space, jpegQuality);
+        bool ok = st == kOfxStatOK && writeImage(out, outPath, space, opts);
         if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
         app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
                                 std::to_string(src.h) + ")"
