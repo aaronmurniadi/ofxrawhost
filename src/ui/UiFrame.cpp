@@ -166,7 +166,7 @@ static void drawExportDialog(App &app) {
   if (exportUsesQuality(format) && !lossless) ImGui::SliderInt("Quality", &app.gui.exportQuality, 1, 100);
 
   ImGui::Separator();
-  if (ImGui::Button("Export…", ImVec2(120, 0))) {
+  if (ImGui::Button("Export...", ImVec2(120, 0))) {
     ImGui::CloseCurrentPopup();
     const int idx = static_cast<int>(format);
     auto sel = pfd::save_file("Export", defaultExportName(app), {kExportFilters[idx * 2], kExportFilters[idx * 2 + 1]});

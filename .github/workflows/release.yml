@@ -133,6 +133,17 @@ jobs:
             echo "::error::the AppImage cannot load the icon font"
             exit 1
           fi
+          # The legacy path covers a machine without an OpenGL 3.3 driver, such as
+          # a virtual machine or a remote desktop session.
+          set +e
+          LEGACY=$(OFX_HOST_LEGACY_GL=1 APPIMAGE_EXTRACT_AND_RUN=1 timeout 20 xvfb-run -a "$APP" 2>&1)
+          LEGACY_RC=$?
+          set -e
+          printf '%s\n' "$LEGACY" | tail -3
+          if [ "$LEGACY_RC" != 124 ]; then
+            echo "::error::the legacy OpenGL path exited with code $LEGACY_RC instead of running"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-Linux-x86_64

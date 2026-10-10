@@ -18,18 +18,19 @@ static bool streamNeedsConsole(DWORD which) {
   return GetConsoleWindow() == nullptr;
 }
 
-void attachParentConsole() {
+bool attachParentConsole() {
   const bool needOut = streamNeedsConsole(STD_OUTPUT_HANDLE);
   const bool needErr = streamNeedsConsole(STD_ERROR_HANDLE);
-  if (!needOut && !needErr) return;
+  if (!needOut && !needErr) return true;
   // A launch from Explorer has no parent console, and then there is nothing to
   // print to.
-  if (!AttachConsole(ATTACH_PARENT_PROCESS)) return;
+  if (!AttachConsole(ATTACH_PARENT_PROCESS)) return false;
   FILE *stream = nullptr;
   if (needOut) freopen_s(&stream, "CONOUT$", "w", stdout);
   if (needErr) freopen_s(&stream, "CONOUT$", "w", stderr);
   SetConsoleOutputCP(CP_UTF8);
+  return true;
 }
 #else
-void attachParentConsole() {}
+bool attachParentConsole() { return true; }
 #endif

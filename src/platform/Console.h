@@ -7,4 +7,7 @@
 //
 // Redirected streams are left untouched, and a launch without a parent console
 // stays silent. Does nothing on other platforms.
-void attachParentConsole();
+//
+// Returns true when the caller's output has a destination, which is also true for
+// a redirected stream, and false when there is nowhere to print.
+bool attachParentConsole();

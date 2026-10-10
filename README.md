@@ -77,6 +77,11 @@ libraries, the icon font, and the Transform plugin are all inside it, so there i
 to unpack and nothing to install, and it opens no console window. Windows may warn about
 an unknown publisher because the executable is not code-signed.
 
+The host needs an OpenGL 3.3 driver. On a machine without one, such as a virtual machine
+or a remote desktop session with the generic display driver, it falls back to legacy
+OpenGL rendering so the window still opens. When the window cannot start at all, a message
+box explains why.
+
 Run `OfxRawHost-Windows-x64.exe --selftest` from a command prompt to check the installation,
 or to see the plugin load warnings. The console output appears in the terminal that starts it.
 
@@ -90,8 +95,9 @@ chmod +x OfxRawHost-Linux-x86_64.AppImage
 ```
 
 The AppImage carries the host, the bundled Transform plugin, and the libraries it needs.
-It needs OpenGL 3.2 or newer. The file dialogs use `zenity` or `kdialog`, so install one of
-them if the Open and Export dialogs do not appear:
+It prefers OpenGL 3.3 and falls back to legacy OpenGL rendering when the driver offers
+neither. The file dialogs use `zenity` or `kdialog`, so install one of them if the Open and
+Export dialogs do not appear:
 
 ```sh
 sudo apt install zenity
@@ -160,7 +166,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
   -DVCPKG_OVERLAY_TRIPLETS=packaging/vcpkg-triplets ^
   -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
-  -DOFX_VERSION=0.4.1
+  -DOFX_VERSION=0.4.2
 cmake --build build --config Release
 ```
 
@@ -230,6 +236,7 @@ build/OfxRawHost --selftest
 | Refactor: Document / Chain / GuiState; scheduler + chain renderer   | Done (v0.3.17) |
 | Packaged macOS, Linux, and single-file Windows releases                 | Done (v0.4.0)  |
 | Release pipeline: cached, release-only dependency builds                | Done (v0.4.1)  |
+| Windows: message box on a start-up failure, legacy OpenGL fallback      | Done (v0.4.2)  |
 
 ---
 

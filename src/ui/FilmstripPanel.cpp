@@ -66,10 +66,14 @@ void drawFilmstripPanel(App &app) {
       ImGui::PushID(i);
       const bool selected = i == app.filmstrip.index;
       if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
-      if (e.tex.id)
+      if (e.tex.id) {
         ImGui::ImageButton("##t", (ImTextureID)(intptr_t)e.tex.id, btnSize);
-      else
-        ImGui::Button(e.thumbFailed ? "?" : "…", btnSize);
+      } else if (e.thumbFailed) {
+        ImGui::Button("?", btnSize);
+      } else {
+        // A thumbnail that has not arrived yet draws as a button with dots.
+        ImGui::Button("...", btnSize);
+      }
       if (ImGui::IsItemVisible()) requestFilmstripThumb(app.filmstrip, i, selected);
       if (selected) ImGui::PopStyleColor();
       if (ImGui::IsItemClicked()) openPath(app, e.path);

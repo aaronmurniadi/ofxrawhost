@@ -2,9 +2,11 @@
 
 #include "UI.h"
 #include "platform/Console.h"
+#include "platform/Report.h"
 #include "selftest/Selftest.h"
 
 #include <cstring>
+#include <exception>
 #include <string>
 
 int main(int argc, char **argv) {
@@ -13,5 +15,10 @@ int main(int argc, char **argv) {
   attachParentConsole();
   if (argc > 1 && !strcmp(argv[1], "--selftest")) return runSelfTest();
   const std::string path = (argc > 1 && argv[1][0] != '-') ? argv[1] : "";
-  return runApp(path);
+  try {
+    return runApp(path);
+  } catch (const std::exception &e) {
+    reportFatalError(std::string("OFX Raw Host stopped with an error: ") + e.what());
+    return 1;
+  }
 }

@@ -14,11 +14,11 @@
 #include <string>
 
 static void drawPluginPicker(App &app) {
-  if (ImGui::Button("Add plugin…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
+  if (ImGui::Button("Add plugin...", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##pluginFilter", "Search…", app.gui.pluginFilter, sizeof app.gui.pluginFilter);
+    ImGui::InputTextWithHint("##pluginFilter", "Search...", app.gui.pluginFilter, sizeof app.gui.pluginFilter);
     ImGui::Separator();
     if (gPlugins.empty()) {
       ImGui::TextDisabled("No plugins found");

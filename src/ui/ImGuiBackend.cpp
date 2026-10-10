@@ -7,6 +7,7 @@
 #include "IconsFontAwesome6.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl2.h"
 #include "imgui_impl_opengl3.h"
 
 #include <GLFW/glfw3.h>
@@ -23,6 +24,10 @@
 namespace fs = std::filesystem;
 
 static std::string gIniPath = "ofxrawhost.ini";
+
+// True when the window holds a context without OpenGL 3.3, which the OpenGL2
+// backend draws instead. ImGuiBackend_Init sets it.
+static bool gLegacyGl = false;
 
 static ImFont *addSystemSansFont(ImFontAtlas *fonts, ImFontConfig *cfg) {
 #if defined(__APPLE__)
@@ -152,11 +157,17 @@ static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
 void ImGuiBackend_SetUIFontSize(GLFWwindow *window, float uiFontSizePt) {
   if (!ImGui::GetCurrentContext() || !window) return;
   loadUiFonts(window, uiFontSizePt);
+  if (gLegacyGl) {
+    ImGui_ImplOpenGL2_DestroyFontsTexture();
+    ImGui_ImplOpenGL2_CreateFontsTexture();
+    return;
+  }
   ImGui_ImplOpenGL3_DestroyFontsTexture();
   ImGui_ImplOpenGL3_CreateFontsTexture();
 }
 
-void ImGuiBackend_Init(GLFWwindow *window, int themeIndex, float uiFontSizePt) {
+void ImGuiBackend_Init(GLFWwindow *window, bool legacyGl, int themeIndex, float uiFontSizePt) {
+  gLegacyGl = legacyGl;
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
@@ -166,6 +177,10 @@ void ImGuiBackend_Init(GLFWwindow *window, int themeIndex, float uiFontSizePt) {
   loadUiFonts(window, uiFontSizePt);
   applyTheme(themeIndex);
   ImGui_ImplGlfw_InitForOpenGL(window, true);
+  if (gLegacyGl) {
+    ImGui_ImplOpenGL2_Init();
+    return;
+  }
 #if defined(__APPLE__)
   ImGui_ImplOpenGL3_Init("#version 150");
 #else
@@ -174,18 +189,30 @@ void ImGuiBackend_Init(GLFWwindow *window, int themeIndex, float uiFontSizePt) {
 }
 
 void ImGuiBackend_NewFrame() {
-  ImGui_ImplOpenGL3_NewFrame();
+  if (gLegacyGl) {
+    ImGui_ImplOpenGL2_NewFrame();
+  } else {
+    ImGui_ImplOpenGL3_NewFrame();
+  }
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame();
 }
 
 void ImGuiBackend_Render() {
   ImGui::Render();
+  if (gLegacyGl) {
+    ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+    return;
+  }
   ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 void ImGuiBackend_Shutdown() {
-  ImGui_ImplOpenGL3_Shutdown();
+  if (gLegacyGl) {
+    ImGui_ImplOpenGL2_Shutdown();
+  } else {
+    ImGui_ImplOpenGL3_Shutdown();
+  }
   ImGui_ImplGlfw_Shutdown();
   ImGui::DestroyContext();
 }
