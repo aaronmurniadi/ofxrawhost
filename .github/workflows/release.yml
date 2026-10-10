@@ -107,7 +107,32 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION=0.0.0; fi
           VERSION="$VERSION" APPIMAGETOOL=/tmp/appimagetool packaging/linux/build-appimage.sh
           test -x build/AppImage/OfxRawHost-Linux-x86_64.AppImage
-          ldd build/AppImage/OfxRawHost.AppDir/usr/bin/OfxRawHost || true
+      - name: Smoke-test the AppImage
+        run: |
+          set -e
+          APP=build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+          # The icon font must sit next to the binary for the shipped build to
+          # resolve it outside the build tree.
+          test -f build/AppImage/OfxRawHost.AppDir/usr/bin/fa-solid-900.ttf
+          OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$APP" --selftest 2>&1)
+          printf '%s\n' "$OUT" | tail -3
+          printf '%s\n' "$OUT" | grep -q "ok  Transform"
+          # Start the interface and stop it again: this loads the bundled
+          # libraries, opens a GL context, and reports a missing icon font.
+          # Exit code 124 means the timeout stopped a running application.
+          set +e
+          RUN=$(APPIMAGE_EXTRACT_AND_RUN=1 timeout 20 xvfb-run -a "$APP" 2>&1)
+          RC=$?
+          set -e
+          printf '%s\n' "$RUN" | tail -3
+          if [ "$RC" != 124 ]; then
+            echo "::error::the interface exited with code $RC instead of running"
+            exit 1
+          fi
+          if printf '%s\n' "$RUN" | grep -q "could not load Font Awesome"; then
+            echo "::error::the AppImage cannot load the icon font"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-Linux-x86_64
@@ -119,17 +144,19 @@ jobs:
     env:
       VCPKG_DEFAULT_TRIPLET: x64-windows
       VCPKG_DEFAULT_HOST_TRIPLET: x64-windows
-      VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
+      # vcpkg dropped its x-gha backend, so cache the built packages as files and
+      # let actions/cache store the directory.
+      VCPKG_BINARY_SOURCES: clear;files,C:/vcpkg-cache,readwrite
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Export the GitHub Actions cache for vcpkg
-        uses: actions/github-script@v7
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
         with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+          path: C:\vcpkg-cache
+          key: vcpkg-${{ runner.os }}-x64-windows-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-x64-windows-
       - name: Install vcpkg
         shell: cmd
         run: |
@@ -144,10 +171,6 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=x64-windows ^
             -DVCPKG_APPLOCAL_DEPS=ON
           cmake --build build --config Release --parallel
-      - name: Self-test
-        continue-on-error: true
-        run: |
-          ./build/Release/OfxRawHost.exe --selftest
       - name: Package zip
         shell: pwsh
         run: |
@@ -159,9 +182,12 @@ jobs:
           # bundled OFX plugin bundle in <exe dir>/Plugins.
           Copy-Item build/Release/fa-solid-900.ttf $dist
           Copy-Item -Recurse build/Plugins $dist/Plugins
+          # vcpkg app-local deployment places the dependency DLLs next to the
+          # binary; ship them so the zip runs on a machine without vcpkg.
+          Copy-Item build/Release/*.dll $dist
           Copy-Item README.md, LICENSE $dist
-          # vcpkg app-local deployment copies the dependency DLLs; add the MSVC
-          # runtime so the zip runs on a machine without the VC++ redistributable.
+          # Add the MSVC runtime so the zip runs on a machine without the VC++
+          # redistributable installed.
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           if (Test-Path $vswhere) {
             $vs = & $vswhere -latest -products * -property installationPath
@@ -174,6 +200,21 @@ jobs:
           }
           Get-ChildItem $dist -Recurse | Select-Object -ExpandProperty Name
           Compress-Archive -Path "$dist/*" -DestinationPath 'build/OfxRawHost-Windows-x64.zip'
+      - name: Smoke-test the zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tmp = 'build/smoketest'
+          Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+          Expand-Archive -Path 'build/OfxRawHost-Windows-x64.zip' -DestinationPath $tmp
+          if (-not (Test-Path "$tmp\fa-solid-900.ttf")) { throw 'the zip is missing the icon font' }
+          if (-not (Test-Path "$tmp\Plugins\OfxRawHost.ofx.bundle")) { throw 'the zip is missing the Transform plugin bundle' }
+          # Runs every plugin on a small image, so it fails when a shipped DLL is
+          # missing or the bundled plugin cannot be loaded.
+          $out = & "$tmp\OfxRawHost.exe" --selftest 2>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw "selftest exited with $LASTEXITCODE" }
+          if ($out -notmatch 'ok  Transform') { throw 'the zip does not load the bundled Transform plugin' }
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-Windows-x64
