@@ -97,6 +97,10 @@ struct GuiState {
   double previewFitSettleTime = 0.0;  // ImGui time when the fit size last changed
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
+  // Node index the parameter tab bar selected last frame. The tab bar pushes
+  // SetSelected only when the node list or the graph changed the selection, so
+  // a tab click and the node list do not fight over the visible tab.
+  int paramTabSync = -1;
   bool showAbout = false;
   bool showDonate = false;
   bool showExportDialog = false;

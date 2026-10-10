@@ -63,6 +63,7 @@ static bool drawPresetImport(App &app, Node &node) {
 void drawRightPanel(App &app) {
   if (app.chain.nodes.empty()) {
     ImGui::TextDisabled("Add a plugin to edit parameters.");
+    app.gui.paramTabSync = -1;
     return;
   }
 
@@ -71,19 +72,27 @@ void drawRightPanel(App &app) {
   drawParamSearch(app);
   ImGui::Separator();
 
+  // ImGui applies ImGuiTabItemFlags_SetSelected on the next frame. Pushing it
+  // every frame for the selected node fights a tab click and makes the visible
+  // tab alternate between the clicked tab and the selected one. Push the flag
+  // only when the node list or the graph changed the selection, and let the tab
+  // bar drive the selection otherwise.
+  const int selected = app.chain.selectedNode;
+  const bool selectionFromOutside = (app.gui.paramTabSync != selected);
   if (ImGui::BeginTabBar("##paramNodeTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
     for (int i = 0; i < (int)app.chain.nodes.size(); ++i) {
       const Node &node = app.chain.nodes[i];
       const std::string tabLabel = gPlugins[node.pluginIndex].label + "##tab" + std::to_string(i);
       ImGuiTabItemFlags tabFlags = 0;
-      if (app.chain.selectedNode == i) tabFlags |= ImGuiTabItemFlags_SetSelected;
+      if (selectionFromOutside && selected == i) tabFlags |= ImGuiTabItemFlags_SetSelected;
       if (ImGui::BeginTabItem(tabLabel.c_str(), nullptr, tabFlags)) {
-        app.chain.selectedNode = i;
+        if (!selectionFromOutside) app.chain.selectedNode = i;
         ImGui::EndTabItem();
       }
     }
     ImGui::EndTabBar();
   }
+  app.gui.paramTabSync = app.chain.selectedNode;
 
   ImGui::Separator();
   Node *node = selectedNode(app);
