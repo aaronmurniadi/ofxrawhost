@@ -1,0 +1,9 @@
+#!/bin/sh
+# AppImage entry point: locate the payload, add the bundled libraries and the
+# bundled OFX plugin directory, then start the host.
+HERE=$(dirname "$(readlink -f "$0")")
+
+export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export OFX_PLUGIN_PATH="$HERE/usr/bin/Plugins:$HERE/usr/share/ofx/plugins${OFX_PLUGIN_PATH:+:$OFX_PLUGIN_PATH}"
+
+exec "$HERE/usr/bin/OfxRawHost" "$@"

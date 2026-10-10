@@ -116,6 +116,7 @@ endif()
 add_executable(OfxRawHost
   src/main.cpp
   src/selftest/Selftest.cpp
+  src/platform/Paths.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
   src/imgio/ImageLoad.cpp
@@ -191,6 +192,13 @@ target_compile_definitions(OfxRawHost PRIVATE
   "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
   GL_SILENCE_DEPRECATION
 )
+
+# MSVC: keep windows.h from defining min/max macros (the code uses std::min/max),
+# and read the UTF-8 sources and string literals as UTF-8.
+if(MSVC)
+  target_compile_definitions(OfxRawHost PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+  target_compile_options(OfxRawHost PRIVATE /utf-8)
+endif()
 
 add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different

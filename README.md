@@ -52,9 +52,11 @@ the output dimensions directly to the host.
 
 ---
 
-## Install (macOS)
+## Install
 
-Download the DMG for your Mac from [Releases](https://github.com/aaronmurniadi/ofxrawhost/releases/latest):
+Download the package for your system from [Releases](https://github.com/aaronmurniadi/ofxrawhost/releases/latest).
+
+### macOS
 
 - **Apple Silicon (M1 and later):** `OfxRawHost-macOS-arm64.dmg`
 - **Intel:** `OfxRawHost-macOS-x86_64.dmg`
@@ -64,6 +66,29 @@ The app is ad-hoc signed, so on first launch right-click it and choose **Open**,
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
+```
+
+### Windows
+
+Download `OfxRawHost-Windows-x64.zip` and unpack it anywhere.
+Run `OfxRawHost.exe` from the unpacked folder: the archive holds the executable, the icon
+font, the bundled Transform plugin, and the library DLLs. Keep the folder together.
+
+### Linux
+
+Download `OfxRawHost-Linux-x86_64.AppImage`, then make it executable and run it:
+
+```sh
+chmod +x OfxRawHost-Linux-x86_64.AppImage
+./OfxRawHost-Linux-x86_64.AppImage
+```
+
+The AppImage carries the host, the bundled Transform plugin, and the libraries it needs.
+It needs OpenGL 3.2 or newer. The file dialogs use `zenity` or `kdialog`, so install one of
+them if the Open and Export dialogs do not appear:
+
+```sh
+sudo apt install zenity
 ```
 
 ---
@@ -100,20 +125,32 @@ Restart OFX Raw Host after installing plugins. If none are found, the status bar
 ## Build
 
 Requires CMake 3.16+, a C++17 compiler, [LibRaw](https://www.libraw.org/),
-[libtiff](https://libtiff.gitlab.io/libtiff/), and
-[Little CMS 2](https://www.littlecms.com/).
+[libtiff](https://libtiff.gitlab.io/libtiff/), [Little CMS 2](https://www.littlecms.com/),
+[libwebp](https://developers.google.com/speed/webp), and [JPEG XL](https://libjxl.readthedocs.io/).
 GLFW and Dear ImGui are fetched automatically by CMake.
 
 ```sh
 # macOS
-brew install cmake libraw libtiff little-cms2
+brew install cmake libraw libtiff little-cms2 webp jpeg-xl
 
 # Debian/Ubuntu
-sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libgl1-mesa-dev xorg-dev
+sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libwebp-dev \
+  libjxl-dev zlib1g-dev libgl1-mesa-dev xorg-dev
+
+# Windows: install the dependencies with vcpkg (see vcpkg.json)
+vcpkg install --triplet x64-windows
 
 git clone --recursive https://github.com/aaronmurniadi/ofxrawhost.git
 cd ofxrawhost
 ./build.sh
+```
+
+On Windows, configure CMake with the vcpkg toolchain:
+
+```cmd
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
+  -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build build --config Release
 ```
 
 On macOS this produces `build/OfxRawHost.app`. Elsewhere, `build/OfxRawHost`.
@@ -178,7 +215,7 @@ build/OfxRawHost --selftest
 | UI: Dock splits Plugins and Parameters; preview without tab bar     | Done (v0.3.17) |
 | UI: System sans font and adjustable UI font size (Settings)         | Done (v0.3.17) |
 | Refactor: Document / Chain / GuiState; scheduler + chain renderer   | Done (v0.3.17) |
-| Packaged Windows and Linux releases                                 | Planned        |
+| Packaged macOS, Windows, and Linux releases                           | Done (v0.3.18) |
 
 ---
 

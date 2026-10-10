@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=OFX Raw Host
+GenericName=OpenFX still-image host
+Comment=Open a RAW or raster photo, run OFX filter plugins, and export
+Exec=OfxRawHost %f
+TryExec=OfxRawHost
+Icon=ofxrawhost
+Categories=Graphics;Photography;
+Keywords=OFX;RAW;photo;plugin;filter;
+Terminal=false
+StartupNotify=true
+StartupWMClass=OfxRawHost
+MimeType=image/x-dcraw;image/tiff;image/png;image/jpeg;image/webp;image/jxl;image/x-exr;

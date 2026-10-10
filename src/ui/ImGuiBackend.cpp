@@ -1,5 +1,6 @@
 #include "ui/ImGuiBackend.h"
 
+#include "platform/Paths.h"
 #include "ui/Themes.h"
 
 #include "IconsFontAwesome6.h"
@@ -14,6 +15,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -110,15 +112,19 @@ static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
     iconsCfg.OversampleH = 2;
     iconsCfg.OversampleV = 2;
     static const ImWchar iconRanges[] = {0xf00d, 0xf00d, 0xf062, 0xf063, 0xf06e, 0xf06e, 0xf070, 0xf070, 0};
-    const char *cands[] = {
+    // Packaged builds keep the icon font next to the executable (Linux archive,
+    // AppImage, Windows zip, macOS Contents/Resources).
+    const fs::path exe = exeDir();
+    const std::vector<std::string> cands = {
         OFX_ICON_FONT_PATH,
+        (exe / "fa-solid-900.ttf").string(),
+        (exe / ".." / "Resources" / "fa-solid-900.ttf").string(),
         "fa-solid-900.ttf",
-        "../Resources/fa-solid-900.ttf",
     };
     bool loaded = false;
-    for (const char *path : cands) {
-      if (!path || !path[0] || !fs::exists(path)) continue;
-      if (io.Fonts->AddFontFromFileTTF(path, fontCfg.SizePixels, &iconsCfg, iconRanges)) {
+    for (const std::string &path : cands) {
+      if (path.empty() || !fs::exists(path)) continue;
+      if (io.Fonts->AddFontFromFileTTF(path.c_str(), fontCfg.SizePixels, &iconsCfg, iconRanges)) {
         loaded = true;
         break;
       }
