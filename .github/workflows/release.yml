@@ -26,7 +26,7 @@ jobs:
         with:
           submodules: true
       - name: Install dependencies
-        run: brew install cmake libraw libtiff little-cms2
+        run: brew install cmake libraw libtiff little-cms2 webp jpeg-xl
       - name: Build and package DMG
         run: |
           rm -rf build
@@ -54,9 +54,36 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config file wget xvfb \
-            libraw-dev libtiff-dev liblcms2-dev libwebp-dev libjxl-dev zlib1g-dev \
+            build-essential cmake ninja-build pkg-config git file wget xvfb \
+            libraw-dev libtiff-dev liblcms2-dev libwebp-dev zlib1g-dev libpng-dev \
             libgl1-mesa-dev libgl1-mesa-dri xorg-dev
+      # Ubuntu 22.04 has no libjxl package (JPEG XL arrives in 24.04), so build
+      # it here and keep the older glibc baseline of this runner.
+      - name: Build JPEG XL
+        run: |
+          git clone --depth 1 --branch v0.11.1 --recurse-submodules --shallow-submodules \
+            https://github.com/libjxl/libjxl.git /tmp/libjxl
+          cmake -S /tmp/libjxl -B /tmp/libjxl-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DBUILD_TESTING=OFF \
+            -DJPEGXL_ENABLE_BENCHMARK=OFF \
+            -DJPEGXL_ENABLE_DEVTOOLS=OFF \
+            -DJPEGXL_ENABLE_DOXYGEN=OFF \
+            -DJPEGXL_ENABLE_EXAMPLES=OFF \
+            -DJPEGXL_ENABLE_FUZZERS=OFF \
+            -DJPEGXL_ENABLE_JNI=OFF \
+            -DJPEGXL_ENABLE_MANPAGES=OFF \
+            -DJPEGXL_ENABLE_PLUGINS=OFF \
+            -DJPEGXL_ENABLE_SKCMS=OFF \
+            -DJPEGXL_ENABLE_TOOLS=OFF \
+            -DJPEGXL_ENABLE_VIEWERS=OFF \
+            -DJPEGXL_FORCE_SYSTEM_HWY=OFF \
+            -DJPEGXL_FORCE_SYSTEM_BROTLI=OFF
+          cmake --build /tmp/libjxl-build --parallel "$(nproc)"
+          sudo cmake --install /tmp/libjxl-build
+          sudo ldconfig
+          pkg-config --modversion libjxl libjxl_threads
       - name: Configure and build
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -78,7 +105,7 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION=0.0.0; fi
           VERSION="$VERSION" APPIMAGETOOL=/tmp/appimagetool packaging/linux/build-appimage.sh
           test -x build/AppImage/OfxRawHost-Linux-x86_64.AppImage
-          ldd build/AppImage/OfxRawHost.AppDir/usr/bin/OfxRawHost >/dev/null || true
+          ldd build/AppImage/OfxRawHost.AppDir/usr/bin/OfxRawHost || true
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-Linux-x86_64

@@ -5,6 +5,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# MSVC: keep windows.h from defining min/max macros (the code calls std::min and
+# std::max), and read the UTF-8 sources and string literals as UTF-8.
+if(MSVC)
+  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+  add_compile_options(/utf-8)
+endif()
+
 include(FetchContent)
 
 # --- GLFW ---
@@ -192,13 +199,6 @@ target_compile_definitions(OfxRawHost PRIVATE
   "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
   GL_SILENCE_DEPRECATION
 )
-
-# MSVC: keep windows.h from defining min/max macros (the code uses std::min/max),
-# and read the UTF-8 sources and string literals as UTF-8.
-if(MSVC)
-  target_compile_definitions(OfxRawHost PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
-  target_compile_options(OfxRawHost PRIVATE /utf-8)
-endif()
 
 add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
