@@ -92,7 +92,12 @@ static const char *exportExtension(ExportFormat fmt) {
 bool canExport(const App &app) { return !app.doc.full.px.empty() && !app.chain.nodes.empty(); }
 
 std::string defaultExportName(const App &app) {
-  return fs::path(app.doc.path).stem().string() + exportExtension(app.gui.exportFormat);
+  // Keep the source name so exports land beside it, but add a suffix so the
+  // default never overwrites the original image.
+  std::string stem = fs::path(app.doc.path).stem().string();
+  if (stem.empty()) stem = "export";
+  else stem += "_export";
+  return stem + exportExtension(app.gui.exportFormat);
 }
 
 void setOutputTag(App &app, int index) {
