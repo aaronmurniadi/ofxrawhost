@@ -74,8 +74,11 @@ xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
 
 Download `OfxRawHost-Windows-x64.exe` and run it. It is one self-contained file: the
 libraries, the icon font, and the Transform plugin are all inside it, so there is nothing
-to unpack and nothing to install. Windows may warn about an unknown publisher because the
-executable is not code-signed.
+to unpack and nothing to install, and it opens no console window. Windows may warn about
+an unknown publisher because the executable is not code-signed.
+
+Run `OfxRawHost-Windows-x64.exe --selftest` from a command prompt to check the installation,
+or to see the plugin load warnings. The console output appears in the terminal that starts it.
 
 ### Linux
 

@@ -12,18 +12,30 @@
 
 #include <GLFW/glfw3.h>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 #include <cmath>
 #include <cstdlib>
+#include <string>
 
 static void openUrl(const std::string &url) {
 #if defined(_WIN32)
-  std::string cmd = "start \"\" \"" + url + "\"";
+  // ShellExecute opens the default browser without a console window, which
+  // system("start ...") would create for a GUI build.
+  const std::wstring wide(url.begin(), url.end());
+  ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 #elif defined(__APPLE__)
-  std::string cmd = "open \"" + url + "\"";
-#else
-  std::string cmd = "xdg-open \"" + url + "\"";
-#endif
+  const std::string cmd = "open \"" + url + "\"";
   std::system(cmd.c_str());
+#else
+  const std::string cmd = "xdg-open \"" + url + "\"";
+  std::system(cmd.c_str());
+#endif
 }
 
 static void drawMenuBar(App &app) {

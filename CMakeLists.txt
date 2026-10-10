@@ -128,6 +128,7 @@ endif()
 add_executable(OfxRawHost
   src/main.cpp
   src/selftest/Selftest.cpp
+  src/platform/Console.cpp
   src/platform/EmbeddedResource.cpp
   src/platform/Paths.cpp
   src/ofx/OfxSuites.cpp
@@ -333,6 +334,10 @@ if(WIN32)
   target_sources(OfxRawHost PRIVATE plugins/Transform.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
   target_link_libraries(OfxRawHost PRIVATE OfxSupport)
   target_compile_definitions(OfxRawHost PRIVATE OFX_EMBEDDED_PLUGIN)
+  # Release build opens no console window. The host keeps main(), so name the CRT
+  # entry point explicitly instead of adding a WinMain wrapper.
+  set_target_properties(OfxRawHost PROPERTIES WIN32_EXECUTABLE TRUE)
+  target_link_options(OfxRawHost PRIVATE /ENTRY:mainCRTStartup)
 else()
   # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
   # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).

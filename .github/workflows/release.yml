@@ -191,15 +191,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $exe = 'build/OfxRawHost-Windows-x64.exe'
           # One file: the icon font and the Transform effect must live inside it,
-          # and the C runtime must not be a DLL the user has to install.
+          # the C runtime must not be a DLL the user has to install, and the
+          # executable must not open a console window.
           $image = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe))
           if ($image -notmatch 'Font Awesome') { throw 'the icon font is not embedded in the executable' }
           $dumpbin = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -Last 1
           if ($dumpbin) {
             $imports = & $dumpbin.FullName /dependents $exe | Out-String
             if ($imports -match 'MSVCP140|VCRUNTIME140') { throw "the executable still imports the MSVC runtime:`n$imports" }
+            $headers = & $dumpbin.FullName /headers $exe | Out-String
+            $subsystem = ($headers -split "`n" | Select-String 'subsystem' | Select-Object -First 1).Line
+            Write-Host "subsystem:$subsystem"
+            if ($headers -notmatch 'subsystem \(Windows GUI\)') { throw 'the executable still uses the console subsystem' }
           } else {
-            Write-Host '::warning::dumpbin not found; the static runtime check was skipped'
+            Write-Host '::warning::dumpbin not found; the static runtime and subsystem checks were skipped'
           }
           # Runs every plugin on a small image, so this fails when a dependency is
           # missing or the linked-in Transform effect cannot be registered.
