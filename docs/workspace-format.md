@@ -14,7 +14,13 @@ Dock panel sizes and splits are stored separately in ImGui’s layout file:
 
 `{folder}/.ofxrawhost-layout.ini`
 
-(without a workspace, the app uses `ofxrawhost.ini` in the working directory).
+(without a workspace, the app uses `layout.ini` in the per-user config directory).
+
+Preferences that outlive a workspace live in `settings.json` in the same
+per-user config directory: `%APPDATA%\OfxRawHost` on Windows,
+`~/Library/Application Support/OfxRawHost` on macOS, and
+`$XDG_CONFIG_HOME/ofxrawhost` (or `~/.config/ofxrawhost`) elsewhere. It uses the
+same `gui` object as a workspace project.
 
 ```json
 {
@@ -27,8 +33,8 @@ Dock panel sizes and splits are stored separately in ImGui’s layout file:
     "jpegQuality": 92,
     "previewRes": 1,
     "themeIndex": 2,
-    "showLeft": true,
-    "showRight": true,
+    "showPlugins": true,
+    "showParameters": true,
     "showFilmstrip": true
   }
 }
@@ -55,7 +61,7 @@ On export, a sibling JSON is written next to the image file:
 | `img-a7Kx.jpg`   | `img-a7Kx.json`   |
 | `out/export.png` | `out/export.json` |
 
-Export sidecars record the full chain, parameters, input path, output color space, and export options so the render can be reproduced or audited later.
+Export sidecars record the full chain, parameters, input path, output color space, and export options so the render can be reproduced or audited later. `inputColorSpace` is the space the file declares; `chainInputColorSpace` is the space the user picked for the chain, which the loader hands to the first plugin.
 
 ## Sidecar document shape
 
@@ -67,7 +73,8 @@ Input and export sidecars share the same `sidecar` object:
   "version": 1,
   "kind": "input",
   "sourcePath": "DSC_0001.cr2",
-  "inputColorSpace": "Linear Rec.2020",
+  "inputColorSpace": "Linear Rec.709",
+  "chainInputColorSpace": "Linear Rec.709",
   "exportedAt": "2026-09-27T12:00:00Z",
   "gui": { "...": "same keys as workspace gui block" },
   "chain": {

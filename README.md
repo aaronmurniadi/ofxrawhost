@@ -202,58 +202,61 @@ build/OfxRawHost --selftest
 
 ## Development Roadmap
 
-| Feature                                                             | Status         |
-| ------------------------------------------------------------------- | -------------- |
-| C++17 + Dear ImGui UI (cross-platform codebase)                     | Done (v0.2)    |
-| Plugin chaining with reorder / bypass                               | Done (v0.3)    |
-| Preview zoom / pan                                                  | Done (v0.3.2)  |
-| TIFF open via libtiff (incl. half float)                            | Done (v0.3.3)  |
-| Selectable ImGui themes (Photoshop default)                         | Done (v0.3.4)  |
-| Performance: ICC caching, LTO, multithreaded resize, pooled buffers | Done (v0.3.5)  |
-| Auto-detect input color space (ICC / RAW policy)                    | Done (v0.3.6)  |
-| Workspace folder + filmstrip thumbnails                             | Done (v0.3.7)  |
-| Project / sidecar JSON (reproducible chain + export metadata)       | Done (v0.3.7)  |
-| ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7)  |
-| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)          | Done (v0.3.8)  |
-| Correct JPEG/PNG passthrough preview color                          | Done (v0.3.8)  |
-| Cached display buffer + Output tag recolor without re-render        | Done (v0.3.9)  |
-| OFX multi-thread worker pool                                        | Done (v0.3.9)  |
-| Open dialog / workspace filters (exclude sidecar JSON)              | Done (v0.3.9)  |
-| OFX Metal GPU render support (spektrafilm diffuse/flow)             | Done (v0.3.10) |
-| Selftest validation + performance instrumentation                   | Done (v0.3.10) |
-| Fix OFX Metal render readback (blank spektrafilm output)            | Done (v0.3.11) |
-| Click-to-step −/+ buttons on numeric parameter sliders              | Done (v0.3.11) |
-| Code cleanup: dedupe helpers, split Actions module, drop dead code  | Done (v0.3.12) |
-| Race fixes: idle wait, export gate, atomic tag, locked dims/params  | Done (v0.3.12) |
-| ThreadSanitizer-clean concurrency + concurrency selftest            | Done (v0.3.12) |
-| Refactor: JsonValue, RenderSchedule, GlTexture, ChainRenderer       | Done (v0.3.13) |
-| Refactor: ParamType enum replaces repeated OFX type compares        | Done (v0.3.13) |
-| Refactor: one image format table; shared extension helpers          | Done (v0.3.13) |
-| Refactor: self-test cases move to `src/selftest/Selftest.cpp`       | Done (v0.3.13) |
-| Metal scratch buffers reused per instance across renders            | Done (v0.3.13) |
-| Correct Crop parameter docs: aspect list, amount, offsets           | Done (v0.3.13) |
-| Performance: chained Metal GPU render skips per-node copies         | Done (v0.3.14) |
-| Performance: parameter panel uses cached metadata                   | Done (v0.3.14) |
-| Performance: filmstrip clips off-screen entries, O(1) lookup        | Done (v0.3.14) |
-| Performance: progressive preview draws a draft then full res        | Done (v0.3.15) |
-| Performance: async PBO display texture upload                       | Done (v0.3.15) |
-| Performance: parallel display color conversion                      | Done (v0.3.15) |
-| Bundled plugin: Crop becomes Transform (orientation, zoom, rotate)  | Done (v0.3.16) |
-| Transform rotates with cover-scale so the frame has no black wedges | Done (v0.3.16) |
-| Transform samples bilinearly with clamped edge pixels               | Done (v0.3.16) |
-| Parameter widgets honor the OFX increment; wide ranges use drag     | Done (v0.3.16) |
-| UI: DaVinci-style parameter rows (slider, value field, reset)       | Done (v0.3.17) |
-| UI: Per-node parameter tabs in the right panel                      | Done (v0.3.17) |
-| UI: Dock splits Plugins and Parameters; preview without tab bar     | Done (v0.3.17) |
-| UI: System sans font and adjustable UI font size (Settings)         | Done (v0.3.17) |
-| Refactor: Document / Chain / GuiState; scheduler + chain renderer   | Done (v0.3.17) |
-| Packaged macOS, Linux, and single-file Windows releases                 | Done (v0.4.0)  |
-| Release pipeline: cached, release-only dependency builds                | Done (v0.4.1)  |
-| Windows: message box on a start-up failure, legacy OpenGL fallback      | Done (v0.4.1)  |
-| spektrafilm `.spkpreset` import button on the parameter panel           | Done (v0.4.2)  |
-| Preview size "Fit to preview" (matches the preview panel pixels)        | Done (v0.4.2)  |
-| Bundled Transform: Crop and Zoom merge into one Zoom control            | Done (v0.4.2)  |
-| Bundled Auto Exposure plugin (spektrafilm metering methods)            | Done (v0.4.2)  |
+| Feature                                                                         | Status         |
+| ------------------------------------------------------------------------------- | -------------- |
+| C++17 + Dear ImGui UI (cross-platform codebase)                                 | Done (v0.2)    |
+| Plugin chaining with reorder / bypass                                           | Done (v0.3)    |
+| Preview zoom / pan                                                              | Done (v0.3.2)  |
+| TIFF open via libtiff (incl. half float)                                        | Done (v0.3.3)  |
+| Selectable ImGui themes (Photoshop default)                                     | Done (v0.3.4)  |
+| Performance: ICC caching, LTO, multithreaded resize, pooled buffers             | Done (v0.3.5)  |
+| Auto-detect input color space (ICC / RAW policy)                                | Done (v0.3.6)  |
+| Workspace folder + filmstrip thumbnails                                         | Done (v0.3.7)  |
+| Project / sidecar JSON (reproducible chain + export metadata)                   | Done (v0.3.7)  |
+| ImGui DockSpace layout + modular UI modules                                     | Done (v0.3.7)  |
+| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)                      | Done (v0.3.8)  |
+| Correct JPEG/PNG passthrough preview color                                      | Done (v0.3.8)  |
+| Cached display buffer + Output tag recolor without re-render                    | Done (v0.3.9)  |
+| OFX multi-thread worker pool                                                    | Done (v0.3.9)  |
+| Open dialog / workspace filters (exclude sidecar JSON)                          | Done (v0.3.9)  |
+| OFX Metal GPU render support (spektrafilm diffuse/flow)                         | Done (v0.3.10) |
+| Selftest validation + performance instrumentation                               | Done (v0.3.10) |
+| Fix OFX Metal render readback (blank spektrafilm output)                        | Done (v0.3.11) |
+| Click-to-step −/+ buttons on numeric parameter sliders                          | Done (v0.3.11) |
+| Code cleanup: dedupe helpers, split Actions module, drop dead code              | Done (v0.3.12) |
+| Race fixes: idle wait, export gate, atomic tag, locked dims/params              | Done (v0.3.12) |
+| ThreadSanitizer-clean concurrency + concurrency selftest                        | Done (v0.3.12) |
+| Refactor: JsonValue, RenderSchedule, GlTexture, ChainRenderer                   | Done (v0.3.13) |
+| Refactor: ParamType enum replaces repeated OFX type compares                    | Done (v0.3.13) |
+| Refactor: one image format table; shared extension helpers                      | Done (v0.3.13) |
+| Refactor: self-test cases move to `src/selftest/Selftest.cpp`                   | Done (v0.3.13) |
+| Metal scratch buffers reused per instance across renders                        | Done (v0.3.13) |
+| Correct Crop parameter docs: aspect list, amount, offsets                       | Done (v0.3.13) |
+| Performance: chained Metal GPU render skips per-node copies                     | Done (v0.3.14) |
+| Performance: parameter panel uses cached metadata                               | Done (v0.3.14) |
+| Performance: filmstrip clips off-screen entries, O(1) lookup                    | Done (v0.3.14) |
+| Performance: progressive preview draws a draft then full res                    | Done (v0.3.15) |
+| Performance: async PBO display texture upload                                   | Done (v0.3.15) |
+| Performance: parallel display color conversion                                  | Done (v0.3.15) |
+| Bundled plugin: Crop becomes Transform (orientation, zoom, rotate)              | Done (v0.3.16) |
+| Transform rotates with cover-scale so the frame has no black wedges             | Done (v0.3.16) |
+| Transform samples bilinearly with clamped edge pixels                           | Done (v0.3.16) |
+| Parameter widgets honor the OFX increment; wide ranges use drag                 | Done (v0.3.16) |
+| UI: DaVinci-style parameter rows (slider, value field, reset)                   | Done (v0.3.17) |
+| UI: Per-node parameter tabs in the right panel                                  | Done (v0.3.17) |
+| UI: Dock splits Plugins and Parameters; preview without tab bar                 | Done (v0.3.17) |
+| UI: Bundled Inter interface font, three sizes, system-default scaling           | Done (v0.4.2)  |
+| UI: System sans font and adjustable UI font size (Settings)                     | Done (v0.3.17) |
+| Refactor: Document / Chain / GuiState; scheduler + chain renderer               | Done (v0.3.17) |
+| Packaged macOS, Linux, and single-file Windows releases                         | Done (v0.4.0)  |
+| Release pipeline: cached, release-only dependency builds                        | Done (v0.4.1)  |
+| Windows: message box on a start-up failure, legacy OpenGL fallback              | Done (v0.4.1)  |
+| spektrafilm `.spkpreset` import button on the parameter panel                   | Done (v0.4.2)  |
+| Preview size "Fit to preview" (matches the preview panel pixels)                | Done (v0.4.2)  |
+| Bundled Transform: Crop and Zoom merge into one Zoom control                    | Done (v0.4.2)  |
+| Bundled Auto Exposure plugin (spektrafilm metering methods)                     | Done (v0.4.2)  |
+| UI: Input / Preview colorspace in the Plugins panel; Export colorspace + Intent | Done (v0.4.2)  |
+| UI: Parameter panel drops its plugin tabs (node list selects the plugin)        | Done (v0.4.2)  |
 
 ---
 

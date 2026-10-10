@@ -3,8 +3,9 @@ name: Release
 on:
   push:
     tags: ['v*']
-    # A push to release/vX.X.X publishes the build as vX.X.X-dev. The merge of
-    # that branch into main, tagged vX.X.X, publishes the same build as stable.
+    # A push to release/vX.X.X publishes the build as vX.X.X-dev-<short sha>,
+    # so each pre-release has its own tag. The merge of that branch into main,
+    # tagged vX.X.X, publishes the same build as stable.
     branches: ['release/v*']
   workflow_dispatch:
 
@@ -26,6 +27,7 @@ jobs:
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           version="0.0.0"
@@ -39,11 +41,12 @@ jobs:
             is_release="true"
           elif [[ "$REF_NAME" == release/v* ]]; then
             # The branch release/vX.X.X carries the version X.X.X and the tag
-            # vX.X.X-dev. The build keeps the numeric version, because the
-            # Windows file version and the macOS bundle version accept digits
-            # and dots only.
+            # vX.X.X-dev-<short sha>. The short sha keeps every pre-release tag
+            # unique, so a later push adds a release instead of overwriting one.
+            # The build keeps the numeric version, because the Windows file
+            # version and the macOS bundle version accept digits and dots only.
             version="${REF_NAME#release/v}"
-            tag="v${version}-dev"
+            tag="v${version}-dev-${SHA:0:6}"
             prerelease="true"
             is_release="true"
           fi
@@ -158,9 +161,10 @@ jobs:
         run: |
           set -e
           APP=build/AppImage/OfxRawHost-Linux-x86_64.AppImage
-          # The icon font must sit next to the binary for the shipped build to
-          # resolve it outside the build tree.
+          # The icon and interface fonts must sit next to the binary for the
+          # shipped build to resolve them outside the build tree.
           test -f build/AppImage/OfxRawHost.AppDir/usr/bin/fa-solid-900.ttf
+          test -f build/AppImage/OfxRawHost.AppDir/usr/bin/Inter.ttf
           OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$APP" --selftest 2>&1)
           printf '%s\n' "$OUT" | tail -3
           printf '%s\n' "$OUT" | grep -q "ok  Transform"
@@ -258,6 +262,7 @@ jobs:
           # executable must not open a console window.
           $image = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe))
           if ($image -notmatch 'Font Awesome') { throw 'the icon font is not embedded in the executable' }
+          if ($image -notmatch 'Inter') { throw 'the interface font is not embedded in the executable' }
           $dumpbin = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -Last 1
           if ($dumpbin) {
             $imports = & $dumpbin.FullName /dependents $exe | Out-String
@@ -282,6 +287,7 @@ jobs:
           if ($proc.ExitCode -ne 0) { throw "selftest exited with $($proc.ExitCode)" }
           if ($out -notmatch 'ok  Transform') { throw 'the executable does not register the Transform effect' }
           if ($out -notmatch 'ok  Auto Exposure') { throw 'the executable does not register the Auto Exposure effect' }
+          if ($out -notmatch 'ok  bundled fonts') { throw 'the executable does not load the bundled fonts' }
           $expected = '${{ needs.prepare.outputs.version }}'
           $actual = (Get-Item $exe).VersionInfo.FileVersion
           if ($actual -ne $expected) { throw "the file version is '$actual', expected '$expected'" }
@@ -311,10 +317,19 @@ jobs:
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           set -euo pipefail
+          # A dev tag carries a short sha, so the notes file keeps the version
+          # name without the sha suffix.
+          NOTES_TAG="$TAG"
+          if [[ "$TAG" == *-dev-* ]]; then
+            NOTES_TAG="${TAG%-*}"
+          fi
           NOTES=$(mktemp)
           {
             if [ -f "docs/releases/${TAG}.md" ]; then
               cat "docs/releases/${TAG}.md"
+              echo
+            elif [ -f "docs/releases/${NOTES_TAG}.md" ]; then
+              cat "docs/releases/${NOTES_TAG}.md"
               echo
             fi
             echo "## Downloads"
@@ -326,7 +341,7 @@ jobs:
             echo
             # A pre-release has no stable predecessor to compare against.
             if [ "$PRERELEASE" = "false" ]; then
-              PREV=$(git tag --sort=-v:refname | awk -v t="$TAG" '$0 != t { print; exit }')
+              PREV=$(git tag --sort=-v:refname | grep -v -- '-dev' | awk -v t="$TAG" '$0 != t { print; exit }')
               if [ -n "${PREV:-}" ]; then
                 echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${TAG}"
               fi

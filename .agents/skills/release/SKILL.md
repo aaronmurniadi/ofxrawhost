@@ -23,7 +23,7 @@ Run `git branch --show-current`.
 - If the branch is `release/vX.X.X`, this is a dev release of version `X.X.X`. Keep the branch version, do not bump it, and go to Step 3.
 - Any other branch: ask the user one question, "Dev release or stable release?", and continue to Step 2.
 
-A dev release pushes the branch `release/vX.X.X`. The workflow publishes the tag `vX.X.X-dev` as a GitHub pre-release.
+A dev release pushes the branch `release/vX.X.X`. The workflow publishes the tag `vX.X.X-dev-<short sha>` as a GitHub pre-release, where the short sha keeps each pre-release tag unique.
 A stable release pushes the tag `vX.X.X` on `main`. The workflow publishes the tag `vX.X.X` as a full release.
 
 ## Step 2: recommend a version
@@ -57,9 +57,9 @@ Run only the branch that matches the confirmed kind.
 2. Commit any outstanding work on the branch.
 3. Confirm the push with the user one more time.
 4. Run `git push -u origin release/vX.X.X`.
-5. Do not wait for the workflow. Report the pushed branch and the tag `vX.X.X-dev`, then stop.
+5. Do not wait for the workflow. Report the pushed branch and the tag `vX.X.X-dev-<short sha>`, then stop.
 
-Every later push to the branch republishes `vX.X.X-dev`. The build keeps the numeric version `X.X.X`.
+Every push to the branch publishes a new `vX.X.X-dev-<short sha>` tag, so a later pre-release does not overwrite the last one. The build keeps the numeric version `X.X.X`.
 
 ### Stable release
 

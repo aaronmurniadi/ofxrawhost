@@ -3,7 +3,7 @@
 ## Release workflow
 
 Two kinds of release exist. A dev release comes from a `release/vX.X.X` branch and
-publishes the tag `vX.X.X-dev` as a GitHub pre-release. A stable release comes from
+publishes the tag `vX.X.X-dev-<short sha>` as a GitHub pre-release. A stable release comes from
 a `vX.X.X` tag on `main` and publishes the tag `vX.X.X` as a full release.
 
 The workflow file is `.github/workflows/release.yml`. It reads the version from
