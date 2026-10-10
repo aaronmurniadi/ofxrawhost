@@ -14,6 +14,8 @@ struct PersistGui {
   bool exportLossless = false;
   int previewRes = 1;
   int themeIndex = 2;
+  int uiFontSizePt = 13;
+  std::string uiFontFamily;
   bool showLeft = true;
   bool showRight = true;
   bool showFilmstrip = false;

@@ -15,6 +15,8 @@ void loadGui(const JsonValue &gui, PersistGui &g) {
   g.exportLossless = gui.boolean("exportLossless", g.exportLossless);
   g.previewRes = (int)gui.integer("previewRes", g.previewRes);
   g.themeIndex = (int)gui.integer("themeIndex", g.themeIndex);
+  g.uiFontSizePt = (int)gui.integer("uiFontSizePt", g.uiFontSizePt);
+  g.uiFontFamily = gui.text("uiFontFamily", g.uiFontFamily);
   g.showLeft = gui.boolean("showLeft", g.showLeft);
   g.showRight = gui.boolean("showRight", g.showRight);
   g.showFilmstrip = gui.boolean("showFilmstrip", g.showFilmstrip);

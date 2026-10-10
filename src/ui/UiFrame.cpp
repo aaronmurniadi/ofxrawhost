@@ -3,6 +3,7 @@
 #include "Actions.h"
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
+#include "platform/SystemFonts.h"
 #include "ui/Themes.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
@@ -22,6 +23,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 static void openUrl(const std::string &url) {
 #if defined(_WIN32)
@@ -88,18 +90,7 @@ static void drawMenuBar(App &app) {
 #endif
       ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("Settings")) {
-      float fontPt = app.gui.uiFontSizePt;
-      ImGui::SetNextItemWidth(140.0f);
-      if (ImGui::SliderFloat("UI font size", &fontPt, 10.0f, 22.0f, "%.0f pt")) {
-        fontPt = std::round(fontPt);
-        if (fontPt != app.gui.uiFontSizePt) {
-          app.gui.uiFontSizePt = fontPt;
-          ImGuiBackend_SetUIFontSize(app.window, fontPt);
-        }
-      }
-      ImGui::EndMenu();
-    }
+    if (ImGui::MenuItem("Settings...")) app.gui.showSettings = true;
     if (ImGui::BeginMenu("Theme")) {
       for (int i = 0; i < themeCount(); ++i) {
         if (ImGui::MenuItem(themeName(i), nullptr, app.gui.themeIndex == i)) {
@@ -175,6 +166,111 @@ static void drawExportDialog(App &app) {
   }
   ImGui::SameLine();
   if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
+// One row per section of the settings sidebar. The index is the value kept in
+// GuiState::settingsSection.
+static const char *const kSettingsSections[] = {"Fonts"};
+static constexpr int kSettingsSectionCount = 1;
+
+// The settings modal offers whole points only, from 8 pt through 18 pt.
+static constexpr int kFontSizeMinPt = 8;
+static constexpr int kFontSizeMaxPt = 18;
+static constexpr int kFontSizeCount = kFontSizeMaxPt - kFontSizeMinPt + 1;
+static const char *const kFontSizeLabels[kFontSizeCount] = {
+    "8 pt", "9 pt", "10 pt", "11 pt", "12 pt", "13 pt",
+    "14 pt", "15 pt", "16 pt", "17 pt", "18 pt",
+};
+
+// The system font list comes from the disk, so it is read once and kept for the
+// life of the process.
+static const std::vector<SystemFont> &systemFonts() {
+  static const std::vector<SystemFont> fonts = listSystemFonts();
+  return fonts;
+}
+
+// A font change rebuilds the ImGui font atlas, which frees the font objects the
+// running frame still points at. Raise a flag instead, and let the main loop
+// rebuild the atlas between frames.
+static void requestUiFont(App &app) {
+  app.gui.fontApplyPending = true;
+}
+
+static void drawFontsSettings(App &app) {
+  const std::vector<SystemFont> &fonts = systemFonts();
+
+  int selectedFamily = 0;
+  for (int i = 0; i < (int)fonts.size(); ++i) {
+    if (fonts[i].path == app.gui.uiFontFamily) {
+      selectedFamily = i + 1;
+      break;
+    }
+  }
+  const char *familyLabel = "System default";
+  if (selectedFamily > 0) familyLabel = fonts[selectedFamily - 1].name.c_str();
+
+  ImGui::TextUnformatted("Font");
+  ImGui::Separator();
+  ImGui::SetNextItemWidth(300.0f);
+  if (ImGui::BeginCombo("Font family", familyLabel)) {
+    if (ImGui::Selectable("System default", selectedFamily == 0)) {
+      app.gui.uiFontFamily.clear();
+      requestUiFont(app);
+    }
+    for (int i = 0; i < (int)fonts.size(); ++i) {
+      if (ImGui::Selectable(fonts[i].name.c_str(), selectedFamily == i + 1)) {
+        app.gui.uiFontFamily = fonts[i].path;
+        requestUiFont(app);
+      }
+    }
+    ImGui::EndCombo();
+  }
+  if (fonts.empty()) ImGui::TextDisabled("No system fonts were found.");
+
+  int sizeIndex = app.gui.uiFontSizePt - kFontSizeMinPt;
+  if (sizeIndex < 0) sizeIndex = 0;
+  if (sizeIndex >= kFontSizeCount) sizeIndex = kFontSizeCount - 1;
+  ImGui::SetNextItemWidth(120.0f);
+  if (ImGui::BeginCombo("Font size", kFontSizeLabels[sizeIndex])) {
+    for (int i = 0; i < kFontSizeCount; ++i) {
+      if (ImGui::Selectable(kFontSizeLabels[i], sizeIndex == i)) {
+        app.gui.uiFontSizePt = kFontSizeMinPt + i;
+        requestUiFont(app);
+      }
+    }
+    ImGui::EndCombo();
+  }
+}
+
+// A modal with a section sidebar on the left and the controls of the selected
+// section on the right.
+static void drawSettingsModal(App &app) {
+  if (app.gui.showSettings) {
+    ImGui::OpenPopup("Settings");
+    app.gui.showSettings = false;
+  }
+  ImGui::SetNextWindowSize(ImVec2(720.0f, 460.0f), ImGuiCond_Appearing);
+  if (!ImGui::BeginPopupModal("Settings", nullptr)) return;
+
+  // The footer holds the Close button, so both children stop above it.
+  const float footer = ImGui::GetFrameHeightWithSpacing();
+  if (ImGui::BeginChild("settings_sidebar", ImVec2(170.0f, -footer), ImGuiChildFlags_Borders)) {
+    for (int i = 0; i < kSettingsSectionCount; ++i) {
+      bool selected = app.gui.settingsSection == i;
+      if (ImGui::Selectable(kSettingsSections[i], selected)) app.gui.settingsSection = i;
+    }
+  }
+  ImGui::EndChild();
+
+  ImGui::SameLine();
+
+  if (ImGui::BeginChild("settings_panel", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders)) {
+    if (app.gui.settingsSection == 0) drawFontsSettings(app);
+  }
+  ImGui::EndChild();
+
+  if (ImGui::Button("Close", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
 
@@ -275,4 +371,5 @@ void drawUiFrame(App &app) {
   }
 
   drawExportDialog(app);
+  drawSettingsModal(app);
 }

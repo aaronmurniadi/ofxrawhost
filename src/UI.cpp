@@ -108,6 +108,14 @@ int runApp(const std::string &optionalPath) {
     pumpDisplayUpload(app);
     pumpFilmstripThumbs(app.filmstrip);
 
+    // Rebuild the font atlas between frames. The atlas owns the font objects the
+    // previous frame referenced, so a rebuild during a frame leaves that frame
+    // with a dangling font.
+    if (app.gui.fontApplyPending) {
+      ImGuiBackend_SetUIFont(app.window, (float)app.gui.uiFontSizePt, app.gui.uiFontFamily);
+      app.gui.fontApplyPending = false;
+    }
+
     ImGuiBackend_NewFrame();
     drawUiFrame(app);
 

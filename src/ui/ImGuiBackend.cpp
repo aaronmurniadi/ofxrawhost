@@ -29,7 +29,13 @@ static std::string gIniPath = "ofxrawhost.ini";
 // backend draws instead. ImGuiBackend_Init sets it.
 static bool gLegacyGl = false;
 
-static ImFont *addSystemSansFont(ImFontAtlas *fonts, ImFontConfig *cfg) {
+// Loads the requested font file first, then the standard system sans font, then
+// the ImGui built-in font. preferred may be empty for the default look.
+static ImFont *addSystemSansFont(ImFontAtlas *fonts, ImFontConfig *cfg, const std::string &preferred) {
+  if (!preferred.empty() && fs::exists(preferred)) {
+    if (ImFont *font = fonts->AddFontFromFileTTF(preferred.c_str(), cfg->SizePixels, cfg)) return font;
+    std::fprintf(stderr, "warning: could not load the selected font '%s'\n", preferred.c_str());
+  }
 #if defined(__APPLE__)
   const char *cands[] = {
       "/System/Library/Fonts/SFNS.ttf",
@@ -78,7 +84,7 @@ bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir) {
   return false;
 }
 
-static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
+static void loadUiFonts(GLFWwindow *window, float uiFontSizePt, const std::string &fontPath) {
   ImGuiIO &io = ImGui::GetIO();
   float dpiX = 1.0f, dpiY = 1.0f;
   glfwGetWindowContentScale(window, &dpiX, &dpiY);
@@ -88,7 +94,7 @@ static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
   fontCfg.OversampleH = 2;
   fontCfg.OversampleV = 2;
   io.Fonts->Clear();
-  addSystemSansFont(io.Fonts, &fontCfg);
+  addSystemSansFont(io.Fonts, &fontCfg, fontPath);
 #if defined(__APPLE__)
   {
     ImFontConfig symbolsCfg;
@@ -154,9 +160,9 @@ static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
   io.FontGlobalScale = 1.0f / dpi;
 }
 
-void ImGuiBackend_SetUIFontSize(GLFWwindow *window, float uiFontSizePt) {
+void ImGuiBackend_SetUIFont(GLFWwindow *window, float uiFontSizePt, const std::string &fontPath) {
   if (!ImGui::GetCurrentContext() || !window) return;
-  loadUiFonts(window, uiFontSizePt);
+  loadUiFonts(window, uiFontSizePt, fontPath);
   if (gLegacyGl) {
     ImGui_ImplOpenGL2_DestroyFontsTexture();
     ImGui_ImplOpenGL2_CreateFontsTexture();
@@ -174,7 +180,7 @@ void ImGuiBackend_Init(GLFWwindow *window, bool legacyGl, int themeIndex, float 
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
   io.IniFilename = gIniPath.c_str();
 
-  loadUiFonts(window, uiFontSizePt);
+  loadUiFonts(window, uiFontSizePt, std::string());
   applyTheme(themeIndex);
   ImGui_ImplGlfw_InitForOpenGL(window, true);
   if (gLegacyGl) {

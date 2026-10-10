@@ -73,7 +73,9 @@ struct GuiState {
   bool showRight = true;
   bool showFilmstrip = false;
   int themeIndex = 2;  // Photoshop
-  float uiFontSizePt = 13.0f;  // logical UI font size (before Retina scale)
+  int uiFontSizePt = 13;       // UI font size in points, before the Retina scale
+  std::string uiFontFamily;    // absolute path to the font file; empty is the system default
+  int settingsSection = 0;     // row selected in the settings modal sidebar
   float previewZoom = 1.0f;  // 1 = fit in view
   float previewPanX = 0.0f;
   float previewPanY = 0.0f;
@@ -87,7 +89,9 @@ struct GuiState {
   bool showAbout = false;
   bool showDonate = false;
   bool showExportDialog = false;
+  bool showSettings = false;
   bool themeApplyPending = false;
+  bool fontApplyPending = false;
   bool layoutApplyPending = false;
   std::string pendingWorkspaceDir;
 };

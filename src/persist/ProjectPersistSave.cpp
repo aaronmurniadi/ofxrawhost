@@ -25,6 +25,8 @@ JsonValue makeGuiJson(const PersistGui &g) {
   gui.set("exportLossless", JsonValue::makeBool(g.exportLossless));
   gui.set("previewRes", JsonValue::makeInt(g.previewRes));
   gui.set("themeIndex", JsonValue::makeInt(g.themeIndex));
+  gui.set("uiFontSizePt", JsonValue::makeInt(g.uiFontSizePt));
+  gui.set("uiFontFamily", JsonValue::makeString(g.uiFontFamily));
   gui.set("showLeft", JsonValue::makeBool(g.showLeft));
   gui.set("showRight", JsonValue::makeBool(g.showRight));
   gui.set("showFilmstrip", JsonValue::makeBool(g.showFilmstrip));

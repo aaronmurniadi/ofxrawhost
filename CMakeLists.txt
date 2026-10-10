@@ -132,6 +132,7 @@ add_executable(OfxRawHost
   src/platform/Console.cpp
   src/platform/EmbeddedResource.cpp
   src/platform/Paths.cpp
+  src/platform/SystemFonts.cpp
   src/platform/Report.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
