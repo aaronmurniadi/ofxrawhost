@@ -123,6 +123,7 @@ endif()
 add_executable(OfxRawHost
   src/main.cpp
   src/selftest/Selftest.cpp
+  src/platform/EmbeddedResource.cpp
   src/platform/Paths.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
@@ -252,6 +253,19 @@ endif()
 
 target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB)
 
+# A vcpkg static build needs the dependencies of the libraries found above:
+# JPEG XL pulls in highway and brotli, libtiff pulls in jpeg and lzma, and so on.
+# find_library cannot express those, so link every library the vcpkg tree
+# installed. Unused entries cost nothing, because the linker pulls a member only
+# when a symbol demands it.
+if(WIN32 AND VCPKG_TARGET_TRIPLET MATCHES "-static$")
+  file(GLOB OFX_VCPKG_STATIC_LIBS "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib/*.lib")
+  if(NOT OFX_VCPKG_STATIC_LIBS)
+    message(FATAL_ERROR "No libraries under ${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib for the static build")
+  endif()
+  target_link_libraries(OfxRawHost PRIVATE ${OFX_VCPKG_STATIC_LIBS})
+endif()
+
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
 elseif(WIN32)
@@ -291,45 +305,62 @@ target_include_directories(OfxSupport PUBLIC
 target_link_libraries(OfxSupport PUBLIC Threads::Threads)
 set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Binary must be named OfxRawHost.ofx: the host derives it from the bundle
-# stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
-add_library(OfxRawHostTransform MODULE plugins/Transform.cpp)
-set_target_properties(OfxRawHostTransform PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
-target_link_libraries(OfxRawHostTransform PRIVATE OfxSupport)
-if(APPLE)
-  target_link_libraries(OfxRawHostTransform PRIVATE "-framework OpenGL")
-elseif(WIN32)
-  target_link_libraries(OfxRawHostTransform PRIVATE opengl32)
-else()
-  find_package(OpenGL REQUIRED)
-  target_link_libraries(OfxRawHostTransform PRIVATE OpenGL::GL)
-endif()
-
-# Arch subdir must match pluginBinary() in src/ofx/OfxPlugins.cpp.
-if(APPLE)
-  set(OFX_PLUGIN_ARCH "MacOS")
-elseif(WIN32)
-  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    set(OFX_PLUGIN_ARCH "Win64")
-  else()
-    set(OFX_PLUGIN_ARCH "Win32")
+# Bundled plugin: the Transform effect ships inside the Windows executable so
+# the release is one file, and as an OfxRawHost.ofx.bundle everywhere else.
+if(WIN32)
+  enable_language(RC)
+  set(OFX_VERSION "0.0.0" CACHE STRING "Version stamped into the Windows executable")
+  if(NOT OFX_VERSION MATCHES "^[0-9]+(\\.[0-9]+)*$")
+    message(WARNING "OFX_VERSION '${OFX_VERSION}' is not numeric; using 0.0.0 for the file version")
+    set(OFX_VERSION "0.0.0")
   endif()
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-  set(OFX_PLUGIN_ARCH "Linux-arm-64")
-else()
-  set(OFX_PLUGIN_ARCH "Linux-x86-64")
-endif()
+  # VERSIONINFO takes four comma-separated numbers.
+  string(REPLACE "." ";" _ofx_ver_parts "${OFX_VERSION}")
+  list(LENGTH _ofx_ver_parts _ofx_ver_count)
+  while(_ofx_ver_count LESS 4)
+    list(APPEND _ofx_ver_parts 0)
+    list(LENGTH _ofx_ver_parts _ofx_ver_count)
+  endwhile()
+  string(REPLACE ";" "," OFX_VERSION_COMMAS "${_ofx_ver_parts}")
+  set(OFX_ICON_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf")
+  configure_file(packaging/windows/OfxRawHost.rc.in "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc" @ONLY)
 
-set(OFX_BUNDLE "${CMAKE_BINARY_DIR}/Plugins/OfxRawHost.ofx.bundle")
-add_custom_command(TARGET OfxRawHostTransform POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}"
-  COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostTransform>"
-    "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}/OfxRawHost.ofx"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_SOURCE_DIR}/plugins/Info.plist" "${OFX_BUNDLE}/Contents/Info.plist"
-  COMMENT "Assembling OfxRawHost.ofx.bundle"
-)
-add_dependencies(OfxRawHost OfxRawHostTransform)
+  target_sources(OfxRawHost PRIVATE plugins/Transform.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
+  target_link_libraries(OfxRawHost PRIVATE OfxSupport)
+  target_compile_definitions(OfxRawHost PRIVATE OFX_EMBEDDED_PLUGIN)
+else()
+  # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
+  # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
+  add_library(OfxRawHostTransform MODULE plugins/Transform.cpp)
+  set_target_properties(OfxRawHostTransform PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
+  target_link_libraries(OfxRawHostTransform PRIVATE OfxSupport)
+  if(APPLE)
+    target_link_libraries(OfxRawHostTransform PRIVATE "-framework OpenGL")
+  else()
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(OfxRawHostTransform PRIVATE OpenGL::GL)
+  endif()
+
+  # Arch subdir must match pluginBinary() in src/ofx/OfxPlugins.cpp.
+  if(APPLE)
+    set(OFX_PLUGIN_ARCH "MacOS")
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(OFX_PLUGIN_ARCH "Linux-arm-64")
+  else()
+    set(OFX_PLUGIN_ARCH "Linux-x86-64")
+  endif()
+
+  set(OFX_BUNDLE "${CMAKE_BINARY_DIR}/Plugins/OfxRawHost.ofx.bundle")
+  add_custom_command(TARGET OfxRawHostTransform POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostTransform>"
+      "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}/OfxRawHost.ofx"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_SOURCE_DIR}/plugins/Info.plist" "${OFX_BUNDLE}/Contents/Info.plist"
+    COMMENT "Assembling OfxRawHost.ofx.bundle"
+  )
+  add_dependencies(OfxRawHost OfxRawHostTransform)
+endif()
 
 # macOS app bundle packaging (optional convenience target)
 if(APPLE)

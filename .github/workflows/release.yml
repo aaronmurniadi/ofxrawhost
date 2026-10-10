@@ -142,7 +142,9 @@ jobs:
   windows:
     runs-on: windows-2022
     env:
-      VCPKG_DEFAULT_TRIPLET: x64-windows
+      # The static triplet links every dependency and the C runtime into the
+      # executable, so the release is one file with no DLLs beside it.
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static
       VCPKG_DEFAULT_HOST_TRIPLET: x64-windows
       # vcpkg dropped its x-gha backend, so cache the built packages as files and
       # let actions/cache store the directory.
@@ -155,70 +157,65 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\vcpkg-cache
-          key: vcpkg-${{ runner.os }}-x64-windows-${{ hashFiles('vcpkg.json') }}
-          restore-keys: vcpkg-${{ runner.os }}-x64-windows-
+          key: vcpkg-${{ runner.os }}-x64-windows-static-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-x64-windows-static-
       - name: Install vcpkg
         shell: cmd
         run: |
           git clone --depth 1 https://github.com/microsoft/vcpkg.git C:\vcpkg
           C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
       - name: Configure and build
-        shell: cmd
+        shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
-            -DCMAKE_BUILD_TYPE=Release ^
-            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
-            -DVCPKG_TARGET_TRIPLET=x64-windows ^
-            -DVCPKG_APPLOCAL_DEPS=ON
+          $ErrorActionPreference = 'Stop'
+          $version = '0.0.0'
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $version = $env:GITHUB_REF_NAME -replace '^v', '' }
+          cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            "-DOFX_VERSION=$version"
+          if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }
           cmake --build build --config Release --parallel
-      - name: Package zip
+          if ($LASTEXITCODE -ne 0) { throw 'the build failed' }
+      - name: Package the executable
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $dist = 'build/dist/OfxRawHost-Windows-x64'
-          New-Item -ItemType Directory -Force -Path $dist | Out-Null
-          Copy-Item build/Release/OfxRawHost.exe $dist
-          # The host loads the icon font beside the executable and finds the
-          # bundled OFX plugin bundle in <exe dir>/Plugins.
-          Copy-Item build/Release/fa-solid-900.ttf $dist
-          Copy-Item -Recurse build/Plugins $dist/Plugins
-          # vcpkg app-local deployment places the dependency DLLs next to the
-          # binary; ship them so the zip runs on a machine without vcpkg.
-          Copy-Item build/Release/*.dll $dist
-          Copy-Item README.md, LICENSE $dist
-          # Add the MSVC runtime so the zip runs on a machine without the VC++
-          # redistributable installed.
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (Test-Path $vswhere) {
-            $vs = & $vswhere -latest -products * -property installationPath
-            $crt = Get-ChildItem -Path "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue |
-              Select-Object -Last 1
-            if ($crt) { Copy-Item "$($crt.FullName)\*.dll" $dist -Force }
-          }
-          if (-not (Test-Path "$dist\vcruntime140.dll")) {
-            Write-Host '::warning::MSVC runtime DLLs were not found; the zip needs the VC++ redistributable'
-          }
-          Get-ChildItem $dist -Recurse | Select-Object -ExpandProperty Name
-          Compress-Archive -Path "$dist/*" -DestinationPath 'build/OfxRawHost-Windows-x64.zip'
-      - name: Smoke-test the zip
+          $exe = 'build/OfxRawHost-Windows-x64.exe'
+          Copy-Item build/Release/OfxRawHost.exe $exe
+          Get-Item $exe | Select-Object Name, Length
+      - name: Smoke-test the executable
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $tmp = 'build/smoketest'
-          Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-          Expand-Archive -Path 'build/OfxRawHost-Windows-x64.zip' -DestinationPath $tmp
-          if (-not (Test-Path "$tmp\fa-solid-900.ttf")) { throw 'the zip is missing the icon font' }
-          if (-not (Test-Path "$tmp\Plugins\OfxRawHost.ofx.bundle")) { throw 'the zip is missing the Transform plugin bundle' }
-          # Runs every plugin on a small image, so it fails when a shipped DLL is
-          # missing or the bundled plugin cannot be loaded.
-          $out = & "$tmp\OfxRawHost.exe" --selftest 2>&1 | Out-String
+          $exe = 'build/OfxRawHost-Windows-x64.exe'
+          # One file: the icon font and the Transform effect must live inside it,
+          # and the C runtime must not be a DLL the user has to install.
+          $image = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe))
+          if ($image -notmatch 'Font Awesome') { throw 'the icon font is not embedded in the executable' }
+          $dumpbin = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio\2022\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -Last 1
+          if ($dumpbin) {
+            $imports = & $dumpbin.FullName /dependents $exe | Out-String
+            if ($imports -match 'MSVCP140|VCRUNTIME140') { throw "the executable still imports the MSVC runtime:`n$imports" }
+          } else {
+            Write-Host '::warning::dumpbin not found; the static runtime check was skipped'
+          }
+          # Runs every plugin on a small image, so this fails when a dependency is
+          # missing or the linked-in Transform effect cannot be registered.
+          $out = & $exe --selftest 2>&1 | Out-String
           Write-Host $out
           if ($LASTEXITCODE -ne 0) { throw "selftest exited with $LASTEXITCODE" }
-          if ($out -notmatch 'ok  Transform') { throw 'the zip does not load the bundled Transform plugin' }
+          if ($out -notmatch 'ok  Transform') { throw 'the executable does not register the Transform effect' }
+          $expected = '0.0.0'
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $expected = $env:GITHUB_REF_NAME -replace '^v', '' }
+          $actual = (Get-Item $exe).VersionInfo.FileVersion
+          if ($actual -ne $expected) { throw "the file version is '$actual', expected '$expected'" }
+          Write-Host "file version: $actual"
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-Windows-x64
-          path: build/OfxRawHost-Windows-x64.zip
+          path: build/OfxRawHost-Windows-x64.exe
           if-no-files-found: error
 
   publish:
@@ -250,7 +247,7 @@ jobs:
             echo
             echo "- **macOS (Apple Silicon):** \`OfxRawHost-macOS-arm64.dmg\`"
             echo "- **macOS (Intel):** \`OfxRawHost-macOS-x86_64.dmg\`"
-            echo "- **Windows (x64):** \`OfxRawHost-Windows-x64.zip\`"
+            echo "- **Windows (x64):** \`OfxRawHost-Windows-x64.exe\`"
             echo "- **Linux (x86_64):** \`OfxRawHost-Linux-x86_64.AppImage\`"
             echo
             if [ -n "${PREV:-}" ]; then
@@ -263,4 +260,4 @@ jobs:
           else
             gh release create "$TAG" --title "$TAG" --notes-file "$NOTES"
           fi
-          gh release upload "$TAG" dist/*.dmg dist/*.zip dist/*.AppImage --clobber
+          gh release upload "$TAG" dist/*.dmg dist/*.exe dist/*.AppImage --clobber

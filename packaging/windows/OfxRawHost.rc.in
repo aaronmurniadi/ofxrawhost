@@ -1,0 +1,33 @@
+// Windows resources for the single-file release. CMake configures this file into
+// the build directory, so the paths are absolute and the version comes from the
+// OFX_VERSION cache variable.
+
+#define IDR_ICON_FONT 101
+
+IDR_ICON_FONT RCDATA "@OFX_ICON_FONT_PATH@"
+
+1 VERSIONINFO
+FILEVERSION @OFX_VERSION_COMMAS@
+PRODUCTVERSION @OFX_VERSION_COMMAS@
+FILEFLAGSMASK 0x3fL
+FILEOS 0x40004L
+FILETYPE 0x1L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "FileDescription", "OFX Raw Host\0"
+      VALUE "FileVersion", "@OFX_VERSION@\0"
+      VALUE "InternalName", "OfxRawHost\0"
+      VALUE "LegalCopyright", "MIT License\0"
+      VALUE "OriginalFilename", "OfxRawHost.exe\0"
+      VALUE "ProductName", "OFX Raw Host\0"
+      VALUE "ProductVersion", "@OFX_VERSION@\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

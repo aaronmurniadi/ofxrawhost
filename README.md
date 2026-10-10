@@ -37,7 +37,9 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 
 ### Transform
 
-A bundled OFX plugin that crops, rotates, and zooms the image. Intended at the **beginning of a plugin
+A bundled OFX plugin that crops, rotates, and zooms the image. It is compiled into the
+Windows executable and shipped as an OFX bundle on macOS and Linux. Intended at the
+**beginning of a plugin
 chain** so downstream plugins process fewer pixels, it implements `getRegionOfDefinition` to report
 the output dimensions directly to the host.
 
@@ -70,9 +72,10 @@ xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
 
 ### Windows
 
-Download `OfxRawHost-Windows-x64.zip` and unpack it anywhere.
-Run `OfxRawHost.exe` from the unpacked folder: the archive holds the executable, the icon
-font, the bundled Transform plugin, and the library DLLs. Keep the folder together.
+Download `OfxRawHost-Windows-x64.exe` and run it. It is one self-contained file: the
+libraries, the icon font, and the Transform plugin are all inside it, so there is nothing
+to unpack and nothing to install. Windows may warn about an unknown publisher because the
+executable is not code-signed.
 
 ### Linux
 
@@ -137,23 +140,29 @@ brew install cmake libraw libtiff little-cms2 webp jpeg-xl
 sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libwebp-dev \
   libjxl-dev zlib1g-dev libgl1-mesa-dev xorg-dev
 
-# Windows: install the dependencies with vcpkg (see vcpkg.json)
-vcpkg install --triplet x64-windows
+# Windows: install the dependencies with vcpkg (see vcpkg.json). The static
+# triplet links them into the executable, which is how the release is shipped.
+vcpkg install --triplet x64-windows-static
 
 git clone --recursive https://github.com/aaronmurniadi/ofxrawhost.git
 cd ofxrawhost
 ./build.sh
 ```
 
-On Windows, configure CMake with the vcpkg toolchain:
+On Windows, configure CMake with the vcpkg toolchain. `OFX_VERSION` is stamped into
+the file properties of the executable:
 
 ```cmd
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
-  -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+  -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
+  -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
+  -DOFX_VERSION=0.3.18
 cmake --build build --config Release
 ```
 
-On macOS this produces `build/OfxRawHost.app`. Elsewhere, `build/OfxRawHost`.
+On macOS this produces `build/OfxRawHost.app`. On Linux, `build/OfxRawHost` plus the
+`build/Plugins/OfxRawHost.ofx.bundle` folder next to it. On Windows, the single
+`build/Release/OfxRawHost.exe` holds the Transform plugin and the icon font.
 
 ```sh
 # Enable native CPU instructions (AVX, F16C, etc.) for extra speed
@@ -215,7 +224,7 @@ build/OfxRawHost --selftest
 | UI: Dock splits Plugins and Parameters; preview without tab bar     | Done (v0.3.17) |
 | UI: System sans font and adjustable UI font size (Settings)         | Done (v0.3.17) |
 | Refactor: Document / Chain / GuiState; scheduler + chain renderer   | Done (v0.3.17) |
-| Packaged macOS, Windows, and Linux releases                           | Done (v0.3.18) |
+| Packaged macOS, Linux, and single-file Windows releases                 | Done (v0.3.18) |
 
 ---
 

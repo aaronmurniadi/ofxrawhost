@@ -98,18 +98,13 @@ static std::string pluginAuthor(OfxPlugin *p, const Effect &desc) {
   return s.substr(0, d2);
 }
 
-static void loadBundle(const fs::path &bundle) {
-  const fs::path bin = pluginBinary(bundle);
-  void *lib = loadLib(bin);
-  if (!lib) {
-    fprintf(stderr, "Skipping %s: %s\n", bundle.string().c_str(), loadErr());
-    return;
-  }
-  auto setHost = reinterpret_cast<OfxStatus (*)(const OfxHost *)>(sym(lib, "OfxSetHost"));
-  auto count = reinterpret_cast<int (*)()>(sym(lib, "OfxGetNumberOfPlugins"));
-  auto get = reinterpret_cast<OfxPlugin *(*)(int)>(sym(lib, "OfxGetPlugin"));
-  if (!count || !get) return;
-  if (setHost) setHost(&gOfxHost);
+using OfxPluginCountFn = int (*)();
+using OfxPluginGetFn = OfxPlugin *(*)(int);
+
+// Registers every OFX filter plugin that the given entry points enumerate. Both
+// a plugin file and an effect linked into this executable come through here, so
+// the descriptor handling has one implementation.
+static void registerPlugins(OfxPluginCountFn count, OfxPluginGetFn get) {
   for (int i = 0, n = count(); i < n; ++i) {
     OfxPlugin *p = get(i);
     if (!p || !p->setHost || !p->mainEntry || strcmp(p->pluginApi, kOfxImageEffectPluginApi) != 0) continue;
@@ -133,7 +128,32 @@ static void loadBundle(const fs::path &bundle) {
   }
 }
 
+static void loadBundle(const fs::path &bundle) {
+  const fs::path bin = pluginBinary(bundle);
+  void *lib = loadLib(bin);
+  if (!lib) {
+    fprintf(stderr, "Skipping %s: %s\n", bundle.string().c_str(), loadErr());
+    return;
+  }
+  auto setHost = reinterpret_cast<OfxStatus (*)(const OfxHost *)>(sym(lib, "OfxSetHost"));
+  auto count = reinterpret_cast<OfxPluginCountFn>(sym(lib, "OfxGetNumberOfPlugins"));
+  auto get = reinterpret_cast<OfxPluginGetFn>(sym(lib, "OfxGetPlugin"));
+  if (!count || !get) return;
+  if (setHost) setHost(&gOfxHost);
+  registerPlugins(count, get);
+}
+
+// The bundled Transform effect is compiled into the Windows executable, so the
+// release is a single file. The OFX support library supplies these entry points
+// for the factories linked in, and reports zero when there are none.
+static void loadEmbeddedPlugins() {
+#if defined(OFX_EMBEDDED_PLUGIN)
+  registerPlugins(OfxGetNumberOfPlugins, OfxGetPlugin);
+#endif
+}
+
 void loadPlugins() {
+  loadEmbeddedPlugins();
   std::vector<std::string> dirs;
   if (const char *env = getenv("OFX_PLUGIN_PATH")) {
     std::string s = env;

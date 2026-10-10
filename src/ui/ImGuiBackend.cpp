@@ -1,5 +1,6 @@
 #include "ui/ImGuiBackend.h"
 
+#include "platform/EmbeddedResource.h"
 #include "platform/Paths.h"
 #include "ui/Themes.h"
 
@@ -13,6 +14,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -112,8 +115,8 @@ static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
     iconsCfg.OversampleH = 2;
     iconsCfg.OversampleV = 2;
     static const ImWchar iconRanges[] = {0xf00d, 0xf00d, 0xf062, 0xf063, 0xf06e, 0xf06e, 0xf070, 0xf070, 0};
-    // Packaged builds keep the icon font next to the executable (Linux archive,
-    // AppImage, Windows zip, macOS Contents/Resources).
+    // Packaged builds keep the icon font inside the executable (Windows) or next
+    // to it (Linux archive, AppImage, macOS Contents/Resources).
     const fs::path exe = exeDir();
     const std::vector<std::string> cands = {
         OFX_ICON_FONT_PATH,
@@ -122,7 +125,19 @@ static void loadUiFonts(GLFWwindow *window, float uiFontSizePt) {
         "fa-solid-900.ttf",
     };
     bool loaded = false;
+    // The atlas owns this buffer and frees it with the atlas, so hand it a copy
+    // that came from the heap rather than the read-only image.
+    const std::vector<unsigned char> embedded = embeddedResource(kIconFontResourceId);
+    if (!embedded.empty()) {
+      void *copy = std::malloc(embedded.size());
+      if (copy) {
+        std::memcpy(copy, embedded.data(), embedded.size());
+        if (io.Fonts->AddFontFromMemoryTTF(copy, (int)embedded.size(), fontCfg.SizePixels, &iconsCfg, iconRanges))
+          loaded = true;
+      }
+    }
     for (const std::string &path : cands) {
+      if (loaded) break;
       if (path.empty() || !fs::exists(path)) continue;
       if (io.Fonts->AddFontFromFileTTF(path.c_str(), fontCfg.SizePixels, &iconsCfg, iconRanges)) {
         loaded = true;

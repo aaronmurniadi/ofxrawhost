@@ -10,6 +10,7 @@
 #include "ParamBridge.h"
 #include "ofx/OfxHost.h"
 #include "persist/ProjectPersist.h"
+#include "platform/EmbeddedResource.h"
 
 #include <tiffio.h>
 
@@ -31,6 +32,14 @@ static int fail(const char *msg) {
 
 static bool selftestExcluded(const PluginEntry &pe) {
   return pe.plugin && pe.plugin->pluginIdentifier && !strcmp(pe.plugin->pluginIdentifier, "org.spektrafilm.dev");
+}
+
+// The Windows release is one executable, so the icon font must travel inside it.
+static int testEmbeddedIconFont() {
+#if defined(_WIN32)
+  if (embeddedResource(kIconFontResourceId).empty()) return fail("embedded icon font is missing");
+#endif
+  return 0;
 }
 
 static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
@@ -342,6 +351,7 @@ static int testConcurrency(const Image &src) {
 }
 
 int runSelfTest() {
+  if (const int rc = testEmbeddedIconFont()) return rc;
   if (const int rc = testTiffDecode()) return rc;
   if (const int rc = testPngColorSpace()) return rc;
   Image src = makeTestImage();
