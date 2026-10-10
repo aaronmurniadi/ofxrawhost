@@ -136,6 +136,7 @@ add_executable(OfxRawHost
   src/platform/Report.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
+  src/ofx/SpektraPreset.cpp
   src/imgio/ImageLoad.cpp
   src/imgio/ImageColor.cpp
   src/imgio/ImageWrite.cpp

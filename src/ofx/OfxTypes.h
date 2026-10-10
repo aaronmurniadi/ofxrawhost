@@ -47,6 +47,11 @@ struct Param {
   std::string s;
   ParamUiCache ui;
 };
+
+// Labels of the color-space parameters the host owns and drives. A preset import
+// must leave them alone, so the host and the plugin keep the same color spaces.
+inline constexpr char kInputColorSpaceLabel[] = "Input Color Space";
+inline constexpr char kOutputColorSpaceLabel[] = "Output Color Space";
 struct Effect;
 struct Clip {
   std::string name;
