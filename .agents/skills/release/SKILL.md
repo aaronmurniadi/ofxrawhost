@@ -1,6 +1,6 @@
 ---
 name: release
-description: Prepare a dev release or a stable release of OfxRawHost. Use when the user asks to release, cut a release, publish a dev release, publish an alpha, promote a release branch to stable, or run /skill:release. Always asks the user for the release kind and the version before any push.
+description: Prepare a dev release or a stable release of OfxRawHost. Use when the user asks to release, cut a release, publish a dev release, publish an alpha, promote a release branch to stable, or run /skill:release. On a release/vX.X.X branch it assumes a dev release of the branch version. Otherwise it asks for the release kind and the version before any push.
 ---
 
 # Release
@@ -11,19 +11,24 @@ Run a dev release or a stable release of OfxRawHost. Read `AGENTS.md` first.
 
 - Never publish a stable release unless the user asks for a stable release in this request.
 - Never push a `vX.X.X` tag unless the user asks for that tag in this request.
-- Always ask for the release kind first.
-- Always ask for the version second.
-- Never run `git push` until the user confirms the kind, the version, and the push.
+- Check the current branch first. On `release/vX.X.X`, the request is a dev release of version `X.X.X`; do not ask for the kind and do not bump the version.
+- Off a release branch, ask for the release kind first and the version second.
+- Never run `git push` until the user confirms the push.
 - Before any `git push`, run `gh auth status` and select the account that owns the repo.
 
-## Step 1: ask for the release kind
+## Step 1: read the current branch
 
-Ask the user one question: "Dev release or stable release?"
+Run `git branch --show-current`.
 
-- A dev release pushes the branch `release/vX.X.X`. The workflow publishes the tag `vX.X.X-dev` as a GitHub pre-release.
-- A stable release pushes the tag `vX.X.X` on `main`. The workflow publishes the tag `vX.X.X` as a full release.
+- If the branch is `release/vX.X.X`, this is a dev release of version `X.X.X`. Keep the branch version, do not bump it, and go to Step 3.
+- Any other branch: ask the user one question, "Dev release or stable release?", and continue to Step 2.
+
+A dev release pushes the branch `release/vX.X.X`. The workflow publishes the tag `vX.X.X-dev` as a GitHub pre-release.
+A stable release pushes the tag `vX.X.X` on `main`. The workflow publishes the tag `vX.X.X` as a full release.
 
 ## Step 2: recommend a version
+
+Skip this step on a `release/vX.X.X` branch; the branch fixes the version.
 
 Read the current tags, the recent commits, and the open release branches.
 
@@ -48,9 +53,9 @@ Run only the branch that matches the confirmed kind.
 
 ### Dev release
 
-1. Run `git checkout main` and `git pull --ff-only`.
-2. Run `git checkout -b release/vX.X.X` for a new version, or `git checkout release/vX.X.X` for an existing branch.
-3. Confirm the version with the user one more time.
+1. If the current branch is already `release/vX.X.X`, use it. Otherwise run `git checkout main`, `git pull --ff-only`, then `git checkout -b release/vX.X.X` for a new version, or `git checkout release/vX.X.X` for an existing branch.
+2. Commit any outstanding work on the branch.
+3. Confirm the push with the user one more time.
 4. Run `git push -u origin release/vX.X.X`.
 5. Watch the workflow with `gh run list` and `gh run watch`.
 
