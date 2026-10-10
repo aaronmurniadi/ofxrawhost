@@ -4,6 +4,7 @@
 #include "Document.h"
 #include "Filmstrip.h"
 #include "RenderState.h"
+#include "UpdateCheck.h"
 #include "ui/GlTexture.h"
 
 #include <algorithm>
@@ -101,6 +102,12 @@ struct GuiState {
   char pluginFilter[128] = {};
   bool showAbout = false;
   bool showDonate = false;
+  // Update checking. Not per-image state: only the settings file carries it, so
+  // a workspace or a sidecar never turns it on or off.
+  UpdateChannel updateChannel = defaultUpdateChannel();
+  bool checkUpdatesAtStartup = true;
+  bool devBuildWarningShown = false;   // the one-time development build warning
+  bool showDevBuildWarning = false;    // it is due on this run
   bool showExportDialog = false;
   bool showResetParamsConfirm = false;
   bool showSettings = false;
@@ -132,6 +139,7 @@ struct App {
   ChainState chain;
   RenderState render;
   Filmstrip filmstrip;
+  UpdateCheck updates;
 
   // Color space the plugin chain writes, derived by walking the chain: the first
   // plugin is told the document input space, and every later plugin is told the

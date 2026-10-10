@@ -6,6 +6,7 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "RenderScheduler.h"
+#include "UpdateCheck.h"
 #include "ui/Themes.h"
 #include "ui/ParamEdit.h"
 #include "ui/DockLayout.h"
@@ -187,8 +188,8 @@ static void drawExportDialog(App &app) {
 
 // One row per section of the settings sidebar. The index is the value kept in
 // GuiState::settingsSection.
-static const char *const kSettingsSections[] = {"Font"};
-static constexpr int kSettingsSectionCount = 1;
+static const char *const kSettingsSections[] = {"Font", "Updates"};
+static constexpr int kSettingsSectionCount = 2;
 
 // The settings modal offers three scales of the bundled Inter font. Normal is
 // the operating system font size, so a new install looks native.
@@ -222,6 +223,121 @@ static void drawFontsSettings(App &app) {
   ImGui::TextDisabled("Normal follows the system font size.");
 }
 
+// A published tag carries a "v" prefix that the build version does not, so the
+// two are compared with that prefix removed.
+static bool sameVersionText(const std::string &tag, const std::string &version) {
+  size_t start = 0;
+  if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) start = 1;
+  return tag.compare(start, std::string::npos, version) == 0;
+}
+
+// A version as the user reads it: the About window shows the build version
+// without the "v" of the release tag, and the update lines match it.
+static std::string displayVersion(const std::string &tag) {
+  if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) return tag.substr(1);
+  return tag;
+}
+
+// The update section: what the check does, and the answer of the last one. Every
+// line names the channel and the version, so a result that was measured against
+// the other channel is never read as the current state.
+static void drawUpdatesSettings(App &app) {
+  ImGui::TextUnformatted("Updates");
+  ImGui::Separator();
+  ImGui::Text("Version %s", hostVersion().c_str());
+  if (isDevelopmentBuild()) ImGui::TextDisabled("This is a development build, so it changes often.");
+
+  ImGui::Spacing();
+  static const char *const kChannelHints[kUpdateChannelCount] = {
+      "Only full releases. A development build may be newer than the newest release.",
+      "Pre-release builds as well, which is where development builds are published.",
+  };
+  int channel = static_cast<int>(app.gui.updateChannel);
+  if (channel < 0 || channel >= kUpdateChannelCount) channel = static_cast<int>(defaultUpdateChannel());
+  if (ImGui::BeginCombo("Update Channel", kUpdateChannelLabels[channel])) {
+    for (int i = 0; i < kUpdateChannelCount; ++i) {
+      // A release build checks releases only, so it cannot pick the other entry.
+      const bool allowed = channelAllowed(static_cast<UpdateChannel>(i));
+      if (!allowed) ImGui::BeginDisabled();
+      if (ImGui::Selectable(kUpdateChannelLabels[i], channel == i))
+        app.gui.updateChannel = static_cast<UpdateChannel>(i);
+      if (!allowed) ImGui::EndDisabled();
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::TextDisabled("%s", kChannelHints[static_cast<int>(app.gui.updateChannel)]);
+  if (!isDevelopmentBuild()) ImGui::TextDisabled("Only a development build can follow pre-releases.");
+
+  ImGui::Spacing();
+  ImGui::Checkbox("Check for updates at startup", &app.gui.checkUpdatesAtStartup);
+  ImGui::TextDisabled("The check asks GitHub for the release list. Nothing about your images is sent.");
+
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Status");
+  const bool preReleases = app.updates.checkedChannel == UpdateChannel::Prereleases;
+  switch (app.updates.state) {
+    case UpdateCheck::State::Idle:
+      ImGui::TextDisabled("No check has run yet.");
+      break;
+    case UpdateCheck::State::Checking:
+      ImGui::TextUnformatted("Checking for updates...");
+      break;
+    case UpdateCheck::State::UpToDate:
+      if (preReleases) ImGui::TextUnformatted("You are running the newest version.");
+      else ImGui::TextUnformatted("You are running the newest release.");
+      break;
+    case UpdateCheck::State::Available:
+      ImGui::Text("Version %s is available.", displayVersion(app.updates.latestTag).c_str());
+      break;
+    case UpdateCheck::State::Failed:
+      ImGui::TextDisabled("The check did not finish: %s", app.updates.failure.c_str());
+      break;
+  }
+  // Two development builds can share one version number, and their commit hashes
+  // cannot be ordered, so the newest published tag is worth naming even when the
+  // check calls this build current.
+  if (app.updates.state == UpdateCheck::State::UpToDate && !app.updates.latestTag.empty() &&
+      !sameVersionText(app.updates.latestTag, hostVersion()))
+    ImGui::TextDisabled("Newest published: %s", displayVersion(app.updates.latestTag).c_str());
+
+  ImGui::Spacing();
+  const bool checking = app.updates.state == UpdateCheck::State::Checking;
+  if (checking) ImGui::BeginDisabled();
+  if (ImGui::Button("Check now")) app.updates.startCheck(hostVersion(), app.gui.updateChannel);
+  if (checking) ImGui::EndDisabled();
+  if (app.updates.state == UpdateCheck::State::Available && !app.updates.releaseUrl.empty()) {
+    ImGui::SameLine();
+    if (ImGui::Button("Open release page")) openUrl(app.updates.releaseUrl);
+  }
+}
+
+// One-time notice on a development build, which publishes often enough that a
+// start-up check is a choice rather than a given. The marker is recorded when the
+// window opens, so it appears once even if it is dismissed with Escape.
+static void drawDevBuildWarning(App &app) {
+  if (app.gui.showDevBuildWarning) {
+    ImGui::OpenPopup("Development build");
+    app.gui.showDevBuildWarning = false;
+    app.gui.devBuildWarningShown = true;
+    persistWorkspace(app);
+  }
+  if (!ImGui::BeginPopupModal("Development build", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  ImGui::TextWrapped(
+      "This is a development build, and it is updated often. Would you like to turn off checking for updates at "
+      "startup?");
+  ImGui::TextDisabled("You can turn it back on at any time under Settings, Updates.");
+  ImGui::Spacing();
+  if (ImGui::Button("Yes, turn it off", ImVec2(160.0f, 0.0f))) {
+    app.gui.checkUpdatesAtStartup = false;
+    persistWorkspace(app);
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("No, keep checking", ImVec2(160.0f, 0.0f))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
 // A modal with a section sidebar on the left and the controls of the selected
 // section on the right.
 static void drawSettingsModal(App &app) {
@@ -251,6 +367,7 @@ static void drawSettingsModal(App &app) {
 
   if (ImGui::BeginChild("settings_panel", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders)) {
     if (app.gui.settingsSection == 0) drawFontsSettings(app);
+    if (app.gui.settingsSection == 1) drawUpdatesSettings(app);
   }
   ImGui::EndChild();
 
@@ -406,4 +523,5 @@ void drawUiFrame(App &app) {
   drawResetParamsConfirm(app);
   drawExportDialog(app);
   drawSettingsModal(app);
+  drawDevBuildWarning(app);
 }

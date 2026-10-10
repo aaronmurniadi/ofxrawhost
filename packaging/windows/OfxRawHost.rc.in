@@ -4,9 +4,18 @@
 
 #define IDR_ICON_FONT 101
 #define IDR_UI_FONT 102
+#define IDI_APP_ICON 103
 
 IDR_ICON_FONT RCDATA "@OFX_ICON_FONT_PATH@"
 IDR_UI_FONT RCDATA "@OFX_UI_FONT_PATH@"
+
+// The shell lists the executable under its lowest-numbered icon.
+IDI_APP_ICON ICON "@OFX_APP_ICON_PATH@"
+
+// GLFW registers this named resource as the window class icon, which is what the
+// title bar, Alt-Tab and the task bar show. Windows falls back to its own default
+// icon when the name is missing, so do not rename it.
+GLFW_ICON ICON "@OFX_APP_ICON_PATH@"
 
 1 VERSIONINFO
 FILEVERSION @OFX_VERSION_COMMAS@

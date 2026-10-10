@@ -35,6 +35,15 @@ JsonValue makeGuiJson(const PersistGui &g) {
   return gui;
 }
 
+JsonValue makeUpdatesJson(const PersistUpdates &u) {
+  // Only the settings file carries this object, so it stays out of makeGuiJson.
+  JsonValue updates = JsonValue::makeObject();
+  updates.set("channel", JsonValue::makeInt(u.channel));
+  updates.set("checkAtStartup", JsonValue::makeBool(u.checkAtStartup));
+  updates.set("devWarningShown", JsonValue::makeBool(u.devWarningShown));
+  return updates;
+}
+
 JsonValue makeChainJson(const PersistChain &chain) {
   JsonValue nodes = JsonValue::makeArray();
   for (const PersistNode &n : chain.nodes) {
@@ -142,13 +151,14 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
   return writeFile(workspaceProjectPath(workspaceDir), root.dump());
 }
 
-bool saveGlobalSettings(const PersistGui &gui) {
+bool saveGlobalSettings(const PersistGui &gui, const PersistUpdates &updates) {
   const std::string path = globalSettingsPath();
   if (path.empty()) return false;
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-settings"));
   root.set("version", JsonValue::makeInt(1));
   root.set("gui", makeGuiJson(gui));
+  root.set("updates", makeUpdatesJson(updates));
   return writeFile(path, root.dump());
 }
 

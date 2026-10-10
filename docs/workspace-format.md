@@ -20,7 +20,27 @@ Preferences that outlive a workspace live in `settings.json` in the same
 per-user config directory: `%APPDATA%\OfxRawHost` on Windows,
 `~/Library/Application Support/OfxRawHost` on macOS, and
 `$XDG_CONFIG_HOME/ofxrawhost` (or `~/.config/ofxrawhost`) elsewhere. It uses the
-same `gui` object as a workspace project.
+same `gui` object as a workspace project, plus an `updates` object:
+
+```json
+{
+  "format": "ofxrawhost-settings",
+  "version": 1,
+  "gui": { "...": "same keys as workspace gui block" },
+  "updates": {
+    "channel": 1,
+    "checkAtStartup": true,
+    "devWarningShown": false
+  }
+}
+```
+
+`channel` is 0 for stable releases and 1 for pre-releases; a release build
+always checks stable releases. `devWarningShown` records that a development
+build has already offered to turn the start-up check off. Update preferences live
+only here, so opening an image with a sidecar never changes them.
+
+A workspace project holds the same `gui` object plus the active image:
 
 ```json
 {

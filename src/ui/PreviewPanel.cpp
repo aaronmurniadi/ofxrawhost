@@ -1,6 +1,7 @@
 #include "ui/UiFrame.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"  // RenderTextEllipsis, also used by the param labels
 
 #if defined(__APPLE__)
 #include "ui/MacPinch.h"
@@ -9,6 +10,32 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <string>
+
+namespace fs = std::filesystem;
+
+// Padding of the preview corner overlays from the panel edge.
+constexpr float kOverlayPad = 8.0f;
+
+// Overlay text drawn on the preview canvas: the input file name in the top-left
+// corner and the zoom level in the bottom-left one. Both go through here so the
+// two corners cannot drift apart, and a name wider than the panel is ellipsized
+// rather than spilling over the image.
+static void previewOverlayText(ImDrawList *dl, const ImVec2 pos, float maxWidth, const ImU32 col, const char *text) {
+  if (text[0] == '\0') return;
+  if (maxWidth < 1.0f) return;
+  const ImVec2 textSize = ImGui::CalcTextSize(text);
+  // The explicit end keeps a file name containing '##' literal: the helper
+  // strips that marker when it has to find the end itself.
+  const char *textEnd = text + std::strlen(text);
+  // The helper draws with ImGuiCol_Text, so the wanted color is pushed.
+  ImGui::PushStyleColor(ImGuiCol_Text, col);
+  ImGui::RenderTextEllipsis(dl, pos, ImVec2(pos.x + maxWidth, pos.y + textSize.y), pos.x + maxWidth,
+                            pos.x + maxWidth, text, textEnd, &textSize);
+  ImGui::PopStyleColor();
+}
 
 void drawPreviewPanel(App &app) {
   const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
@@ -46,8 +73,18 @@ void drawPreviewPanel(App &app) {
   dl->PopClipRect();
   char zoomLbl[32];
   std::snprintf(zoomLbl, sizeof zoomLbl, "%.0f%%", app.gui.previewZoom * 100.0f);
-  dl->AddText(ImVec2(canvasPos.x + 8.0f, canvasPos.y + canvasSize.y - ImGui::GetTextLineHeight() - 8.0f),
-              ImGui::GetColorU32(ImGuiCol_TextDisabled), zoomLbl);
+  const float overlayTextH = ImGui::GetTextLineHeight();
+  const float overlayMaxW = canvasSize.x - kOverlayPad * 2.0f;
+  const float zoomY = canvasPos.y + canvasSize.y - overlayTextH - kOverlayPad;
+  // On a panel too short to hold both bands the name yields: the zoom level has
+  // no other home, and two overlapping labels would be unreadable.
+  if (!app.doc.path.empty() && canvasPos.y + kOverlayPad + overlayTextH <= zoomY) {
+    const std::string name = fs::path(app.doc.path).filename().string();
+    previewOverlayText(dl, ImVec2(canvasPos.x + kOverlayPad, canvasPos.y + kOverlayPad), overlayMaxW,
+                       ImGui::GetColorU32(ImGuiCol_TextDisabled), name.c_str());
+  }
+  previewOverlayText(dl, ImVec2(canvasPos.x + kOverlayPad, zoomY), overlayMaxW,
+                     ImGui::GetColorU32(ImGuiCol_TextDisabled), zoomLbl);
 
 #if defined(__APPLE__)
   const float pinch = MacPinch_Consume();

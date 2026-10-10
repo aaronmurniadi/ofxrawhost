@@ -22,6 +22,15 @@ struct PersistGui {
   bool showFilmstrip = false;
 };
 
+// Update-check preferences. They live in their own object of the per-user
+// settings file, because a workspace project or a sidecar must never turn the
+// check on or off for the user.
+struct PersistUpdates {
+  int channel = 0;  // UpdateChannel: Stable Release, Pre-releases
+  bool checkAtStartup = true;
+  bool devWarningShown = false;
+};
+
 struct PersistNode {
   std::string pluginIdentifier;
   std::string pluginLabel;
@@ -62,10 +71,11 @@ bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std:
 bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel);
 
 // Preferences that outlive a workspace or an image: theme, font, panel
-// visibility, preview size, and export defaults. Loaded at start-up before the
-// theme and font are applied, and saved on exit and on every persistWorkspace.
-bool loadGlobalSettings(PersistGui &gui);
-bool saveGlobalSettings(const PersistGui &gui);
+// visibility, preview size, export defaults, and update checking. Loaded at
+// start-up before the theme and font are applied, and saved on exit and on every
+// persistWorkspace.
+bool loadGlobalSettings(PersistGui &gui, PersistUpdates &updates);
+bool saveGlobalSettings(const PersistGui &gui, const PersistUpdates &updates);
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
 bool saveInputSidecar(const std::string &imagePath, ColorSpace fileSpace, ColorSpace chainInputSpace,

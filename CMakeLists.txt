@@ -131,6 +131,7 @@ add_executable(OfxRawHost
   src/selftest/Selftest.cpp
   src/platform/Console.cpp
   src/platform/EmbeddedResource.cpp
+  src/platform/Http.cpp
   src/platform/Paths.cpp
   src/platform/SystemUiFont.cpp
   src/platform/Report.cpp
@@ -141,6 +142,7 @@ add_executable(OfxRawHost
   src/imgio/ImageColor.cpp
   src/imgio/ImageWrite.cpp
   src/UI.cpp
+  src/UpdateCheck.cpp
   src/NodeGraph.cpp
   src/ParamBridge.cpp
   src/ChainRenderer.cpp
@@ -168,7 +170,8 @@ add_executable(OfxRawHost
 )
 
 if(APPLE)
-  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm)
+  # The update check uses Foundation's URL session, which needs Objective-C++.
+  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm src/platform/HttpApple.mm)
 else()
   target_sources(OfxRawHost PRIVATE src/ofx/OfxMetalStub.cpp)
 endif()
@@ -284,7 +287,8 @@ endif()
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal" "-framework CoreText")
 elseif(WIN32)
-  target_link_libraries(OfxRawHost PRIVATE opengl32)
+  # The update check reaches GitHub through the WinHTTP library of Windows.
+  target_link_libraries(OfxRawHost PRIVATE opengl32 winhttp)
 else()
   find_package(OpenGL REQUIRED)
   target_link_libraries(OfxRawHost PRIVATE OpenGL::GL)
@@ -363,6 +367,10 @@ if(WIN32)
   string(REPLACE ";" "," OFX_VERSION_COMMAS "${_ofx_ver_parts}")
   set(OFX_ICON_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf")
   set(OFX_UI_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf")
+  set(OFX_APP_ICON_PATH "${CMAKE_SOURCE_DIR}/packaging/windows/ofxrawhost.ico")
+  if(NOT EXISTS "${OFX_APP_ICON_PATH}")
+    message(FATAL_ERROR "windows icon not found: ${OFX_APP_ICON_PATH}")
+  endif()
   configure_file(packaging/windows/OfxRawHost.rc.in "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc" @ONLY)
 
   target_sources(OfxRawHost PRIVATE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")

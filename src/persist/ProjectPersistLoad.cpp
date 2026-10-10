@@ -35,6 +35,12 @@ void loadGui(const JsonValue &gui, PersistGui &g) {
   g.showFilmstrip = gui.boolean("showFilmstrip", g.showFilmstrip);
 }
 
+void loadUpdates(const JsonValue &updates, PersistUpdates &u) {
+  u.channel = (int)updates.integer("channel", u.channel);
+  u.checkAtStartup = updates.boolean("checkAtStartup", u.checkAtStartup);
+  u.devWarningShown = updates.boolean("devWarningShown", u.devWarningShown);
+}
+
 bool loadChain(const JsonValue &chain, PersistChain &out) {
   out.selectedNode = (int)chain.integer("selectedNode", out.selectedNode);
   const JsonValue *nodes = chain.find("nodes");
@@ -73,7 +79,7 @@ bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std:
   return true;
 }
 
-bool loadGlobalSettings(PersistGui &gui) {
+bool loadGlobalSettings(PersistGui &gui, PersistUpdates &updates) {
   const std::string path = globalSettingsPath();
   if (path.empty()) return false;
   std::string json;
@@ -81,6 +87,7 @@ bool loadGlobalSettings(PersistGui &gui) {
   JsonValue root;
   if (!JsonValue::parse(json, root)) return false;
   if (const JsonValue *guiValue = root.find("gui")) loadGui(*guiValue, gui);
+  if (const JsonValue *updatesValue = root.find("updates")) loadUpdates(*updatesValue, updates);
   return true;
 }
 

@@ -50,10 +50,29 @@ void saveCurrentInputSidecar(App &app) {
   saveInputSidecar(app.doc.path, app.doc.fileSpace, app.doc.inputSpace, captureGui(app), captureChain(app));
 }
 
+PersistUpdates captureUpdates(const App &app) {
+  PersistUpdates u;
+  u.channel = static_cast<int>(app.gui.updateChannel);
+  u.checkAtStartup = app.gui.checkUpdatesAtStartup;
+  u.devWarningShown = app.gui.devBuildWarningShown;
+  return u;
+}
+
+void applyUpdates(App &app, const PersistUpdates &u) {
+  // A release build checks releases only, so a stored pre-release channel snaps
+  // back to stable instead of leaving the setting quietly in effect.
+  UpdateChannel channel = static_cast<UpdateChannel>(u.channel);
+  if (u.channel < 0 || u.channel >= kUpdateChannelCount) channel = defaultUpdateChannel();
+  if (!channelAllowed(channel)) channel = UpdateChannel::Stable;
+  app.gui.updateChannel = channel;
+  app.gui.checkUpdatesAtStartup = u.checkAtStartup;
+  app.gui.devBuildWarningShown = u.devWarningShown;
+}
+
 void persistWorkspace(App &app) {
   // The per-user preferences file always reflects the current session, even when
   // no workspace is open, so the next start restores the theme, font, and view.
-  saveGlobalSettings(captureGui(app));
+  saveGlobalSettings(captureGui(app), captureUpdates(app));
   if (app.doc.workspaceDir.empty()) return;
   const std::string active =
       app.doc.path.empty() ? std::string() : relativeToWorkspace(app.doc.workspaceDir, app.doc.path);

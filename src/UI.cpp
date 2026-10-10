@@ -8,6 +8,7 @@
 #include "ofx/OfxHost.h"
 #include "platform/Report.h"
 #include "RenderScheduler.h"
+#include "UpdateCheck.h"
 #include "ui/ImGuiBackend.h"
 #include "ui/UiFrame.h"
 
@@ -89,10 +90,22 @@ int runApp(const std::string &optionalPath) {
   // frame. A workspace or sidecar opens later and overrides these values.
   {
     PersistGui saved;
-    if (loadGlobalSettings(saved)) applyGui(app, saved);
+    PersistUpdates savedUpdates;
+    // Without a settings file the channel follows the kind of build this is.
+    savedUpdates.channel = static_cast<int>(defaultUpdateChannel());
+    if (loadGlobalSettings(saved, savedUpdates)) {
+      applyGui(app, saved);
+      applyUpdates(app, savedUpdates);
+    }
   }
 
   ImGuiBackend_Init(app.window, legacyGl, app.gui.themeIndex, static_cast<int>(app.gui.uiFontScale));
+
+  // A development build warns once, before the check it is about to start.
+  if (isDevelopmentBuild() && !app.gui.devBuildWarningShown) app.gui.showDevBuildWarning = true;
+  // The check runs on its own thread, so the first frame does not wait for the
+  // network, and its answer appears in Settings, Updates.
+  if (app.gui.checkUpdatesAtStartup) app.updates.startCheck(hostVersion(), app.gui.updateChannel);
 
   gOnMessage = [&app](const std::string &msg) { app.setStatus(msg); };
   loadPlugins();
@@ -115,6 +128,7 @@ int runApp(const std::string &optionalPath) {
     glfwPollEvents();
     pumpDisplayUpload(app);
     pumpFilmstripThumbs(app.filmstrip);
+    app.updates.pump();
 
     // Rebuild the font atlas between frames. The atlas owns the font objects the
     // previous frame referenced, so a rebuild during a frame leaves that frame

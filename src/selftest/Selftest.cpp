@@ -10,10 +10,12 @@
 #include "ParamBridge.h"
 #include "ofx/OfxHost.h"
 #include "persist/ChainIO.h"
+#include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "platform/EmbeddedResource.h"
 #include "platform/Paths.h"
 #include "platform/SystemUiFont.h"
+#include "UpdateCheck.h"
 #include "ui/ParamEdit.h"
 
 #include "imgui.h"
@@ -219,10 +221,16 @@ static int testGlobalSettingsRoundTrip() {
   saved.exportIntent = 2;
   saved.exportQuality = 71;
 
+  PersistUpdates savedUpdates;
+  savedUpdates.channel = static_cast<int>(UpdateChannel::Prereleases);
+  savedUpdates.checkAtStartup = false;
+  savedUpdates.devWarningShown = true;
+
   int rc = 0;
-  if (!saveGlobalSettings(saved)) rc = fail("settings: save");
+  if (!saveGlobalSettings(saved, savedUpdates)) rc = fail("settings: save");
   PersistGui loaded;
-  if (rc == 0 && !loadGlobalSettings(loaded)) rc = fail("settings: load");
+  PersistUpdates loadedUpdates;
+  if (rc == 0 && !loadGlobalSettings(loaded, loadedUpdates)) rc = fail("settings: load");
   if (rc == 0) {
     bool same = loaded.themeIndex == saved.themeIndex && loaded.uiFontScale == saved.uiFontScale &&
                 loaded.showPlugins == saved.showPlugins &&
@@ -231,6 +239,12 @@ static int testGlobalSettingsRoundTrip() {
                 loaded.exportIndex == saved.exportIndex && loaded.exportIntent == saved.exportIntent &&
                 loaded.exportQuality == saved.exportQuality;
     if (!same) rc = fail("settings: values did not round-trip");
+  }
+  if (rc == 0) {
+    const bool same = loadedUpdates.channel == savedUpdates.channel &&
+                      loadedUpdates.checkAtStartup == savedUpdates.checkAtStartup &&
+                      loadedUpdates.devWarningShown == savedUpdates.devWarningShown;
+    if (!same) rc = fail("settings: update preferences did not round-trip");
   }
 
 #ifdef _WIN32
@@ -243,6 +257,104 @@ static int testGlobalSettingsRoundTrip() {
   fs::remove_all(base, ec);
   if (rc == 0) printf("ok  global settings round-trip\n");
   return rc;
+}
+
+// The update check compares release tags. A tag carries a "v" prefix and a
+// development build carries a "-dev-<sha>" suffix, and neither may be read as a
+// different version; two versions of different length must still order.
+static int testUpdateVersionOrdering() {
+  struct Case {
+    const char *left;
+    const char *right;
+    int expected;  // sign only
+  };
+  static const Case cases[] = {
+      {"v0.4.2", "0.4.2", 0},
+      {"0.4.2-dev-ac9deb", "0.4.2", 0},
+      {"0.4.2-dev-ac9deb", "0.4.2-dev-ffffff", 0},
+      {"0.4.2", "0.4.10", -1},
+      {"0.5", "0.4.9", 1},
+      {"0.4.2-dev-ac9deb", "0.4.1", 1},
+      {"v0.4.3-dev-abc", "0.4.2-dev-def", 1},
+      {"1.0.0", "0.99.99", 1},
+      {"0.4", "0.4.0", 0},
+      {"junk", "0.1", -1},
+      {"0.1", "junk", 1},
+      {"junk", "other", 0},
+  };
+  for (const Case &c : cases) {
+    const int order = compareVersions(c.left, c.right);
+    int sign = 0;
+    if (order < 0) sign = -1;
+    if (order > 0) sign = 1;
+    if (sign != c.expected) return fail((std::string("version order: ") + c.left + " vs " + c.right).c_str());
+  }
+
+  std::vector<int> parts;
+  if (!versionParts("v1.2.3", parts) || parts.size() != 3 || parts[0] != 1 || parts[1] != 2 || parts[2] != 3)
+    return fail("version parts");
+  if (versionParts("-dev-abc", parts) || !parts.empty()) return fail("version parts accepted a tag with no number");
+
+  // A release object names one version.
+  std::string tag, url;
+  static const char *kRelease =
+      "{\"tag_name\":\"v0.5.0\",\"html_url\":\"https://github.com/aaronmurniadi/ofxrawhost/releases/tag/v0.5.0\"}";
+  if (!parseReleaseResponse(kRelease, tag, url) || tag != "v0.5.0") return fail("release tag");
+  if (url.find("/releases/tag/v0.5.0") == std::string::npos) return fail("release page url");
+  if (parseReleaseResponse("{}", tag, url)) return fail("release: empty object accepted");
+  if (parseReleaseResponse("[]", tag, url)) return fail("release: array accepted");
+  if (parseReleaseResponse("{\"tag_name\":\"\"}", tag, url)) return fail("release: empty tag accepted");
+  if (parseReleaseResponse("not json", tag, url)) return fail("release: junk accepted");
+  if (parseReleaseResponse("{\"message\":\"API rate limit exceeded\"}", tag, url))
+    return fail("release: rate limit answer accepted");
+
+  // The release list holds both kinds, newest first. A newer version wins, and a
+  // pre-release wins a tie because the caller asked for pre-releases.
+  static const char *kList =
+      "[{\"tag_name\":\"v0.5.0\",\"prerelease\":false,\"html_url\":\"u5\"},"
+      "{\"tag_name\":\"v0.6.0-dev-abc1234\",\"prerelease\":true,\"html_url\":\"u6\"},"
+      "{\"tag_name\":\"v0.4.9\",\"prerelease\":false,\"html_url\":\"u4\"}]";
+  if (!parseReleasesResponse(kList, tag, url) || tag != "v0.6.0-dev-abc1234" || url != "u6")
+    return fail("release list: newest version not chosen");
+
+  static const char *kSameVersion =
+      "[{\"tag_name\":\"v0.5.0\",\"prerelease\":false,\"html_url\":\"stable\"},"
+      "{\"tag_name\":\"v0.5.0-dev-ffff\",\"prerelease\":true,\"html_url\":\"pre\"}]";
+  if (!parseReleasesResponse(kSameVersion, tag, url) || tag != "v0.5.0-dev-ffff")
+    return fail("release list: pre-release did not win a tie");
+
+  static const char *kNewestFirst =
+      "[{\"tag_name\":\"v0.5.0-dev-bbbb\",\"prerelease\":true,\"html_url\":\"b\"},"
+      "{\"tag_name\":\"v0.5.0-dev-aaaa\",\"prerelease\":true,\"html_url\":\"a\"}]";
+  if (!parseReleasesResponse(kNewestFirst, tag, url) || tag != "v0.5.0-dev-bbbb")
+    return fail("release list: same-version development builds are not ordered by list order");
+
+  if (parseReleasesResponse("[]", tag, url)) return fail("release list: empty list accepted");
+  if (parseReleasesResponse("{\"tag_name\":\"v1.0.0\"}", tag, url))
+    return fail("release list: object accepted");
+  if (parseReleasesResponse("[{\"name\":\"no tag\"}]", tag, url))
+    return fail("release list: entry with no tag accepted");
+
+  // A release build follows releases only, and a development build may follow
+  // pre-releases, which is also the channel it starts on.
+  if (!channelAllowed(UpdateChannel::Stable)) return fail("stable channel rejected");
+  const bool dev = isDevelopmentBuild();
+  if (channelAllowed(UpdateChannel::Prereleases) != dev) return fail("pre-release channel allowed on a release build");
+  if ((defaultUpdateChannel() == UpdateChannel::Prereleases) != dev) return fail("default channel");
+
+  // The stored channel is clamped when it is applied, so a release build that
+  // once ran a development build cannot keep checking pre-releases.
+  App app;
+  PersistUpdates stored;
+  stored.channel = static_cast<int>(UpdateChannel::Prereleases);
+  stored.checkAtStartup = false;
+  applyUpdates(app, stored);
+  if (!dev && app.gui.updateChannel != UpdateChannel::Stable) return fail("stored pre-release channel was not clamped");
+  if (dev && app.gui.updateChannel != UpdateChannel::Prereleases) return fail("development build channel was clamped");
+  if (app.gui.checkUpdatesAtStartup) return fail("stored start-up preference was not applied");
+
+  printf("ok  update version ordering\n");
+  return 0;
 }
 
 // A gray ramp that gives every plugin something with a large dynamic range.
@@ -710,6 +822,7 @@ int runSelfTest() {
   Image src = makeTestImage();
   if (const int rc = testRowOrder()) return rc;
   if (const int rc = testGlobalSettingsRoundTrip()) return rc;
+  if (const int rc = testUpdateVersionOrdering()) return rc;
   if (const int rc = testColorSpaceConversion()) return rc;
   if (const int rc = testPluginColorSpaceMapping()) return rc;
   loadPlugins();
