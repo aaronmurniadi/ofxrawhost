@@ -208,9 +208,15 @@ jobs:
           }
           # Runs every plugin on a small image, so this fails when a dependency is
           # missing or the linked-in Transform effect cannot be registered.
-          $out = & $exe --selftest 2>&1 | Out-String
+          # Start-Process waits for the process and captures the streams, which
+          # works the same for the GUI subsystem.
+          $stdout = 'build/selftest.stdout.txt'
+          $stderr = 'build/selftest.stderr.txt'
+          $proc = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $out = "$(Get-Content $stdout -Raw)$(Get-Content $stderr -Raw)"
           Write-Host $out
-          if ($LASTEXITCODE -ne 0) { throw "selftest exited with $LASTEXITCODE" }
+          if ($proc.ExitCode -ne 0) { throw "selftest exited with $($proc.ExitCode)" }
           if ($out -notmatch 'ok  Transform') { throw 'the executable does not register the Transform effect' }
           $expected = '0.0.0'
           if ($env:GITHUB_REF_TYPE -eq 'tag') { $expected = $env:GITHUB_REF_NAME -replace '^v', '' }
