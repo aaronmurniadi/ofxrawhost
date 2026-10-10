@@ -158,6 +158,8 @@ add_executable(OfxRawHost
 
 if(APPLE)
   target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm)
+else()
+  target_sources(OfxRawHost PRIVATE src/ofx/OfxMetalStub.cpp)
 endif()
 
 # Link-time optimization (cross-TU inlining, dead-code elimination).

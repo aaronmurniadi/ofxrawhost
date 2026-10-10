@@ -726,10 +726,10 @@ static PropSet gHostProps = [] {
   propSetString(h, kOfxImageEffectPropCudaStreamSupported, 0, "false");
 #if defined(__APPLE__)
   propSetString(h, kOfxImageEffectPropMetalRenderSupported, 0, "true");
-  propSetString(h, kOfxImageEffectPropCPURenderSupported, 0, "true");
 #else
   propSetString(h, kOfxImageEffectPropMetalRenderSupported, 0, "false");
 #endif
+  propSetString(h, kOfxImageEffectPropCPURenderSupported, 0, "true");
   propSetString(h, kOfxImageEffectPropOpenCLRenderSupported, 0, "false");
   propSetString(h, kOfxImageEffectHostPropNativeOrigin, 0, kOfxHostNativeOriginBottomLeft);
   propSetInt(h, kOfxParamHostPropSupportsCustomInteract, 0, 0);

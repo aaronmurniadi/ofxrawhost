@@ -83,5 +83,5 @@ if command -v ldd >/dev/null 2>&1; then
 fi
 
 ARCH="$APPTARGET" VERSION="$VERSION" NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 \
-  "$TOOL" "$APPDIR" "$OUT/$NAME-Linux-$APPTARGET.AppImage"
+  "$TOOL" --no-appstream "$APPDIR" "$OUT/$NAME-Linux-$APPTARGET.AppImage"
 echo "Built $(pwd)/$OUT/$NAME-Linux-$APPTARGET.AppImage"

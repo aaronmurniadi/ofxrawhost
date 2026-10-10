@@ -86,7 +86,9 @@ jobs:
           pkg-config --modversion libjxl libjxl_threads
       - name: Configure and build
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          # The AppImage targets X11; GLFW would otherwise enable Wayland when
+          # the runner image happens to ship libwayland-dev without wayland-scanner.
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGLFW_BUILD_WAYLAND=OFF
           cmake --build build --parallel "$(nproc)"
       - name: Self-test
         run: |
