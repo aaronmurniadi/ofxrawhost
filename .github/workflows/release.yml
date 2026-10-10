@@ -157,7 +157,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\vcpkg-cache
-          key: vcpkg-${{ runner.os }}-x64-windows-static-${{ hashFiles('vcpkg.json') }}
+          # Key on the run, not on the manifest, so a version bump does not throw
+          # away every built package. vcpkg looks packages up by an ABI hash, so
+          # an entry that no longer matches is simply rebuilt and added.
+          key: vcpkg-${{ runner.os }}-x64-windows-static-${{ github.run_id }}
           restore-keys: vcpkg-${{ runner.os }}-x64-windows-static-
       - name: Install vcpkg
         shell: cmd
@@ -173,6 +176,7 @@ jobs:
           cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DVCPKG_OVERLAY_TRIPLETS=packaging/vcpkg-triplets `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static `
             "-DOFX_VERSION=$version"
           if ($LASTEXITCODE -ne 0) { throw 'cmake configure failed' }

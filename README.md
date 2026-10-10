@@ -158,8 +158,9 @@ the file properties of the executable:
 ```cmd
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
+  -DVCPKG_OVERLAY_TRIPLETS=packaging/vcpkg-triplets ^
   -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
-  -DOFX_VERSION=0.4.0
+  -DOFX_VERSION=0.4.1
 cmake --build build --config Release
 ```
 
@@ -228,6 +229,7 @@ build/OfxRawHost --selftest
 | UI: System sans font and adjustable UI font size (Settings)         | Done (v0.3.17) |
 | Refactor: Document / Chain / GuiState; scheduler + chain renderer   | Done (v0.3.17) |
 | Packaged macOS, Linux, and single-file Windows releases                 | Done (v0.4.0)  |
+| Release pipeline: cached, release-only dependency builds                | Done (v0.4.1)  |
 
 ---
 
