@@ -3,13 +3,60 @@ name: Release
 on:
   push:
     tags: ['v*']
+    # A push to release/vX.X.X publishes the build as vX.X.X-dev. The merge of
+    # that branch into main, tagged vX.X.X, publishes the same build as stable.
+    branches: ['release/v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  # One job decides the version, the release tag, and the pre-release flag, so
+  # every build job stamps the same numbers and the publish job names one tag.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      is_release: ${{ steps.version.outputs.is_release }}
+    steps:
+      - id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="0.0.0"
+          tag=""
+          prerelease="false"
+          is_release="false"
+          if [ "$REF_TYPE" = "tag" ]; then
+            # The tag vX.X.X carries the version X.X.X.
+            version="${REF_NAME#v}"
+            tag="$REF_NAME"
+            is_release="true"
+          elif [[ "$REF_NAME" == release/v* ]]; then
+            # The branch release/vX.X.X carries the version X.X.X and the tag
+            # vX.X.X-dev. The build keeps the numeric version, because the
+            # Windows file version and the macOS bundle version accept digits
+            # and dots only.
+            version="${REF_NAME#release/v}"
+            tag="v${version}-dev"
+            prerelease="true"
+            is_release="true"
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+            echo "is_release=$is_release"
+          } >> "$GITHUB_OUTPUT"
+          echo "version=$version tag=$tag prerelease=$prerelease is_release=$is_release"
+
   macos:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +77,7 @@ jobs:
       - name: Build and package DMG
         run: |
           rm -rf build
-          ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+          ARCHS=${{ matrix.arch }} VERSION="${{ needs.prepare.outputs.version }}" ./build.sh
           # Verify binary arch matches the matrix target
           lipo -info build/OfxRawHost.app/Contents/MacOS/OfxRawHost | tee /dev/stderr | grep -q "${{ matrix.arch }}"
           mkdir -p build/dmg
@@ -45,6 +92,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    needs: prepare
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -104,8 +152,7 @@ jobs:
           wget -q -O /tmp/appimagetool \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
-          if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION=0.0.0; fi
-          VERSION="$VERSION" APPIMAGETOOL=/tmp/appimagetool packaging/linux/build-appimage.sh
+          VERSION="${{ needs.prepare.outputs.version }}" APPIMAGETOOL=/tmp/appimagetool packaging/linux/build-appimage.sh
           test -x build/AppImage/OfxRawHost-Linux-x86_64.AppImage
       - name: Smoke-test the AppImage
         run: |
@@ -151,6 +198,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: prepare
     runs-on: windows-2022
     env:
       # The static triplet links every dependency and the C runtime into the
@@ -182,8 +230,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = '0.0.0'
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $version = $env:GITHUB_REF_NAME -replace '^v', '' }
+          $version = '${{ needs.prepare.outputs.version }}'
           cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
@@ -233,8 +280,7 @@ jobs:
           Write-Host $out
           if ($proc.ExitCode -ne 0) { throw "selftest exited with $($proc.ExitCode)" }
           if ($out -notmatch 'ok  Transform') { throw 'the executable does not register the Transform effect' }
-          $expected = '0.0.0'
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $expected = $env:GITHUB_REF_NAME -replace '^v', '' }
+          $expected = '${{ needs.prepare.outputs.version }}'
           $actual = (Get-Item $exe).VersionInfo.FileVersion
           if ($actual -ne $expected) { throw "the file version is '$actual', expected '$expected'" }
           Write-Host "file version: $actual"
@@ -245,8 +291,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [macos, linux, windows]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [prepare, macos, linux, windows]
+    if: needs.prepare.outputs.is_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -259,10 +305,10 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           set -euo pipefail
-          TAG="$GITHUB_REF_NAME"
-          PREV=$(git tag --sort=-v:refname | awk -v t="$TAG" '$0 != t { print; exit }')
           NOTES=$(mktemp)
           {
             if [ -f "docs/releases/${TAG}.md" ]; then
@@ -276,14 +322,24 @@ jobs:
             echo "- **Windows (x64):** \`OfxRawHost-Windows-x64.exe\`"
             echo "- **Linux (x86_64):** \`OfxRawHost-Linux-x86_64.AppImage\`"
             echo
-            if [ -n "${PREV:-}" ]; then
-              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${TAG}"
+            # A pre-release has no stable predecessor to compare against.
+            if [ "$PRERELEASE" = "false" ]; then
+              PREV=$(git tag --sort=-v:refname | awk -v t="$TAG" '$0 != t { print; exit }')
+              if [ -n "${PREV:-}" ]; then
+                echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${TAG}"
+              fi
             fi
           } > "$NOTES"
 
+          FLAGS=()
+          if [ "$PRERELEASE" = "true" ]; then
+            FLAGS+=(--prerelease --latest=false)
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "$TAG" --notes-file "$NOTES"
+            gh release edit "$TAG" --title "$TAG" --notes-file "$NOTES" "${FLAGS[@]}"
           else
-            gh release create "$TAG" --title "$TAG" --notes-file "$NOTES"
+            # A branch push has no tag yet, so point the new tag at this commit.
+            gh release create "$TAG" --title "$TAG" --notes-file "$NOTES" --target "$GITHUB_SHA" "${FLAGS[@]}"
           fi
           gh release upload "$TAG" dist/*.dmg dist/*.exe dist/*.AppImage --clobber
