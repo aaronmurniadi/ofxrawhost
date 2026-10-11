@@ -12,6 +12,7 @@
 #include "persist/ChainIO.h"
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
+#include "persist/ProjectPersistPriv.h"
 #include "platform/EmbeddedResource.h"
 #include "platform/Paths.h"
 #include "platform/SystemUiFont.h"
@@ -172,6 +173,57 @@ static int testPngColorSpace() {
   return 0;
 }
 
+// The font setting is a point size, and 0 follows the system size. A settings
+// file written while the setting was a scale of the system size must still
+// apply, and a hand-edited value must snap back into the range.
+static int testFontSizeMigration() {
+  const float systemPt = systemUiFontSizePt();
+
+  PersistGui gui;
+  JsonValue none = JsonValue::makeObject();
+  loadGui(none, gui);
+  if (gui.uiFontPt != kUiFontPtAuto) return fail("font size: a file without the setting does not follow the system");
+
+  JsonValue explicitPt = JsonValue::makeObject();
+  explicitPt.set("uiFontSizePt", JsonValue::makeInt(17));
+  loadGui(explicitPt, gui);
+  if (gui.uiFontPt != 17) return fail("font size: the stored point size was not read");
+
+  // Scale 1 was the system size, so it becomes the automatic setting.
+  JsonValue normal = JsonValue::makeObject();
+  normal.set("uiFontScale", JsonValue::makeInt(1));
+  loadGui(normal, gui);
+  if (gui.uiFontPt != kUiFontPtAuto) return fail("font size: the normal scale did not follow the system");
+
+  // Scales 0 and 2 were 0.85 and 1.2 of the system size.
+  JsonValue smaller = JsonValue::makeObject();
+  smaller.set("uiFontScale", JsonValue::makeInt(0));
+  loadGui(smaller, gui);
+  if (gui.uiFontPt != (int)std::lround(systemPt * 0.85f)) return fail("font size: the smaller scale did not convert");
+
+  JsonValue bigger = JsonValue::makeObject();
+  bigger.set("uiFontScale", JsonValue::makeInt(2));
+  loadGui(bigger, gui);
+  if (gui.uiFontPt != (int)std::lround(systemPt * 1.2f)) return fail("font size: the bigger scale did not convert");
+
+  App app;
+  PersistGui tooSmall;
+  tooSmall.uiFontPt = 2;
+  applyGui(app, tooSmall);
+  if (app.gui.uiFontPt != kUiFontPtMin) return fail("font size: a small value was not raised to the minimum");
+  PersistGui tooBig;
+  tooBig.uiFontPt = 200;
+  applyGui(app, tooBig);
+  if (app.gui.uiFontPt != kUiFontPtMax) return fail("font size: a large value was not lowered to the maximum");
+  PersistGui negative;
+  negative.uiFontPt = -5;
+  applyGui(app, negative);
+  if (app.gui.uiFontPt != kUiFontPtAuto) return fail("font size: a negative value did not return to the system size");
+
+  printf("ok  font size migration (system size %.1f pt)\n", systemPt);
+  return 0;
+}
+
 // Row-order check: bottom-up means index 0 is the bottom row.
 static int testRowOrder() {
   Image order;
@@ -211,7 +263,7 @@ static int testGlobalSettingsRoundTrip() {
 
   PersistGui saved;
   saved.themeIndex = 5;
-  saved.uiFontScale = 2;
+  saved.uiFontPt = 15;
   saved.showPlugins = false;
   saved.showParameters = true;
   saved.showFilmstrip = true;
@@ -232,7 +284,7 @@ static int testGlobalSettingsRoundTrip() {
   PersistUpdates loadedUpdates;
   if (rc == 0 && !loadGlobalSettings(loaded, loadedUpdates)) rc = fail("settings: load");
   if (rc == 0) {
-    bool same = loaded.themeIndex == saved.themeIndex && loaded.uiFontScale == saved.uiFontScale &&
+    bool same = loaded.themeIndex == saved.themeIndex && loaded.uiFontPt == saved.uiFontPt &&
                 loaded.showPlugins == saved.showPlugins &&
                 loaded.showParameters == saved.showParameters && loaded.showFilmstrip == saved.showFilmstrip &&
                 loaded.previewRes == saved.previewRes && loaded.outputIndex == saved.outputIndex &&
@@ -822,6 +874,7 @@ int runSelfTest() {
   Image src = makeTestImage();
   if (const int rc = testRowOrder()) return rc;
   if (const int rc = testGlobalSettingsRoundTrip()) return rc;
+  if (const int rc = testFontSizeMigration()) return rc;
   if (const int rc = testUpdateVersionOrdering()) return rc;
   if (const int rc = testColorSpaceConversion()) return rc;
   if (const int rc = testPluginColorSpaceMapping()) return rc;

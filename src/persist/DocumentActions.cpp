@@ -17,7 +17,7 @@ PersistGui captureGui(const App &app) {
   g.exportIntent = static_cast<int>(app.gui.exportIntent);
   g.previewRes = static_cast<int>(app.gui.previewRes);
   g.themeIndex = app.gui.themeIndex;
-  g.uiFontScale = static_cast<int>(app.gui.uiFontScale);
+  g.uiFontPt = app.gui.uiFontPt;
   g.showPlugins = app.gui.showPlugins;
   g.showParameters = app.gui.showParameters;
   g.showFilmstrip = app.gui.showFilmstrip;
@@ -35,9 +35,13 @@ void applyGui(App &app, const PersistGui &g) {
   app.gui.exportIntent = static_cast<RenderIntent>(std::clamp(g.exportIntent, 0, kRenderIntentCount - 1));
   app.gui.previewRes = static_cast<PreviewRes>(std::clamp(g.previewRes, 0, kPreviewResCount - 1));
   if (g.themeIndex >= 0 && g.themeIndex < themeCount()) app.gui.themeIndex = g.themeIndex;
-  // The settings modal offers three scales; a stale or hand-edited value snaps
-  // back into that range.
-  app.gui.uiFontScale = static_cast<UiFontScale>(std::clamp(g.uiFontScale, 0, kUiFontScaleCount - 1));
+  // The settings modal offers a point size; a stale or hand-edited value snaps
+  // back into that range, and 0 stays on the system size.
+  if (g.uiFontPt <= 0) {
+    app.gui.uiFontPt = kUiFontPtAuto;
+  } else {
+    app.gui.uiFontPt = std::clamp(g.uiFontPt, kUiFontPtMin, kUiFontPtMax);
+  }
   app.gui.showPlugins = g.showPlugins;
   app.gui.showParameters = g.showParameters;
   app.gui.showFilmstrip = g.showFilmstrip;

@@ -1,9 +1,26 @@
 #include "persist/ProjectPersist.h"
 #include "persist/ProjectPersistPriv.h"
 
+#include "platform/SystemUiFont.h"
+
+#include <cmath>
 #include <fstream>
 #include <iterator>
 #include <string>
+
+namespace {
+
+// A settings file written while the setting was a scale of the system size
+// carries "uiFontScale" rather than a point size: 0 was smaller, 1 the system
+// size, and 2 bigger. The conversion applies the same multipliers to the system
+// size, so the choice survives the upgrade.
+int legacyFontScalePt(int scale) {
+  if (scale <= 0) return (int)std::lround(systemUiFontSizePt() * 0.85f);
+  if (scale >= 2) return (int)std::lround(systemUiFontSizePt() * 1.2f);
+  return 0;
+}
+
+}  // namespace
 
 void loadGui(const JsonValue &gui, PersistGui &g) {
   g.outputIndex = (int)gui.integer("outputIndex", g.outputIndex);
@@ -17,15 +34,8 @@ void loadGui(const JsonValue &gui, PersistGui &g) {
   g.exportLossless = gui.boolean("exportLossless", g.exportLossless);
   g.previewRes = (int)gui.integer("previewRes", g.previewRes);
   g.themeIndex = (int)gui.integer("themeIndex", g.themeIndex);
-  g.uiFontScale = (int)gui.integer("uiFontScale", g.uiFontScale);
-  // A project written before the scale setting stored a point size. Map it onto
-  // the nearest of the three choices, so an existing preference still applies.
-  if (!gui.find("uiFontScale") && gui.find("uiFontSizePt")) {
-    const int oldPt = (int)gui.integer("uiFontSizePt", 13);
-    if (oldPt <= 12) g.uiFontScale = 0;
-    else if (oldPt <= 15) g.uiFontScale = 1;
-    else g.uiFontScale = 2;
-  }
+  if (gui.find("uiFontSizePt")) g.uiFontPt = (int)gui.integer("uiFontSizePt", g.uiFontPt);
+  else if (gui.find("uiFontScale")) g.uiFontPt = legacyFontScalePt((int)gui.integer("uiFontScale", 1));
   g.showPlugins = gui.boolean("showPlugins", g.showPlugins);
   g.showParameters = gui.boolean("showParameters", g.showParameters);
   // A project written before the panels were renamed stored showLeft/showRight,

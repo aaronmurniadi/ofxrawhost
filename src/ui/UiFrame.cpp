@@ -5,6 +5,7 @@
 #include "ofx/OfxHost.h"
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
+#include "platform/SystemUiFont.h"
 #include "RenderScheduler.h"
 #include "UpdateCheck.h"
 #include "ui/Themes.h"
@@ -24,7 +25,9 @@
 #include <windows.h>
 #endif
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 // The build passes the release version in. Keep a fallback for builds that do
@@ -191,9 +194,18 @@ static void drawExportDialog(App &app) {
 static const char *const kSettingsSections[] = {"Font", "Updates"};
 static constexpr int kSettingsSectionCount = 2;
 
-// The settings modal offers three scales of the bundled Inter font. Normal is
-// the operating system font size, so a new install looks native.
-static const char *const kFontScaleLabels[kUiFontScaleCount] = {"Smaller", "Normal", "Bigger"};
+// The settings modal sets the size of the bundled Inter font in points. Zero,
+// which is the default, follows the operating system font size, so a new install
+// looks native; the step buttons set an explicit size instead.
+
+// The system font size as a whole number of points, held inside the range the
+// step buttons offer.
+static int systemFontPt() {
+  const float pt = systemUiFontSizePt();
+  int rounded = 13;
+  if (std::isfinite(pt)) rounded = (int)std::lround(pt);
+  return std::clamp(rounded, kUiFontPtMin, kUiFontPtMax);
+}
 
 // A font change rebuilds the ImGui font atlas, which frees the font objects the
 // running frame still points at. Raise a flag instead, and let the main loop
@@ -202,8 +214,17 @@ static void requestUiFont(App &app) {
   app.gui.fontApplyPending = true;
 }
 
+// Sets the interface font size and returns true when the value changed. The
+// main loop reloads the font once per frame, so a second change in the same
+// frame costs the same as the first.
+static bool setUiFontPt(App &app, int pt) {
+  if (pt < kUiFontPtMin || pt > kUiFontPtMax || pt == app.gui.uiFontPt) return false;
+  app.gui.uiFontPt = pt;
+  return true;
+}
+
 static void drawFontsSettings(App &app) {
-  // The UI font is bundled (Inter), so only its scale is configurable. This
+  // The UI font is bundled (Inter), so only its size is configurable. This
   // keeps the interface identical on every platform.
   ImGui::TextUnformatted("Font");
   ImGui::Separator();
@@ -212,15 +233,32 @@ static void drawFontsSettings(App &app) {
 
   ImGui::Spacing();
   ImGui::TextUnformatted("Font size");
-  int scale = static_cast<int>(app.gui.uiFontScale);
-  if (scale < 0 || scale >= kUiFontScaleCount) scale = static_cast<int>(UiFontScale::Normal);
-  for (int i = 0; i < kUiFontScaleCount; ++i) {
-    if (ImGui::RadioButton(kFontScaleLabels[i], scale == i)) {
-      app.gui.uiFontScale = static_cast<UiFontScale>(i);
-      requestUiFont(app);
-    }
+  const int systemPt = systemFontPt();
+  bool followSystem = app.gui.uiFontPt <= kUiFontPtAuto;
+  char followLabel[64];
+  std::snprintf(followLabel, sizeof(followLabel), "Follow the system font size (%d pt)", systemPt);
+  if (ImGui::Checkbox(followLabel, &followSystem)) {
+    if (followSystem) app.gui.uiFontPt = kUiFontPtAuto;
+    else app.gui.uiFontPt = systemPt;
+    requestUiFont(app);
   }
-  ImGui::TextDisabled("Normal follows the system font size.");
+  ImGui::TextDisabled("The system size is what the operating system uses for its own interface text.");
+
+  // The field shows the size that is in effect, which is the system size while
+  // the box above is checked. The buttons are inert in that state.
+  int shownPt = app.gui.uiFontPt;
+  if (followSystem) shownPt = systemPt;
+  if (followSystem) ImGui::BeginDisabled();
+  bool changed = false;
+  if (ImGui::Button("-", ImVec2(32.0f, 0.0f))) changed = setUiFontPt(app, shownPt - 1);
+  ImGui::SameLine();
+  ImGui::Text("%d pt", shownPt);
+  ImGui::SameLine();
+  if (ImGui::Button("+", ImVec2(32.0f, 0.0f))) changed = setUiFontPt(app, shownPt + 1);
+  if (followSystem) ImGui::EndDisabled();
+  if (changed) requestUiFont(app);
+  ImGui::TextDisabled("Points, between %d and %d. Clear the box to set a size of your own.", kUiFontPtMin,
+                      kUiFontPtMax);
 }
 
 // A published tag carries a "v" prefix that the build version does not, so the

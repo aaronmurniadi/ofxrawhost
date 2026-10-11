@@ -89,24 +89,25 @@ bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir) {
   return false;
 }
 
-// Resolves the configured scale against the operating system font size, so a
-// new install is the native size and the two other choices scale it.
-float resolveUiFontSizePt(int uiFontScale) {
-  UiFontScale scale = UiFontScale::Normal;
-  if (uiFontScale == static_cast<int>(UiFontScale::Smaller)) scale = UiFontScale::Smaller;
-  else if (uiFontScale == static_cast<int>(UiFontScale::Bigger)) scale = UiFontScale::Bigger;
-  const float pt = systemUiFontSizePt() * uiFontScaleFactor(scale);
+// Resolves the setting against the operating system font size, so a setting of
+// 0 is the native size on every machine and monitor.
+float resolveUiFontSizePt(int uiFontPt) {
+  if (uiFontPt >= kUiFontPtMin) {
+    if (uiFontPt > kUiFontPtMax) return (float)kUiFontPtMax;
+    return (float)uiFontPt;
+  }
+  const float pt = systemUiFontSizePt();
   if (!std::isfinite(pt) || pt < 1.0f) return 11.0f;
   return pt;
 }
 
-static void loadUiFonts(GLFWwindow *window, int uiFontScale) {
+static void loadUiFonts(GLFWwindow *window, int uiFontPt) {
   ImGuiIO &io = ImGui::GetIO();
   float dpiX = 1.0f, dpiY = 1.0f;
   glfwGetWindowContentScale(window, &dpiX, &dpiY);
   const float dpi = std::max(1.0f, std::max(dpiX, dpiY));
   ImFontConfig fontCfg;
-  fontCfg.SizePixels = std::round(resolveUiFontSizePt(uiFontScale) * dpi);
+  fontCfg.SizePixels = std::round(resolveUiFontSizePt(uiFontPt) * dpi);
   fontCfg.OversampleH = 2;
   fontCfg.OversampleV = 2;
   io.Fonts->Clear();
@@ -176,9 +177,9 @@ static void loadUiFonts(GLFWwindow *window, int uiFontScale) {
   io.FontGlobalScale = 1.0f / dpi;
 }
 
-void ImGuiBackend_SetUIFont(GLFWwindow *window, int uiFontScale) {
+void ImGuiBackend_SetUIFont(GLFWwindow *window, int uiFontPt) {
   if (!ImGui::GetCurrentContext() || !window) return;
-  loadUiFonts(window, uiFontScale);
+  loadUiFonts(window, uiFontPt);
   if (gLegacyGl) {
     ImGui_ImplOpenGL2_DestroyFontsTexture();
     ImGui_ImplOpenGL2_CreateFontsTexture();
@@ -188,7 +189,7 @@ void ImGuiBackend_SetUIFont(GLFWwindow *window, int uiFontScale) {
   ImGui_ImplOpenGL3_CreateFontsTexture();
 }
 
-void ImGuiBackend_Init(GLFWwindow *window, bool legacyGl, int themeIndex, int uiFontScale) {
+void ImGuiBackend_Init(GLFWwindow *window, bool legacyGl, int themeIndex, int uiFontPt) {
   gLegacyGl = legacyGl;
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -196,7 +197,7 @@ void ImGuiBackend_Init(GLFWwindow *window, bool legacyGl, int themeIndex, int ui
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
   ImGuiBackend_SetDefaultIni();
 
-  loadUiFonts(window, uiFontScale);
+  loadUiFonts(window, uiFontPt);
   applyTheme(themeIndex);
   ImGui_ImplGlfw_InitForOpenGL(window, true);
   if (gLegacyGl) {

@@ -58,18 +58,12 @@ inline ColorSpace outputSpace(int index) {
   return static_cast<ColorSpace>(index);
 }
 
-// The interface font is the bundled Inter face, so only its scale is a setting.
-// The sizes come from the operating system default: Smaller and Bigger scale it
-// while Normal uses it unchanged.
-enum class UiFontScale { Smaller = 0, Normal, Bigger };
-inline constexpr int kUiFontScaleCount = 3;
-
-// Multiplier each scale applies to the operating system font size.
-inline float uiFontScaleFactor(UiFontScale scale) {
-  if (scale == UiFontScale::Smaller) return 0.85f;
-  if (scale == UiFontScale::Bigger) return 1.2f;
-  return 1.0f;
-}
+// The interface font is the bundled Inter face, so only its size is a setting.
+// The setting is the size in points, and 0 follows the operating system font
+// size. The step buttons offer the points between the two limits.
+inline constexpr int kUiFontPtAuto = 0;
+inline constexpr int kUiFontPtMin = 8;
+inline constexpr int kUiFontPtMax = 64;
 
 // UI-only state: layout, theme, view transform, persistable preferences.
 struct GuiState {
@@ -77,7 +71,7 @@ struct GuiState {
   bool showParameters = true;
   bool showFilmstrip = false;
   int themeIndex = 2;  // Photoshop
-  UiFontScale uiFontScale = UiFontScale::Normal;
+  int uiFontPt = kUiFontPtAuto;  // interface font size in points; 0 follows the system
   int settingsSection = 0;     // row selected in the settings modal sidebar
   float previewZoom = 1.0f;  // 1 = fit in view
   float previewPanX = 0.0f;

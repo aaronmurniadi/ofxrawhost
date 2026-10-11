@@ -16,7 +16,7 @@ struct PersistGui {
   bool exportLossless = false;
   int previewRes = 0;
   int themeIndex = 2;
-  int uiFontScale = 1;  // UiFontScale: Smaller, Normal (system default), Bigger
+  int uiFontPt = 0;  // interface font size in points; 0 follows the system font size
   bool showPlugins = true;
   bool showParameters = true;
   bool showFilmstrip = false;

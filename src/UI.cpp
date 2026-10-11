@@ -99,7 +99,7 @@ int runApp(const std::string &optionalPath) {
     }
   }
 
-  ImGuiBackend_Init(app.window, legacyGl, app.gui.themeIndex, static_cast<int>(app.gui.uiFontScale));
+  ImGuiBackend_Init(app.window, legacyGl, app.gui.themeIndex, app.gui.uiFontPt);
 
   // A development build warns once, before the check it is about to start.
   if (isDevelopmentBuild() && !app.gui.devBuildWarningShown) app.gui.showDevBuildWarning = true;
@@ -134,7 +134,7 @@ int runApp(const std::string &optionalPath) {
     // previous frame referenced, so a rebuild during a frame leaves that frame
     // with a dangling font.
     if (app.gui.fontApplyPending) {
-      ImGuiBackend_SetUIFont(app.window, static_cast<int>(app.gui.uiFontScale));
+      ImGuiBackend_SetUIFont(app.window, app.gui.uiFontPt);
       app.gui.fontApplyPending = false;
     }
 
