@@ -10,10 +10,10 @@
 
 namespace {
 
-// A settings file written while the setting was a scale of the system size
-// carries "uiFontScale" rather than a point size: 0 was smaller, 1 the system
-// size, and 2 bigger. The conversion applies the same multipliers to the system
-// size, so the choice survives the upgrade.
+// A settings file written while the interface font setting was a scale of the
+// system size carries "uiFontScale" rather than a point size: 0 was smaller, 1
+// the system size, and 2 bigger. The conversion applies the same multipliers to
+// the system size, so the choice survives the upgrade.
 int legacyFontScalePt(int scale) {
   if (scale <= 0) return (int)std::lround(systemUiFontSizePt() * 0.85f);
   if (scale >= 2) return (int)std::lround(systemUiFontSizePt() * 1.2f);
@@ -33,9 +33,6 @@ void loadGui(const JsonValue &gui, PersistGui &g) {
   if (!gui.find("exportQuality")) g.exportQuality = (int)gui.integer("jpegQuality", g.exportQuality);
   g.exportLossless = gui.boolean("exportLossless", g.exportLossless);
   g.previewRes = (int)gui.integer("previewRes", g.previewRes);
-  g.themeIndex = (int)gui.integer("themeIndex", g.themeIndex);
-  if (gui.find("uiFontSizePt")) g.uiFontPt = (int)gui.integer("uiFontSizePt", g.uiFontPt);
-  else if (gui.find("uiFontScale")) g.uiFontPt = legacyFontScalePt((int)gui.integer("uiFontScale", 1));
   g.showPlugins = gui.boolean("showPlugins", g.showPlugins);
   g.showParameters = gui.boolean("showParameters", g.showParameters);
   // A project written before the panels were renamed stored showLeft/showRight,
@@ -78,6 +75,17 @@ bool readAllText(const std::string &path, std::string &out) {
   return true;
 }
 
+// The theme and the interface font size belong to the user, so they are read
+// from the settings file alone. A project or a sidecar that still holds the keys,
+// which is what a file written before this split looks like, is ignored here and
+// the keys are dropped on the next save.
+void loadAppearance(const JsonValue &gui, PersistAppearance &appearance) {
+  appearance.themeIndex = (int)gui.integer("themeIndex", appearance.themeIndex);
+  if (gui.find("uiFontSizePt")) appearance.uiFontPt = (int)gui.integer("uiFontSizePt", appearance.uiFontPt);
+  else if (gui.find("uiFontScale"))
+    appearance.uiFontPt = legacyFontScalePt((int)gui.integer("uiFontScale", 1));
+}
+
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel) {
   std::string json;
   if (!readAllText(workspaceProjectPath(workspaceDir), json)) return false;
@@ -89,14 +97,17 @@ bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std:
   return true;
 }
 
-bool loadGlobalSettings(PersistGui &gui, PersistUpdates &updates) {
+bool loadGlobalSettings(PersistGui &gui, PersistAppearance &appearance, PersistUpdates &updates) {
   const std::string path = globalSettingsPath();
   if (path.empty()) return false;
   std::string json;
   if (!readAllText(path, json)) return false;
   JsonValue root;
   if (!JsonValue::parse(json, root)) return false;
-  if (const JsonValue *guiValue = root.find("gui")) loadGui(*guiValue, gui);
+  if (const JsonValue *guiValue = root.find("gui")) {
+    loadGui(*guiValue, gui);
+    loadAppearance(*guiValue, appearance);
+  }
   if (const JsonValue *updatesValue = root.find("updates")) loadUpdates(*updatesValue, updates);
   return true;
 }

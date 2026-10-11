@@ -9,6 +9,11 @@
 // Builders for the "gui", "updates", and the "chain" object of a workspace file,
 // the settings file, or a sidecar.
 JsonValue makeGuiJson(const PersistGui &g);
+// The theme and the interface font size are app-level, so only the settings file
+// writes and reads them. The keys sit in the "gui" object, which is where a
+// settings file written before this split already kept them.
+void writeAppearance(JsonValue &gui, const PersistAppearance &appearance);
+void loadAppearance(const JsonValue &gui, PersistAppearance &appearance);
 JsonValue makeUpdatesJson(const PersistUpdates &u);
 JsonValue makeChainJson(const PersistChain &chain);
 

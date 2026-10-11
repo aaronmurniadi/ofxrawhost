@@ -23,7 +23,7 @@ static const FilmstripTabItem kFilmstripTabs[] = {
 
 void drawFilmstripPanel(App &app) {
   if (app.doc.workspaceDir.empty() || app.filmstrip.entries.empty()) {
-    ImGui::TextDisabled("Open a workspace folder to browse images.");
+    ImGui::TextDisabled("Open a directory to browse images.");
     return;
   }
 

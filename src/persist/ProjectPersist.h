@@ -15,11 +15,17 @@ struct PersistGui {
   int exportQuality = 92;
   bool exportLossless = false;
   int previewRes = 0;
-  int themeIndex = 2;
-  int uiFontPt = 0;  // interface font size in points; 0 follows the system font size
   bool showPlugins = true;
   bool showParameters = true;
   bool showFilmstrip = false;
+};
+
+// Preferences that belong to the user and the machine, not to the file or the
+// directory that is open. They live in the per-user settings file alone, so a
+// project or a sidecar never changes the theme or the interface font.
+struct PersistAppearance {
+  int themeIndex = 2;  // Photoshop
+  int uiFontPt = 0;    // interface font size in points; 0 follows the system font size
 };
 
 // Update-check preferences. They live in their own object of the per-user
@@ -70,12 +76,12 @@ std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir);
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel);
 bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel);
 
-// Preferences that outlive a workspace or an image: theme, font, panel
-// visibility, preview size, export defaults, and update checking. Loaded at
-// start-up before the theme and font are applied, and saved on exit and on every
-// persistWorkspace.
-bool loadGlobalSettings(PersistGui &gui, PersistUpdates &updates);
-bool saveGlobalSettings(const PersistGui &gui, const PersistUpdates &updates);
+// Preferences that outlive a file or a directory: the theme, the interface font
+// size, panel visibility, preview size, export defaults, and update checking.
+// Loaded at start-up before the theme and the font are applied, and saved on
+// exit and on every persistWorkspace.
+bool loadGlobalSettings(PersistGui &gui, PersistAppearance &appearance, PersistUpdates &updates);
+bool saveGlobalSettings(const PersistGui &gui, const PersistAppearance &appearance, const PersistUpdates &updates);
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
 bool saveInputSidecar(const std::string &imagePath, ColorSpace fileSpace, ColorSpace chainInputSpace,

@@ -70,7 +70,7 @@ struct GuiState {
   bool showPlugins = true;
   bool showParameters = true;
   bool showFilmstrip = false;
-  int themeIndex = 2;  // Photoshop
+  int themeIndex = 2;  // Photoshop; app-level, so it never travels in a project or a sidecar
   int uiFontPt = kUiFontPtAuto;  // interface font size in points; 0 follows the system
   int settingsSection = 0;     // row selected in the settings modal sidebar
   float previewZoom = 1.0f;  // 1 = fit in view

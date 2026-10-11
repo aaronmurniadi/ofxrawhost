@@ -16,8 +16,6 @@ PersistGui captureGui(const App &app) {
   g.exportIndex = static_cast<int>(app.gui.exportSpace);
   g.exportIntent = static_cast<int>(app.gui.exportIntent);
   g.previewRes = static_cast<int>(app.gui.previewRes);
-  g.themeIndex = app.gui.themeIndex;
-  g.uiFontPt = app.gui.uiFontPt;
   g.showPlugins = app.gui.showPlugins;
   g.showParameters = app.gui.showParameters;
   g.showFilmstrip = app.gui.showFilmstrip;
@@ -34,17 +32,28 @@ void applyGui(App &app, const PersistGui &g) {
   app.gui.exportSpace = outputSpace(std::clamp(g.exportIndex, 0, kColorSpaceCount - 1));
   app.gui.exportIntent = static_cast<RenderIntent>(std::clamp(g.exportIntent, 0, kRenderIntentCount - 1));
   app.gui.previewRes = static_cast<PreviewRes>(std::clamp(g.previewRes, 0, kPreviewResCount - 1));
-  if (g.themeIndex >= 0 && g.themeIndex < themeCount()) app.gui.themeIndex = g.themeIndex;
-  // The settings modal offers a point size; a stale or hand-edited value snaps
-  // back into that range, and 0 stays on the system size.
-  if (g.uiFontPt <= 0) {
-    app.gui.uiFontPt = kUiFontPtAuto;
-  } else {
-    app.gui.uiFontPt = std::clamp(g.uiFontPt, kUiFontPtMin, kUiFontPtMax);
-  }
   app.gui.showPlugins = g.showPlugins;
   app.gui.showParameters = g.showParameters;
   app.gui.showFilmstrip = g.showFilmstrip;
+}
+
+PersistAppearance captureAppearance(const App &app) {
+  PersistAppearance a;
+  a.themeIndex = app.gui.themeIndex;
+  a.uiFontPt = app.gui.uiFontPt;
+  return a;
+}
+
+void applyAppearance(App &app, const PersistAppearance &appearance) {
+  if (appearance.themeIndex >= 0 && appearance.themeIndex < themeCount())
+    app.gui.themeIndex = appearance.themeIndex;
+  // The settings modal offers a point size; a stale or hand-edited value snaps
+  // back into that range, and 0 stays on the system size.
+  if (appearance.uiFontPt <= 0) {
+    app.gui.uiFontPt = kUiFontPtAuto;
+  } else {
+    app.gui.uiFontPt = std::clamp(appearance.uiFontPt, kUiFontPtMin, kUiFontPtMax);
+  }
   app.gui.themeApplyPending = true;
   app.gui.fontApplyPending = true;
 }
@@ -76,7 +85,7 @@ void applyUpdates(App &app, const PersistUpdates &u) {
 void persistWorkspace(App &app) {
   // The per-user preferences file always reflects the current session, even when
   // no workspace is open, so the next start restores the theme, font, and view.
-  saveGlobalSettings(captureGui(app), captureUpdates(app));
+  saveGlobalSettings(captureGui(app), captureAppearance(app), captureUpdates(app));
   if (app.doc.workspaceDir.empty()) return;
   const std::string active =
       app.doc.path.empty() ? std::string() : relativeToWorkspace(app.doc.workspaceDir, app.doc.path);

@@ -76,19 +76,74 @@ int compareVersions(const std::string &left, const std::string &right) {
   return 0;
 }
 
-bool parseReleaseResponse(const std::string &json, std::string &tag, std::string &url) {
-  JsonValue root;
-  if (!JsonValue::parse(json, root)) return false;
-  if (root.kind != JsonValue::Kind::Object) return false;
-  const JsonValue *tagValue = root.find("tag_name");
+namespace {
+
+// A GitHub timestamp as a number that orders two of them, or -1 when the text is
+// not in the shape the API writes (YYYY-MM-DDTHH:MM:SSZ). Integer fields in that
+// order compare as numbers, so no calendar arithmetic is needed.
+long long isoUtcKey(const std::string &text) {
+  if (text.size() < 20) return -1;
+  long long key = 0;
+  for (size_t i = 0; i < 19; ++i) {
+    const char c = text[i];
+    if (i == 4 || i == 7) {
+      if (c != '-') return -1;
+      continue;
+    }
+    if (i == 10) {
+      if (c != 'T') return -1;
+      continue;
+    }
+    if (i == 13 || i == 16) {
+      if (c != ':') return -1;
+      continue;
+    }
+    if (c < '0' || c > '9') return -1;
+    key = key * 10 + (c - '0');
+  }
+  if (text[19] != 'Z') return -1;
+  return key;
+}
+
+// One entry of the release list, or a false result when the entry carries no tag.
+bool readEntry(const JsonValue &entry, ReleaseEntry &out) {
+  if (entry.kind != JsonValue::Kind::Object) return false;
+  const JsonValue *tagValue = entry.find("tag_name");
   if (!tagValue || tagValue->kind != JsonValue::Kind::String || tagValue->s.empty()) return false;
-  tag = tagValue->s;
-  // The page is only used by a button, so a missing one is not a failure.
-  url = root.text("html_url", std::string());
+  out.tag = tagValue->s;
+  out.url = entry.text("html_url", std::string());
+  out.createdAt = entry.text("created_at", std::string());
   return true;
 }
 
-bool parseReleasesResponse(const std::string &json, std::string &tag, std::string &url) {
+}  // namespace
+
+bool sameVersionText(const std::string &tag, const std::string &version) {
+  size_t start = 0;
+  if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) start = 1;
+  return tag.compare(start, std::string::npos, version) == 0;
+}
+
+bool releaseIsNewer(const ReleaseEntry &newest, const ReleaseEntry &current, const std::string &currentVersion) {
+  const int order = compareVersions(newest.tag, currentVersion);
+  if (order != 0) return order > 0;
+  // Equal numbers are what two development builds of one version look like, and
+  // their tags differ, so the time each release was created orders them.
+  const long long newestKey = isoUtcKey(newest.createdAt);
+  const long long currentKey = isoUtcKey(current.createdAt);
+  if (newestKey < 0 || currentKey < 0) return false;
+  return newestKey > currentKey;
+}
+
+bool parseReleaseResponse(const std::string &json, ReleaseEntry &out) {
+  JsonValue root;
+  if (!JsonValue::parse(json, root)) return false;
+  if (root.kind != JsonValue::Kind::Object) return false;
+  return readEntry(root, out);
+}
+
+bool parseReleasesResponse(const std::string &json, const std::string &currentVersion, ReleaseEntry &newest,
+                           ReleaseEntry &current) {
   JsonValue root;
   if (!JsonValue::parse(json, root)) return false;
   if (root.kind != JsonValue::Kind::Array) return false;
@@ -96,21 +151,22 @@ bool parseReleasesResponse(const std::string &json, std::string &tag, std::strin
   bool found = false;
   bool bestIsPrerelease = false;
   for (const JsonValue &entry : root.arr) {
-    if (entry.kind != JsonValue::Kind::Object) continue;
-    const JsonValue *tagValue = entry.find("tag_name");
-    if (!tagValue || tagValue->kind != JsonValue::Kind::String || tagValue->s.empty()) continue;
-    const bool prerelease = entry.boolean("prerelease", false);
+    ReleaseEntry listed;
+    if (!readEntry(entry, listed)) continue;
+    // The running build is looked up in the same answer, so its time and the
+    // newest time come from one source.
+    if (sameVersionText(listed.tag, currentVersion)) current = listed;
     if (found) {
-      const int order = compareVersions(tagValue->s, tag);
+      const int order = compareVersions(listed.tag, newest.tag);
       // Several development builds share one version number, so the newest of
       // them is the first one in the list; only a higher version, or a
       // pre-release at the same version, replaces the candidate.
+      const bool prerelease = entry.boolean("prerelease", false);
       if (order < 0) continue;
       if (order == 0 && !(prerelease && !bestIsPrerelease)) continue;
     }
-    tag = tagValue->s;
-    url = entry.text("html_url", std::string());
-    bestIsPrerelease = prerelease;
+    newest = listed;
+    bestIsPrerelease = entry.boolean("prerelease", false);
     found = true;
   }
   return found;
@@ -143,7 +199,10 @@ void UpdateCheck::runCheck(const std::string &currentVersion, UpdateChannel chan
   const std::string base = std::string("https://api.github.com/repos/") + kUpdatesRepoOwner + "/" + kUpdatesRepoName;
   const bool wantPrereleases = channel == UpdateChannel::Prereleases;
   std::string url = base + "/releases/latest";
-  if (wantPrereleases) url = base + "/releases?per_page=10";
+  // The pre-release channel reads the release list, which holds both kinds. The
+  // list also names this build, which is what orders two builds of one version,
+  // so it is read deep enough to hold a run of pre-releases of one version.
+  if (wantPrereleases) url = base + "/releases?per_page=30";
 
   const std::string agent = std::string("OfxRawHost/") + currentVersion;
   const HttpGetResult answer = httpGet(url, agent, kUpdateCheckTimeoutSeconds);
@@ -158,13 +217,17 @@ void UpdateCheck::runCheck(const std::string &currentVersion, UpdateChannel chan
     next.state = State::Failed;
     next.failure = "GitHub answered HTTP " + std::to_string(answer.status);
   } else {
+    ReleaseEntry newest;
+    ReleaseEntry current;
     bool read = false;
-    if (wantPrereleases) read = parseReleasesResponse(answer.body, next.tag, next.url);
-    else read = parseReleaseResponse(answer.body, next.tag, next.url);
+    if (wantPrereleases) read = parseReleasesResponse(answer.body, currentVersion, newest, current);
+    else read = parseReleaseResponse(answer.body, newest);
+    next.tag = newest.tag;
+    next.url = newest.url;
     if (!read) {
       next.state = State::Failed;
       next.failure = "the release list could not be read";
-    } else if (compareVersions(next.tag, currentVersion) > 0) {
+    } else if (releaseIsNewer(newest, current, currentVersion)) {
       next.state = State::Available;
     } else {
       next.state = State::UpToDate;

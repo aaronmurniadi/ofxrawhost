@@ -12,6 +12,7 @@
 #include "ui/ParamEdit.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
+#include "ui/Widgets.h"
 
 #include "imgui.h"
 #include "portable-file-dialogs.h"
@@ -66,11 +67,11 @@ static void drawMenuBar(App &app) {
         if (!r.empty()) openPath(app, r[0]);
       }
 #ifdef __APPLE__
-      if (ImGui::MenuItem("Open Workspace", "⌘+Shift+O")) {
+      if (ImGui::MenuItem("Open Directory", "⌘+Shift+O")) {
 #else
-      if (ImGui::MenuItem("Open Workspace", "Ctrl+Shift+O")) {
+      if (ImGui::MenuItem("Open Directory", "Ctrl+Shift+O")) {
 #endif
-        auto f = pfd::select_folder("Open workspace folder");
+        auto f = pfd::select_folder("Open directory");
         auto r = f.result();
         if (!r.empty()) app.gui.pendingWorkspaceDir = r;
       }
@@ -147,23 +148,25 @@ static void drawExportDialog(App &app) {
 
   static const char *const kFormats[kExportFormatCount] = {"PNG", "JPEG", "TIFF", "WebP", "JPEG XL"};
   int fmt = static_cast<int>(app.gui.exportFormat);
-  if (ImGui::Combo("Format", &fmt, kFormats, kExportFormatCount)) app.gui.exportFormat = static_cast<ExportFormat>(fmt);
+  if (uiChoiceCombo("Format", nullptr, kFormats, kExportFormatCount, &fmt))
+    app.gui.exportFormat = static_cast<ExportFormat>(fmt);
 
   // The color space the exported file is written in. The chain writes the preview
   // space, so the export converts into this one with the chosen intent.
   static const char *const kIntents[kRenderIntentCount] = {"Perceptual", "Relative colorimetric", "Saturation",
                                                           "Absolute colorimetric"};
   int outSpace = static_cast<int>(app.gui.exportSpace);
-  if (ImGui::Combo("Export colorspace", &outSpace, kColorSpaces, kColorSpaceCount))
+  if (uiChoiceCombo("Export colorspace", nullptr, kColorSpaces, kColorSpaceCount, &outSpace))
     setExportSpace(app, outSpace);
   int intent = static_cast<int>(app.gui.exportIntent);
-  if (ImGui::Combo("Intent", &intent, kIntents, kRenderIntentCount)) setExportIntent(app, intent);
+  if (uiChoiceCombo("Intent", nullptr, kIntents, kRenderIntentCount, &intent)) setExportIntent(app, intent);
 
   const ExportFormat format = app.gui.exportFormat;
   if (exportUsesBitDepth(format)) {
+    static const char *const kDepths[] = {"8-bit", "16-bit"};
     int depth = 0;
     if (app.gui.exportBitDepth >= 16) depth = 1;
-    if (ImGui::Combo("Bit depth", &depth, "8-bit\0" "16-bit\0")) {
+    if (uiChoiceCombo("Bit depth", nullptr, kDepths, 2, &depth)) {
       app.gui.exportBitDepth = 8;
       if (depth == 1) app.gui.exportBitDepth = 16;
     }
@@ -261,14 +264,6 @@ static void drawFontsSettings(App &app) {
                       kUiFontPtMax);
 }
 
-// A published tag carries a "v" prefix that the build version does not, so the
-// two are compared with that prefix removed.
-static bool sameVersionText(const std::string &tag, const std::string &version) {
-  size_t start = 0;
-  if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) start = 1;
-  return tag.compare(start, std::string::npos, version) == 0;
-}
-
 // A version as the user reads it: the About window shows the build version
 // without the "v" of the release tag, and the update lines match it.
 static std::string displayVersion(const std::string &tag) {
@@ -292,17 +287,11 @@ static void drawUpdatesSettings(App &app) {
   };
   int channel = static_cast<int>(app.gui.updateChannel);
   if (channel < 0 || channel >= kUpdateChannelCount) channel = static_cast<int>(defaultUpdateChannel());
-  if (ImGui::BeginCombo("Update Channel", kUpdateChannelLabels[channel])) {
-    for (int i = 0; i < kUpdateChannelCount; ++i) {
-      // A release build checks releases only, so it cannot pick the other entry.
-      const bool allowed = channelAllowed(static_cast<UpdateChannel>(i));
-      if (!allowed) ImGui::BeginDisabled();
-      if (ImGui::Selectable(kUpdateChannelLabels[i], channel == i))
-        app.gui.updateChannel = static_cast<UpdateChannel>(i);
-      if (!allowed) ImGui::EndDisabled();
-    }
-    ImGui::EndCombo();
-  }
+  // A release build checks releases only, so it cannot pick the other entry.
+  bool channelEnabled[kUpdateChannelCount];
+  for (int i = 0; i < kUpdateChannelCount; ++i) channelEnabled[i] = channelAllowed(static_cast<UpdateChannel>(i));
+  if (uiChoiceCombo("Update Channel", nullptr, kUpdateChannelLabels, kUpdateChannelCount, &channel, channelEnabled))
+    app.gui.updateChannel = static_cast<UpdateChannel>(channel);
   ImGui::TextDisabled("%s", kChannelHints[static_cast<int>(app.gui.updateChannel)]);
   if (!isDevelopmentBuild()) ImGui::TextDisabled("Only a development build can follow pre-releases.");
 
@@ -486,7 +475,7 @@ void drawUiFrame(App &app) {
 #else
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) {
 #endif
-    auto f = pfd::select_folder("Open workspace folder");
+    auto f = pfd::select_folder("Open directory");
     auto r = f.result();
     if (!r.empty()) app.gui.pendingWorkspaceDir = r;
   }

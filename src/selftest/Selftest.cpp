@@ -173,54 +173,114 @@ static int testPngColorSpace() {
   return 0;
 }
 
-// The font setting is a point size, and 0 follows the system size. A settings
-// file written while the setting was a scale of the system size must still
-// apply, and a hand-edited value must snap back into the range.
+// The font setting is a point size, and 0 follows the system size. It belongs to
+// the settings file, so a settings file written while the setting was a scale of
+// the system size must still apply, and a hand-edited value must snap back into
+// the range.
 static int testFontSizeMigration() {
   const float systemPt = systemUiFontSizePt();
 
-  PersistGui gui;
+  PersistAppearance appearance;
   JsonValue none = JsonValue::makeObject();
-  loadGui(none, gui);
-  if (gui.uiFontPt != kUiFontPtAuto) return fail("font size: a file without the setting does not follow the system");
+  loadAppearance(none, appearance);
+  if (appearance.uiFontPt != kUiFontPtAuto)
+    return fail("font size: a file without the setting does not follow the system");
 
   JsonValue explicitPt = JsonValue::makeObject();
   explicitPt.set("uiFontSizePt", JsonValue::makeInt(17));
-  loadGui(explicitPt, gui);
-  if (gui.uiFontPt != 17) return fail("font size: the stored point size was not read");
+  loadAppearance(explicitPt, appearance);
+  if (appearance.uiFontPt != 17) return fail("font size: the stored point size was not read");
 
   // Scale 1 was the system size, so it becomes the automatic setting.
   JsonValue normal = JsonValue::makeObject();
   normal.set("uiFontScale", JsonValue::makeInt(1));
-  loadGui(normal, gui);
-  if (gui.uiFontPt != kUiFontPtAuto) return fail("font size: the normal scale did not follow the system");
+  loadAppearance(normal, appearance);
+  if (appearance.uiFontPt != kUiFontPtAuto) return fail("font size: the normal scale did not follow the system");
 
   // Scales 0 and 2 were 0.85 and 1.2 of the system size.
   JsonValue smaller = JsonValue::makeObject();
   smaller.set("uiFontScale", JsonValue::makeInt(0));
-  loadGui(smaller, gui);
-  if (gui.uiFontPt != (int)std::lround(systemPt * 0.85f)) return fail("font size: the smaller scale did not convert");
+  loadAppearance(smaller, appearance);
+  if (appearance.uiFontPt != (int)std::lround(systemPt * 0.85f))
+    return fail("font size: the smaller scale did not convert");
 
   JsonValue bigger = JsonValue::makeObject();
   bigger.set("uiFontScale", JsonValue::makeInt(2));
-  loadGui(bigger, gui);
-  if (gui.uiFontPt != (int)std::lround(systemPt * 1.2f)) return fail("font size: the bigger scale did not convert");
+  loadAppearance(bigger, appearance);
+  if (appearance.uiFontPt != (int)std::lround(systemPt * 1.2f))
+    return fail("font size: the bigger scale did not convert");
 
   App app;
-  PersistGui tooSmall;
+  PersistAppearance tooSmall;
   tooSmall.uiFontPt = 2;
-  applyGui(app, tooSmall);
+  applyAppearance(app, tooSmall);
   if (app.gui.uiFontPt != kUiFontPtMin) return fail("font size: a small value was not raised to the minimum");
-  PersistGui tooBig;
+  PersistAppearance tooBig;
   tooBig.uiFontPt = 200;
-  applyGui(app, tooBig);
+  applyAppearance(app, tooBig);
   if (app.gui.uiFontPt != kUiFontPtMax) return fail("font size: a large value was not lowered to the maximum");
-  PersistGui negative;
+  PersistAppearance negative;
   negative.uiFontPt = -5;
-  applyGui(app, negative);
+  applyAppearance(app, negative);
   if (app.gui.uiFontPt != kUiFontPtAuto) return fail("font size: a negative value did not return to the system size");
 
   printf("ok  font size migration (system size %.1f pt)\n", systemPt);
+  return 0;
+}
+
+// The theme and the interface font size belong to the user, so a project and a
+// sidecar must not record them. A file written before this split still holds the
+// keys, and opening it must leave the running theme and font alone.
+static int testAppearanceIsAppLevel() {
+  const fs::path dir = fs::temp_directory_path() / "ofxrawhost-selftest-applevel";
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+
+  // The files the app writes for a directory and for an image: neither may carry
+  // the keys, so neither can bring a theme or a font size along.
+  PersistGui gui;
+  const std::string image = (dir / "shot.png").string();
+  if (!saveWorkspaceProject(dir.string(), gui, "shot.png"))
+    return fail("appearance: the project was not written");
+  if (!saveInputSidecar(image, ColorSpace::sRGB, ColorSpace::sRGB, gui, PersistChain()))
+    return fail("appearance: the sidecar was not written");
+  std::string project;
+  std::string sidecar;
+  if (!readAllText(workspaceProjectPath(dir.string()), project)) return fail("appearance: the project was not read");
+  if (!readAllText(inputSidecarPath(image), sidecar)) return fail("appearance: the sidecar was not read");
+  if (project.find("themeIndex") != std::string::npos || project.find("uiFontSizePt") != std::string::npos)
+    return fail("appearance: the project carries the theme or the font size");
+  if (sidecar.find("themeIndex") != std::string::npos || sidecar.find("uiFontSizePt") != std::string::npos)
+    return fail("appearance: the sidecar carries the theme or the font size");
+
+  // Only the settings file reads the keys, so a project or a sidecar written
+  // before this split cannot change the running interface.
+  App app;
+  app.gui.themeIndex = 3;
+  app.gui.uiFontPt = 12;
+  JsonValue oldGui = JsonValue::makeObject();
+  oldGui.set("themeIndex", JsonValue::makeInt(0));
+  oldGui.set("uiFontSizePt", JsonValue::makeInt(64));
+  PersistGui fromOldProject;
+  loadGui(oldGui, fromOldProject);
+  applyGui(app, fromOldProject);
+  if (app.gui.themeIndex != 3 || app.gui.uiFontPt != 12)
+    return fail("appearance: a project changed the theme or the font size");
+
+  // The settings file still carries them, and the round trip keeps the values.
+  JsonValue settings = makeGuiJson(gui);
+  PersistAppearance saved;
+  saved.themeIndex = 5;
+  saved.uiFontPt = 15;
+  writeAppearance(settings, saved);
+  PersistAppearance appearance;
+  loadAppearance(settings, appearance);
+  if (appearance.themeIndex != 5 || appearance.uiFontPt != 15)
+    return fail("appearance: the settings file lost the theme or the font size");
+
+  fs::remove_all(dir, ec);
+  printf("ok  theme and font are app level\n");
   return 0;
 }
 
@@ -262,8 +322,6 @@ static int testGlobalSettingsRoundTrip() {
 #endif
 
   PersistGui saved;
-  saved.themeIndex = 5;
-  saved.uiFontPt = 15;
   saved.showPlugins = false;
   saved.showParameters = true;
   saved.showFilmstrip = true;
@@ -273,24 +331,35 @@ static int testGlobalSettingsRoundTrip() {
   saved.exportIntent = 2;
   saved.exportQuality = 71;
 
+  // The theme and the interface font size belong to the user, so they travel in
+  // their own part of the settings file.
+  PersistAppearance savedAppearance;
+  savedAppearance.themeIndex = 5;
+  savedAppearance.uiFontPt = 15;
+
   PersistUpdates savedUpdates;
   savedUpdates.channel = static_cast<int>(UpdateChannel::Prereleases);
   savedUpdates.checkAtStartup = false;
   savedUpdates.devWarningShown = true;
 
   int rc = 0;
-  if (!saveGlobalSettings(saved, savedUpdates)) rc = fail("settings: save");
+  if (!saveGlobalSettings(saved, savedAppearance, savedUpdates)) rc = fail("settings: save");
   PersistGui loaded;
+  PersistAppearance loadedAppearance;
   PersistUpdates loadedUpdates;
-  if (rc == 0 && !loadGlobalSettings(loaded, loadedUpdates)) rc = fail("settings: load");
+  if (rc == 0 && !loadGlobalSettings(loaded, loadedAppearance, loadedUpdates)) rc = fail("settings: load");
   if (rc == 0) {
-    bool same = loaded.themeIndex == saved.themeIndex && loaded.uiFontPt == saved.uiFontPt &&
-                loaded.showPlugins == saved.showPlugins &&
+    bool same = loaded.showPlugins == saved.showPlugins &&
                 loaded.showParameters == saved.showParameters && loaded.showFilmstrip == saved.showFilmstrip &&
                 loaded.previewRes == saved.previewRes && loaded.outputIndex == saved.outputIndex &&
                 loaded.exportIndex == saved.exportIndex && loaded.exportIntent == saved.exportIntent &&
                 loaded.exportQuality == saved.exportQuality;
     if (!same) rc = fail("settings: values did not round-trip");
+  }
+  if (rc == 0) {
+    const bool same = loadedAppearance.themeIndex == savedAppearance.themeIndex &&
+                      loadedAppearance.uiFontPt == savedAppearance.uiFontPt;
+    if (!same) rc = fail("settings: the theme and the font size did not round-trip");
   }
   if (rc == 0) {
     const bool same = loadedUpdates.channel == savedUpdates.channel &&
@@ -348,44 +417,70 @@ static int testUpdateVersionOrdering() {
   if (versionParts("-dev-abc", parts) || !parts.empty()) return fail("version parts accepted a tag with no number");
 
   // A release object names one version.
-  std::string tag, url;
+  ReleaseEntry one;
   static const char *kRelease =
       "{\"tag_name\":\"v0.5.0\",\"html_url\":\"https://github.com/aaronmurniadi/ofxrawhost/releases/tag/v0.5.0\"}";
-  if (!parseReleaseResponse(kRelease, tag, url) || tag != "v0.5.0") return fail("release tag");
-  if (url.find("/releases/tag/v0.5.0") == std::string::npos) return fail("release page url");
-  if (parseReleaseResponse("{}", tag, url)) return fail("release: empty object accepted");
-  if (parseReleaseResponse("[]", tag, url)) return fail("release: array accepted");
-  if (parseReleaseResponse("{\"tag_name\":\"\"}", tag, url)) return fail("release: empty tag accepted");
-  if (parseReleaseResponse("not json", tag, url)) return fail("release: junk accepted");
-  if (parseReleaseResponse("{\"message\":\"API rate limit exceeded\"}", tag, url))
+  if (!parseReleaseResponse(kRelease, one) || one.tag != "v0.5.0") return fail("release tag");
+  if (one.url.find("/releases/tag/v0.5.0") == std::string::npos) return fail("release page url");
+  if (parseReleaseResponse("{}", one)) return fail("release: empty object accepted");
+  if (parseReleaseResponse("[]", one)) return fail("release: array accepted");
+  if (parseReleaseResponse("{\"tag_name\":\"\"}", one)) return fail("release: empty tag accepted");
+  if (parseReleaseResponse("not json", one)) return fail("release: junk accepted");
+  if (parseReleaseResponse("{\"message\":\"API rate limit exceeded\"}", one))
     return fail("release: rate limit answer accepted");
 
   // The release list holds both kinds, newest first. A newer version wins, and a
   // pre-release wins a tie because the caller asked for pre-releases.
+  ReleaseEntry newest, current;
   static const char *kList =
       "[{\"tag_name\":\"v0.5.0\",\"prerelease\":false,\"html_url\":\"u5\"},"
       "{\"tag_name\":\"v0.6.0-dev-abc1234\",\"prerelease\":true,\"html_url\":\"u6\"},"
       "{\"tag_name\":\"v0.4.9\",\"prerelease\":false,\"html_url\":\"u4\"}]";
-  if (!parseReleasesResponse(kList, tag, url) || tag != "v0.6.0-dev-abc1234" || url != "u6")
+  if (!parseReleasesResponse(kList, "0.4.9", newest, current) || newest.tag != "v0.6.0-dev-abc1234" ||
+      newest.url != "u6")
     return fail("release list: newest version not chosen");
+  if (current.tag != "v0.4.9") return fail("release list: the running build was not found");
 
   static const char *kSameVersion =
       "[{\"tag_name\":\"v0.5.0\",\"prerelease\":false,\"html_url\":\"stable\"},"
       "{\"tag_name\":\"v0.5.0-dev-ffff\",\"prerelease\":true,\"html_url\":\"pre\"}]";
-  if (!parseReleasesResponse(kSameVersion, tag, url) || tag != "v0.5.0-dev-ffff")
+  if (!parseReleasesResponse(kSameVersion, "0.5.0", newest, current) || newest.tag != "v0.5.0-dev-ffff")
     return fail("release list: pre-release did not win a tie");
 
   static const char *kNewestFirst =
       "[{\"tag_name\":\"v0.5.0-dev-bbbb\",\"prerelease\":true,\"html_url\":\"b\"},"
       "{\"tag_name\":\"v0.5.0-dev-aaaa\",\"prerelease\":true,\"html_url\":\"a\"}]";
-  if (!parseReleasesResponse(kNewestFirst, tag, url) || tag != "v0.5.0-dev-bbbb")
+  if (!parseReleasesResponse(kNewestFirst, "0.5.0-dev-aaaa", newest, current) ||
+      newest.tag != "v0.5.0-dev-bbbb")
     return fail("release list: same-version development builds are not ordered by list order");
 
-  if (parseReleasesResponse("[]", tag, url)) return fail("release list: empty list accepted");
-  if (parseReleasesResponse("{\"tag_name\":\"v1.0.0\"}", tag, url))
+  if (parseReleasesResponse("[]", "0.5.0", newest, current)) return fail("release list: empty list accepted");
+  if (parseReleasesResponse("{\"tag_name\":\"v1.0.0\"}", "0.5.0", newest, current))
     return fail("release list: object accepted");
-  if (parseReleasesResponse("[{\"name\":\"no tag\"}]", tag, url))
+  if (parseReleasesResponse("[{\"name\":\"no tag\"}]", "0.5.0", newest, current))
     return fail("release list: entry with no tag accepted");
+
+  // Two development builds of one version carry the same numbers, so the time
+  // their releases were created decides which one is newer.
+  static const char *kTwoBuilds =
+      "[{\"tag_name\":\"v0.4.2-dev-ec3ace\",\"prerelease\":true,\"created_at\":\"2026-10-11T05:53:41Z\"},"
+      "{\"tag_name\":\"v0.4.2-dev-b56123\",\"prerelease\":true,\"created_at\":\"2026-10-10T19:49:27Z\"}]";
+  if (!parseReleasesResponse(kTwoBuilds, "0.4.2-dev-b56123", newest, current))
+    return fail("release list: the development builds were not read");
+  if (!releaseIsNewer(newest, current, "0.4.2-dev-b56123"))
+    return fail("release time: the newer development build was not newer");
+  if (releaseIsNewer(newest, newest, "0.4.2-dev-ec3ace"))
+    return fail("release time: the newest development build was newer than itself");
+  ReleaseEntry noTime;
+  if (releaseIsNewer(newest, noTime, "0.4.2-dev-b56123"))
+    return fail("release time: a build missing from the list was treated as older");
+  if (!releaseIsNewer(ReleaseEntry{"v0.4.3-dev-abc", "u", ""}, current, "0.4.2-dev-b56123"))
+    return fail("release time: a higher version was not newer");
+  if (releaseIsNewer(ReleaseEntry{"v0.4.1", "u", ""}, current, "0.4.2-dev-b56123"))
+    return fail("release time: a lower version was newer");
+  // A time in another shape must not order anything.
+  if (releaseIsNewer(ReleaseEntry{"v0.4.2-dev-ec3ace", "u", "yesterday"}, current, "0.4.2-dev-b56123"))
+    return fail("release time: a time that is not a timestamp was accepted");
 
   // A release build follows releases only, and a development build may follow
   // pre-releases, which is also the channel it starts on.
@@ -875,6 +970,7 @@ int runSelfTest() {
   if (const int rc = testRowOrder()) return rc;
   if (const int rc = testGlobalSettingsRoundTrip()) return rc;
   if (const int rc = testFontSizeMigration()) return rc;
+  if (const int rc = testAppearanceIsAppLevel()) return rc;
   if (const int rc = testUpdateVersionOrdering()) return rc;
   if (const int rc = testColorSpaceConversion()) return rc;
   if (const int rc = testPluginColorSpaceMapping()) return rc;

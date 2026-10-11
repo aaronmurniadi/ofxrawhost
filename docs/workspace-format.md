@@ -4,7 +4,7 @@ OFX Raw Host persists reproducible processing state as JSON beside your files.
 
 ## Workspace file
 
-When you **Open Workspace…** on a folder, the host reads and writes:
+When you **Open Directory…** on a folder, the host reads and writes:
 
 `{folder}/workspace.ofxrawhost.json`
 
@@ -20,13 +20,18 @@ Preferences that outlive a workspace live in `settings.json` in the same
 per-user config directory: `%APPDATA%\OfxRawHost` on Windows,
 `~/Library/Application Support/OfxRawHost` on macOS, and
 `$XDG_CONFIG_HOME/ofxrawhost` (or `~/.config/ofxrawhost`) elsewhere. It uses the
-same `gui` object as a workspace project, plus an `updates` object:
+same `gui` object as a workspace project, plus the theme, the interface font
+size, and an `updates` object:
 
 ```json
 {
   "format": "ofxrawhost-settings",
   "version": 1,
-  "gui": { "...": "same keys as workspace gui block" },
+  "gui": {
+    "...": "same keys as workspace gui block",
+    "themeIndex": 2,
+    "uiFontSizePt": 0
+  },
   "updates": {
     "channel": 1,
     "checkAtStartup": true,
@@ -35,12 +40,19 @@ same `gui` object as a workspace project, plus an `updates` object:
 }
 ```
 
+`themeIndex` is the theme of the interface and `uiFontSizePt` is its size in
+points, where 0 follows the system font size. The theme and the font size belong
+to the user, so they are read and written here alone: a workspace project and a
+sidecar never carry them, and opening either one never changes them.
+
 `channel` is 0 for stable releases and 1 for pre-releases; a release build
 always checks stable releases. `devWarningShown` records that a development
 build has already offered to turn the start-up check off. Update preferences live
 only here, so opening an image with a sidecar never changes them.
 
-A workspace project holds the same `gui` object plus the active image:
+A workspace project holds the same `gui` object plus the active image, and its
+`gui` object omits the theme and the interface font size, which stay in the
+per-user settings file:
 
 ```json
 {
@@ -52,7 +64,6 @@ A workspace project holds the same `gui` object plus the active image:
     "exportFormat": 1,
     "jpegQuality": 92,
     "previewRes": 1,
-    "themeIndex": 2,
     "showPlugins": true,
     "showParameters": true,
     "showFilmstrip": true

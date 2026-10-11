@@ -87,14 +87,17 @@ int runApp(const std::string &optionalPath) {
 
   // Restore the per-user preferences before the ImGui backend applies the theme
   // and loads the font, so the saved theme, font, and view show on the first
-  // frame. A workspace or sidecar opens later and overrides these values.
+  // frame. A file or a directory opens later and overrides the view and the
+  // export settings, but never the theme or the font.
   {
     PersistGui saved;
+    PersistAppearance savedAppearance;
     PersistUpdates savedUpdates;
     // Without a settings file the channel follows the kind of build this is.
     savedUpdates.channel = static_cast<int>(defaultUpdateChannel());
-    if (loadGlobalSettings(saved, savedUpdates)) {
+    if (loadGlobalSettings(saved, savedAppearance, savedUpdates)) {
       applyGui(app, saved);
+      applyAppearance(app, savedAppearance);
       applyUpdates(app, savedUpdates);
     }
   }

@@ -109,31 +109,14 @@ static bool beginParamRowTableChoice(float labelW, float resetW) {
 static bool choiceCombo(const ParamUiCache &ui, int &cur) {
   const int count = (int)ui.choicePtrs.size();
   if (count <= 0) return false;
-  if (cur < 0) cur = 0;
-  if (cur >= count) cur = count - 1;
-  const char *preview = "";
-  if (cur < (int)ui.choiceLabels.size()) preview = ui.choiceLabels[(size_t)cur].c_str();
-
-  bool changed = false;
-  if (ImGui::BeginCombo("##v", preview)) {
-    for (int i = 0; i < count; ++i) {
-      if (ImGui::Selectable(ui.choicePtrs[(size_t)i], i == cur)) {
-        cur = i;
-        changed = true;
-      }
-    }
-    // ImGui moves its highlight on an arrow key but only activates on Enter, so
-    // step the value here to preview the highlighted option immediately.
-    int stepped = cur;
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) stepped = std::min(cur + 1, count - 1);
-    else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) stepped = std::max(cur - 1, 0);
-    if (stepped != cur) {
-      cur = stepped;
-      changed = true;
-    }
-    ImGui::EndCombo();
-  }
-  return changed;
+  // The closed dropdown shows a label that can differ from the choice text, for
+  // example a value with its unit.
+  const char *preview = nullptr;
+  if (cur >= 0 && cur < (int)ui.choiceLabels.size()) preview = ui.choiceLabels[(size_t)cur].c_str();
+  int index = cur;
+  if (!uiChoiceCombo("##v", preview, ui.choicePtrs.data(), count, &index)) return false;
+  cur = index;
+  return true;
 }
 
 static void drawParam(App &app, Param *p) {

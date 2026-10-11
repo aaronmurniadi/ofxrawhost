@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -27,12 +28,17 @@ JsonValue makeGuiJson(const PersistGui &g) {
   gui.set("exportQuality", JsonValue::makeInt(g.exportQuality));
   gui.set("exportLossless", JsonValue::makeBool(g.exportLossless));
   gui.set("previewRes", JsonValue::makeInt(g.previewRes));
-  gui.set("themeIndex", JsonValue::makeInt(g.themeIndex));
-  gui.set("uiFontSizePt", JsonValue::makeInt(g.uiFontPt));
   gui.set("showPlugins", JsonValue::makeBool(g.showPlugins));
   gui.set("showParameters", JsonValue::makeBool(g.showParameters));
   gui.set("showFilmstrip", JsonValue::makeBool(g.showFilmstrip));
   return gui;
+}
+
+// The theme and the interface font size belong to the user, so a project, a
+// sidecar, and a directory never record them; only the settings file does.
+void writeAppearance(JsonValue &gui, const PersistAppearance &appearance) {
+  gui.set("themeIndex", JsonValue::makeInt(appearance.themeIndex));
+  gui.set("uiFontSizePt", JsonValue::makeInt(appearance.uiFontPt));
 }
 
 JsonValue makeUpdatesJson(const PersistUpdates &u) {
@@ -151,13 +157,15 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
   return writeFile(workspaceProjectPath(workspaceDir), root.dump());
 }
 
-bool saveGlobalSettings(const PersistGui &gui, const PersistUpdates &updates) {
+bool saveGlobalSettings(const PersistGui &gui, const PersistAppearance &appearance, const PersistUpdates &updates) {
   const std::string path = globalSettingsPath();
   if (path.empty()) return false;
+  JsonValue guiJson = makeGuiJson(gui);
+  writeAppearance(guiJson, appearance);
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-settings"));
   root.set("version", JsonValue::makeInt(1));
-  root.set("gui", makeGuiJson(gui));
+  root.set("gui", std::move(guiJson));
   root.set("updates", makeUpdatesJson(updates));
   return writeFile(path, root.dump());
 }

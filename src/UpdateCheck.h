@@ -50,16 +50,37 @@ bool versionParts(const std::string &text, std::vector<int> &parts);
 // text with no number sorts before a numbered version.
 int compareVersions(const std::string &left, const std::string &right);
 
+// A release as the GitHub API lists it. createdAt holds the API text unchanged,
+// because the caller only ever compares two times from the same answer.
+struct ReleaseEntry {
+  std::string tag;
+  std::string url;
+  std::string createdAt;
+};
+
 // Reads "tag_name" and "html_url" from the JSON body of one GitHub release.
 // Returns false when the body is not a release object, which is what a
 // rate-limit or an error answer looks like.
-bool parseReleaseResponse(const std::string &json, std::string &tag, std::string &url);
+bool parseReleaseResponse(const std::string &json, ReleaseEntry &out);
 
 // Reads the newest release out of the JSON body of the GitHub release list. The
 // list arrives newest first, so a later entry only wins on a higher version; a
-// pre-release wins a tie, because the caller asked for pre-releases. Returns
+// pre-release wins a tie, because the caller asked for pre-releases. `current`
+// receives the entry of the running build, which releaseIsNewer orders against
+// the newest one; it stays empty when the list does not hold that build. Returns
 // false when the body holds no release with a tag.
-bool parseReleasesResponse(const std::string &json, std::string &tag, std::string &url);
+bool parseReleasesResponse(const std::string &json, const std::string &currentVersion, ReleaseEntry &newest,
+                           ReleaseEntry &current);
+
+// True when a release tag names the given build version. The tag carries a "v"
+// prefix that the version does not.
+bool sameVersionText(const std::string &tag, const std::string &version);
+
+// Whether the listed release is newer than the running build. The numbers order
+// two releases, and every development build of one version shares them, so the
+// time the two releases were created orders those instead. A build whose own
+// release is not in the list, or whose time cannot be read, counts as current.
+bool releaseIsNewer(const ReleaseEntry &newest, const ReleaseEntry &current, const std::string &currentVersion);
 
 // The state of the update check, its worker thread, and the answer that worker
 // left behind. One instance lives in App; the UI thread owns every member except

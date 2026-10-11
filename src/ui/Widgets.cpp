@@ -1,6 +1,7 @@
 #include "ui/Widgets.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"  // ScrollToItem
 
 #include <algorithm>
 #include <cctype>
@@ -44,4 +45,69 @@ bool iconBtn(const char *id, const char *icon) {
   }
   ImGui::PopID();
   return pressed;
+}
+
+// True when the choice at index can be picked. A null list means every choice
+// can be.
+static bool choiceAllowed(const bool *enabled, int index) {
+  if (!enabled) return true;
+  return enabled[index];
+}
+
+bool uiChoiceCombo(const char *label, const char *preview, const char *const *labels, int count, int *cur,
+                   const bool *enabled) {
+  if (!label || !labels || !cur || count <= 0) return false;
+  if (*cur < 0) *cur = 0;
+  if (*cur >= count) *cur = count - 1;
+  const char *shown = preview;
+  if (!shown) shown = labels[*cur];
+
+  if (!ImGui::BeginCombo(label, shown)) return false;
+  // ImGui moves its highlight on an arrow key but only activates on Enter, so
+  // step the value here to apply the highlighted choice immediately. A choice
+  // that cannot be picked is stepped over.
+  const int current = *cur;
+  int stepped = current;
+  if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+    for (int i = current + 1; i < count; ++i) {
+      if (!choiceAllowed(enabled, i)) continue;
+      stepped = i;
+      break;
+    }
+  } else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+    for (int i = current - 1; i >= 0; --i) {
+      if (!choiceAllowed(enabled, i)) continue;
+      stepped = i;
+      break;
+    }
+  }
+  const bool moved = stepped != current;
+  // A choice far down a long list opens with that row in the middle of the
+  // popup, the same way ImGui's own navigation opens a list.
+  const bool opening = ImGui::IsWindowAppearing();
+
+  bool changed = false;
+  for (int i = 0; i < count; ++i) {
+    const bool canPick = choiceAllowed(enabled, i);
+    if (!canPick) ImGui::BeginDisabled();
+    if (ImGui::Selectable(labels[i], i == current)) {
+      *cur = i;
+      changed = true;
+    }
+    if (!canPick) ImGui::EndDisabled();
+    // The scroll reaches the screen on the next frame, because the rows of this
+    // frame are already placed. It runs only on the frames that move the
+    // highlight, so the mouse wheel can still move the list away from it.
+    if (moved && i == stepped) {
+      ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
+    } else if (opening && i == *cur) {
+      ImGui::ScrollToItem(ImGuiScrollFlags_AlwaysCenterY);
+    }
+  }
+  if (moved) {
+    *cur = stepped;
+    changed = true;
+  }
+  ImGui::EndCombo();
+  return changed;
 }

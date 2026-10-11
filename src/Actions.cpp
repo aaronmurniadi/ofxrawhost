@@ -39,7 +39,7 @@ bool openWorkspace(App &app, const std::string &dir) {
   if (!toOpen.empty())
     openPath(app, toOpen);
   else
-    app.setStatus("Workspace: " + fs::path(app.doc.workspaceDir).filename().string() + " (no images)");
+    app.setStatus("Directory: " + fs::path(app.doc.workspaceDir).filename().string() + " (no images)");
   persistWorkspace(app);
   app.gui.showFilmstrip = true;
   return true;
