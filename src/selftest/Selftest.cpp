@@ -228,60 +228,138 @@ static int testFontSizeMigration() {
   return 0;
 }
 
-// The theme and the interface font size belong to the user, so a project and a
-// sidecar must not record them. A file written before this split still holds the
-// keys, and opening it must leave the running theme and font alone.
-static int testAppearanceIsAppLevel() {
-  const fs::path dir = fs::temp_directory_path() / "ofxrawhost-selftest-applevel";
+// The state of a file or a directory lives in the per-user state directory, one
+// entry per image, per export, and per directory, and none of it is written
+// beside the source. The interface state belongs to the user alone, so these
+// files carry none of it. A file that a build before the move wrote beside the
+// source is still read while the state file is missing.
+static int testStateFilesAreAppLevel() {
+  const fs::path base = fs::temp_directory_path() / "ofxrawhost-selftest-state";
+  const fs::path dir = base / "shots";
   std::error_code ec;
-  fs::remove_all(dir, ec);
+  fs::remove_all(base, ec);
   fs::create_directories(dir, ec);
 
-  // The files the app writes for a directory and for an image: neither may carry
-  // the keys, so neither can bring a theme or a font size along.
-  PersistGui gui;
+  // Point the configuration directory at the temp folder, so the state files
+  // land there instead of the real user directory.
+#ifdef _WIN32
+  const char *envKey = "APPDATA";
+#else
+  const char *envKey = "HOME";
+#endif
+  const char *oldEnv = std::getenv(envKey);
+  std::string oldValue;
+  if (oldEnv) oldValue = oldEnv;
+#ifdef _WIN32
+  _putenv_s(envKey, base.string().c_str());
+#else
+  setenv(envKey, base.string().c_str(), 1);
+#endif
+
+  int rc = 0;
   const std::string image = (dir / "shot.png").string();
-  if (!saveWorkspaceProject(dir.string(), gui, "shot.png"))
-    return fail("appearance: the project was not written");
-  if (!saveInputSidecar(image, ColorSpace::sRGB, ColorSpace::sRGB, gui, PersistChain()))
-    return fail("appearance: the sidecar was not written");
-  std::string project;
-  std::string sidecar;
-  if (!readAllText(workspaceProjectPath(dir.string()), project)) return fail("appearance: the project was not read");
-  if (!readAllText(inputSidecarPath(image), sidecar)) return fail("appearance: the sidecar was not read");
-  if (project.find("themeIndex") != std::string::npos || project.find("uiFontSizePt") != std::string::npos)
-    return fail("appearance: the project carries the theme or the font size");
-  if (sidecar.find("themeIndex") != std::string::npos || sidecar.find("uiFontSizePt") != std::string::npos)
-    return fail("appearance: the sidecar carries the theme or the font size");
+  const std::string out = (dir / "shot-export.jpg").string();
+  PersistGui gui;
 
-  // Only the settings file reads the keys, so a project or a sidecar written
-  // before this split cannot change the running interface.
-  App app;
-  app.gui.themeIndex = 3;
-  app.gui.uiFontPt = 12;
-  JsonValue oldGui = JsonValue::makeObject();
-  oldGui.set("themeIndex", JsonValue::makeInt(0));
-  oldGui.set("uiFontSizePt", JsonValue::makeInt(64));
-  PersistGui fromOldProject;
-  loadGui(oldGui, fromOldProject);
-  applyGui(app, fromOldProject);
-  if (app.gui.themeIndex != 3 || app.gui.uiFontPt != 12)
-    return fail("appearance: a project changed the theme or the font size");
+  PersistChain chain;
+  chain.selectedNode = 0;
+  PersistNode node;
+  node.pluginIdentifier = "com.example.chain";
+  node.pluginLabel = "Chain";
+  chain.nodes.push_back(node);
 
-  // The settings file still carries them, and the round trip keeps the values.
-  JsonValue settings = makeGuiJson(gui);
-  PersistAppearance saved;
-  saved.themeIndex = 5;
-  saved.uiFontPt = 15;
-  writeAppearance(settings, saved);
-  PersistAppearance appearance;
-  loadAppearance(settings, appearance);
-  if (appearance.themeIndex != 5 || appearance.uiFontPt != 15)
-    return fail("appearance: the settings file lost the theme or the font size");
+  // A save writes under the state directory. The state of a directory is an entry
+  // inside the mirror of that directory, and nothing lands beside the source.
+  if (rc == 0 && !saveWorkspaceProject(dir.string(), std::string("shot.png")))
+    rc = fail("state: the project was not written");
+  if (rc == 0 && !saveInputSidecar(image, ColorSpace::sRGB, ColorSpace::sRGB, chain))
+    rc = fail("state: the sidecar was not written");
+  if (rc == 0 && !saveExportSidecar(out, image, ColorSpace::sRGB, chain))
+    rc = fail("state: the export sidecar was not written");
+  if (rc == 0 && fs::exists(dir / "workspace.ofxrawhost.json"))
+    rc = fail("state: a project was written beside the directory");
+  if (rc == 0 && fs::exists(image + ".ofxrawhost.json"))
+    rc = fail("state: a sidecar was written beside the image");
+  if (rc == 0 && fs::exists(dir / "shot-export.json"))
+    rc = fail("state: a sidecar was written beside the export");
 
-  fs::remove_all(dir, ec);
-  printf("ok  theme and font are app level\n");
-  return 0;
+  const fs::path state = userStateDir();
+  if (rc == 0 && state.empty()) rc = fail("state: the state directory was not found");
+  if (rc == 0) {
+    const std::string project = workspaceProjectPath(dir.string());
+    const std::string sidecar = inputSidecarPath(image);
+    const std::string exported = exportSidecarPath(out);
+    if (project.rfind(state.string(), 0) != 0 || sidecar.rfind(state.string(), 0) != 0 ||
+        exported.rfind(state.string(), 0) != 0)
+      rc = fail("state: a state file was not written under the state directory");
+  }
+
+  // None of the three carries interface state, so opening one cannot change the
+  // view, the color spaces, the panels, the theme, or the font.
+  if (rc == 0) {
+    static const char *const kKeys[] = {"gui",       "showPlugins",  "showParameters", "showFilmstrip",
+                                        "previewRes", "themeIndex",   "uiFontSizePt",   "exportQuality"};
+    const char *files[] = {"the project", "the sidecar", "the export sidecar"};
+    const std::string paths[] = {workspaceProjectPath(dir.string()), inputSidecarPath(image),
+                                 exportSidecarPath(out)};
+    for (int i = 0; i < 3 && rc == 0; ++i) {
+      std::string text;
+      if (!readAllText(paths[i], text)) {
+        rc = fail("state: a state file was not read");
+        break;
+      }
+      for (const char *key : kKeys) {
+        if (text.find(key) != std::string::npos) {
+          rc = fail((std::string("state: ") + files[i] + " carries " + key).c_str());
+          break;
+        }
+      }
+    }
+  }
+  // A sidecar and a project written before the move sit beside the source. They
+  // must still be read while the state directory holds nothing for that file.
+  if (rc == 0) {
+    fs::remove(workspaceProjectPath(dir.string()), ec);
+    fs::remove(inputSidecarPath(image), ec);
+    static const char *kLegacySidecar =
+        "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+        "\"inputColorSpace\":\"sRGB\",\"chainInputColorSpace\":\"sRGB\","
+        "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"com.example.legacy\","
+        "\"pluginLabel\":\"Legacy\",\"enabled\":true,\"groupOpen\":{},\"params\":{}}]}}";
+    if (!writeFile(inputSidecarPathLegacy(image), kLegacySidecar))
+      rc = fail("state: the legacy sidecar was not written");
+  }
+  if (rc == 0) {
+    PersistSidecar legacy;
+    if (!loadInputSidecar(image, legacy) || legacy.chain.nodes.size() != 1 ||
+        legacy.chain.nodes[0].pluginIdentifier != "com.example.legacy")
+      rc = fail("state: the sidecar beside the image was not read");
+  }
+  if (rc == 0) {
+    JsonValue legacyProject = JsonValue::makeObject();
+    legacyProject.set("format", JsonValue::makeString("ofxrawhost-workspace"));
+    legacyProject.set("version", JsonValue::makeInt(1));
+    legacyProject.set("activeImage", JsonValue::makeString("shot.png"));
+    if (!writeFile(workspaceProjectPathLegacy(dir.string()), legacyProject.dump()))
+      rc = fail("state: the legacy project was not written");
+  }
+  if (rc == 0) {
+    std::string activeRel;
+    if (!loadWorkspaceProject(dir.string(), activeRel) || activeRel != "shot.png")
+      rc = fail("state: the project beside the directory was not read");
+  }
+
+  if (rc == 0) std::printf("ok  state files are app level\n");
+
+#ifdef _WIN32
+  if (oldValue.empty()) _putenv_s(envKey, "");
+  else _putenv_s(envKey, oldValue.c_str());
+#else
+  if (oldValue.empty()) unsetenv(envKey);
+  else setenv(envKey, oldValue.c_str(), 1);
+#endif
+  fs::remove_all(base, ec);
+  return rc;
 }
 
 // Row-order check: bottom-up means index 0 is the bottom row.
@@ -330,6 +408,7 @@ static int testGlobalSettingsRoundTrip() {
   saved.exportIndex = 3;
   saved.exportIntent = 2;
   saved.exportQuality = 71;
+  saved.exportSidecar = true;
 
   // The theme and the interface font size belong to the user, so they travel in
   // their own part of the settings file.
@@ -353,7 +432,7 @@ static int testGlobalSettingsRoundTrip() {
                 loaded.showParameters == saved.showParameters && loaded.showFilmstrip == saved.showFilmstrip &&
                 loaded.previewRes == saved.previewRes && loaded.outputIndex == saved.outputIndex &&
                 loaded.exportIndex == saved.exportIndex && loaded.exportIntent == saved.exportIntent &&
-                loaded.exportQuality == saved.exportQuality;
+                loaded.exportQuality == saved.exportQuality && loaded.exportSidecar == saved.exportSidecar;
     if (!same) rc = fail("settings: values did not round-trip");
   }
   if (rc == 0) {
@@ -970,7 +1049,7 @@ int runSelfTest() {
   if (const int rc = testRowOrder()) return rc;
   if (const int rc = testGlobalSettingsRoundTrip()) return rc;
   if (const int rc = testFontSizeMigration()) return rc;
-  if (const int rc = testAppearanceIsAppLevel()) return rc;
+  if (const int rc = testStateFilesAreAppLevel()) return rc;
   if (const int rc = testUpdateVersionOrdering()) return rc;
   if (const int rc = testColorSpaceConversion()) return rc;
   if (const int rc = testPluginColorSpaceMapping()) return rc;

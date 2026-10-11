@@ -43,7 +43,7 @@ static void buildDefaultLayout(ImGuiID dockspaceId) {
   ImGui::DockBuilderFinish(dockspaceId);
 }
 
-void BeginMainDockSpace(App &app) {
+void BeginMainDockSpace() {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->WorkPos);
   ImGui::SetNextWindowSize(vp->WorkSize);
@@ -59,11 +59,9 @@ void BeginMainDockSpace(App &app) {
   ImGui::PopStyleVar(3);
 
   const ImGuiID dockspaceId = ImGui::GetID("OfxRawHostDock");
-  const bool missingNode = ImGui::DockBuilderGetNode(dockspaceId) == nullptr;
-  if (missingNode || app.gui.layoutApplyPending) {
-    buildDefaultLayout(dockspaceId);
-    app.gui.layoutApplyPending = false;
-  }
+  // The layout file is global, so a missing node means the first run rather than
+  // a directory that was never opened before.
+  if (ImGui::DockBuilderGetNode(dockspaceId) == nullptr) buildDefaultLayout(dockspaceId);
 
   ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
   ImGui::End();

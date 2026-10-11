@@ -179,6 +179,10 @@ static void drawExportDialog(App &app) {
   }
   if (exportUsesQuality(format) && !lossless) ImGui::SliderInt("Quality", &app.gui.exportQuality, 1, 100);
 
+  ImGui::Spacing();
+  ImGui::Checkbox("Export sidecar", &app.gui.exportSidecar);
+  ImGui::TextDisabled("Records the chain that made this file, in the application state directory.");
+
   ImGui::Separator();
   if (ImGui::Button("Export", ImVec2(120, 0))) {
     ImGui::CloseCurrentPopup();
@@ -455,8 +459,7 @@ void drawUiFrame(App &app) {
   if (!app.gui.pendingWorkspaceDir.empty()) {
     const std::string dir = std::move(app.gui.pendingWorkspaceDir);
     app.gui.pendingWorkspaceDir.clear();
-    if (openWorkspace(app, dir) && !ImGuiBackend_SetWorkspaceIni(app.doc.workspaceDir))
-      app.gui.layoutApplyPending = true;
+    openWorkspace(app, dir);
   }
 
   drawMenuBar(app);
@@ -480,7 +483,7 @@ void drawUiFrame(App &app) {
     if (!r.empty()) app.gui.pendingWorkspaceDir = r;
   }
 
-  DockLayout::BeginMainDockSpace(app);
+  DockLayout::BeginMainDockSpace();
 
   if (app.gui.showPlugins) {
     if (ImGui::Begin(DockLayout::kPlugins, &app.gui.showPlugins)) drawPluginsPanel(app);

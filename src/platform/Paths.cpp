@@ -61,3 +61,12 @@ fs::path userConfigDir() {
   fs::create_directories(dir, ec);
   return dir;
 }
+
+fs::path userStateDir() {
+  const fs::path dir = userConfigDir();
+  if (dir.empty()) return dir;
+  const fs::path state = dir / "state";
+  std::error_code ec;
+  fs::create_directories(state, ec);
+  return state;
+}

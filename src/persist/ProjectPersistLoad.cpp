@@ -32,6 +32,7 @@ void loadGui(const JsonValue &gui, PersistGui &g) {
   // Older sidecars stored the lossy quality under "jpegQuality".
   if (!gui.find("exportQuality")) g.exportQuality = (int)gui.integer("jpegQuality", g.exportQuality);
   g.exportLossless = gui.boolean("exportLossless", g.exportLossless);
+  g.exportSidecar = gui.boolean("exportSidecar", g.exportSidecar);
   g.previewRes = (int)gui.integer("previewRes", g.previewRes);
   g.showPlugins = gui.boolean("showPlugins", g.showPlugins);
   g.showParameters = gui.boolean("showParameters", g.showParameters);
@@ -86,14 +87,32 @@ void loadAppearance(const JsonValue &gui, PersistAppearance &appearance) {
     appearance.uiFontPt = legacyFontScalePt((int)gui.integer("uiFontScale", 1));
 }
 
-bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel) {
-  std::string json;
-  if (!readAllText(workspaceProjectPath(workspaceDir), json)) return false;
+// True when the JSON text holds a sidecar object, filling `out`.
+static bool parseSidecar(const std::string &json, PersistSidecar &out) {
   JsonValue root;
-  if (JsonValue::parse(json, root)) {
-    if (const JsonValue *guiValue = root.find("gui")) loadGui(*guiValue, gui);
-    activeImageRel = root.text("activeImage", activeImageRel);
-  }
+  if (!JsonValue::parse(json, root)) return false;
+  out.kind = root.text("kind", out.kind);
+  out.sourcePath = root.text("sourcePath", out.sourcePath);
+  out.inputColorSpace = root.text("inputColorSpace", out.inputColorSpace);
+  out.chainInputColorSpace = root.text("chainInputColorSpace", out.chainInputColorSpace);
+  out.exportedAt = root.text("exportedAt", out.exportedAt);
+  if (const JsonValue *chainValue = root.find("chain")) loadChain(*chainValue, out.chain);
+  return true;
+}
+
+// Reads the first path that holds a file, so a build that wrote its state beside
+// the source is still read after the state moved to the per-user directory.
+static bool readFirstOf(const std::string &path, const std::string &legacyPath, std::string &out) {
+  if (!path.empty() && readAllText(path, out)) return true;
+  if (legacyPath.empty() || legacyPath == path) return false;
+  return readAllText(legacyPath, out);
+}
+
+bool loadWorkspaceProject(const std::string &workspaceDir, std::string &activeImageRel) {
+  std::string json;
+  if (!readFirstOf(workspaceProjectPath(workspaceDir), workspaceProjectPathLegacy(workspaceDir), json)) return false;
+  JsonValue root;
+  if (JsonValue::parse(json, root)) activeImageRel = root.text("activeImage", activeImageRel);
   return true;
 }
 
@@ -112,18 +131,8 @@ bool loadGlobalSettings(PersistGui &gui, PersistAppearance &appearance, PersistU
   return true;
 }
 
-bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
+bool loadInputSidecar(const std::string &imagePath, PersistSidecar &out) {
   std::string json;
-  if (!readAllText(path, json)) return false;
-  JsonValue root;
-  if (JsonValue::parse(json, root)) {
-    out.kind = root.text("kind", out.kind);
-    out.sourcePath = root.text("sourcePath", out.sourcePath);
-    out.inputColorSpace = root.text("inputColorSpace", out.inputColorSpace);
-    out.chainInputColorSpace = root.text("chainInputColorSpace", out.chainInputColorSpace);
-    out.exportedAt = root.text("exportedAt", out.exportedAt);
-    if (const JsonValue *guiValue = root.find("gui")) loadGui(*guiValue, out.gui);
-    if (const JsonValue *chainValue = root.find("chain")) loadChain(*chainValue, out.chain);
-  }
-  return true;
+  if (!readFirstOf(inputSidecarPath(imagePath), inputSidecarPathLegacy(imagePath), json)) return false;
+  return parseSidecar(json, out);
 }

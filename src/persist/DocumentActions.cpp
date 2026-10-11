@@ -13,6 +13,7 @@ PersistGui captureGui(const App &app) {
   g.exportBitDepth = app.gui.exportBitDepth;
   g.exportQuality = app.gui.exportQuality;
   g.exportLossless = app.gui.exportLossless;
+  g.exportSidecar = app.gui.exportSidecar;
   g.exportIndex = static_cast<int>(app.gui.exportSpace);
   g.exportIntent = static_cast<int>(app.gui.exportIntent);
   g.previewRes = static_cast<int>(app.gui.previewRes);
@@ -29,6 +30,7 @@ void applyGui(App &app, const PersistGui &g) {
   if (g.exportBitDepth >= 16) app.gui.exportBitDepth = 16;
   app.gui.exportQuality = std::clamp(g.exportQuality, 1, 100);
   app.gui.exportLossless = g.exportLossless;
+  app.gui.exportSidecar = g.exportSidecar;
   app.gui.exportSpace = outputSpace(std::clamp(g.exportIndex, 0, kColorSpaceCount - 1));
   app.gui.exportIntent = static_cast<RenderIntent>(std::clamp(g.exportIntent, 0, kRenderIntentCount - 1));
   app.gui.previewRes = static_cast<PreviewRes>(std::clamp(g.previewRes, 0, kPreviewResCount - 1));
@@ -60,7 +62,7 @@ void applyAppearance(App &app, const PersistAppearance &appearance) {
 
 void saveCurrentInputSidecar(App &app) {
   if (app.doc.path.empty()) return;
-  saveInputSidecar(app.doc.path, app.doc.fileSpace, app.doc.inputSpace, captureGui(app), captureChain(app));
+  saveInputSidecar(app.doc.path, app.doc.fileSpace, app.doc.inputSpace, captureChain(app));
 }
 
 PersistUpdates captureUpdates(const App &app) {
@@ -89,5 +91,5 @@ void persistWorkspace(App &app) {
   if (app.doc.workspaceDir.empty()) return;
   const std::string active =
       app.doc.path.empty() ? std::string() : relativeToWorkspace(app.doc.workspaceDir, app.doc.path);
-  saveWorkspaceProject(app.doc.workspaceDir, captureGui(app), active);
+  saveWorkspaceProject(app.doc.workspaceDir, active);
 }

@@ -1,34 +1,72 @@
-# Workspace and sidecar JSON
+# State files
 
-OFX Raw Host persists reproducible processing state as JSON beside your files.
+OFX Raw Host persists processing state as JSON in its per-user state directory.
+No file is written beside your images.
 
-## Workspace file
+The state of a file or a directory holds the plugin chain and the color spaces
+and nothing about the interface. The interface state, which is everything about
+the theme, the font, the panels, the preview, and the export options, belongs to
+the user and lives in the configuration directory above the state directory.
 
-When you **Open Directory…** on a folder, the host reads and writes:
+## State directory
 
-`{folder}/workspace.ofxrawhost.json`
+Each entry mirrors the absolute path of the file it describes, so the name stays
+readable and two files that share a name cannot collide:
 
-This file captures folder-level UI state and which image is active. Per-image OFX chains live in sidecars (below), not in the workspace file.
+```
+{state}/Users/aaron/shots/
+  photo.cr2.json          <- the chain of photo.cr2
+  photo.cr2.export.json   <- how that export was made
+  _directory.json         <- which image of the directory was open
+```
 
-Dock panel sizes and splits are stored separately in ImGui’s layout file:
+`{state}` is `state` under the configuration directory.
 
-`{folder}/.ofxrawhost-layout.ini`
+## Directory entry
 
-(without a workspace, the app uses `layout.ini` in the per-user config directory).
+When you **Open Directory…** on a folder, the host reads and writes
+`{state}/<mirrored folder>/_directory.json`:
 
-Preferences that outlive a workspace live in `settings.json` in the same
-per-user config directory: `%APPDATA%\OfxRawHost` on Windows,
-`~/Library/Application Support/OfxRawHost` on macOS, and
-`$XDG_CONFIG_HOME/ofxrawhost` (or `~/.config/ofxrawhost`) elsewhere. It uses the
-same `gui` object as a workspace project, plus the theme, the interface font
-size, and an `updates` object:
+
+```json
+{
+  "format": "ofxrawhost-workspace",
+  "version": 1,
+  "activeImage": "subfolder/DSC_0001.cr2"
+}
+```
+
+Paths in `activeImage` are relative to the directory when possible.
+
+## Per-user settings
+
+The interface state lives in the per-user config directory:
+`%APPDATA%\OfxRawHost` on Windows, `~/Library/Application Support/OfxRawHost` on
+macOS, and `$XDG_CONFIG_HOME/ofxrawhost` (or `~/.config/ofxrawhost`) elsewhere.
+
+The dock layout of the panels is an ImGui layout file, `layout.ini`, in that
+directory. It is one file for the whole application, so opening a directory does
+not change the layout.
+
+The other preferences are in `settings.json` beside it:
 
 ```json
 {
   "format": "ofxrawhost-settings",
   "version": 1,
   "gui": {
-    "...": "same keys as workspace gui block",
+    "outputIndex": 0,
+    "exportIndex": 0,
+    "exportIntent": 0,
+    "exportFormat": 1,
+    "exportBitDepth": 8,
+    "exportQuality": 92,
+    "exportLossless": false,
+    "exportSidecar": false,
+    "previewRes": 0,
+    "showPlugins": true,
+    "showParameters": true,
+    "showFilmstrip": false,
     "themeIndex": 2,
     "uiFontSizePt": 0
   },
@@ -40,59 +78,38 @@ size, and an `updates` object:
 }
 ```
 
-`themeIndex` is the theme of the interface and `uiFontSizePt` is its size in
-points, where 0 follows the system font size. The theme and the font size belong
-to the user, so they are read and written here alone: a workspace project and a
-sidecar never carry them, and opening either one never changes them.
+- `outputIndex` is the preview color space and `exportIndex` the export color
+  space, both as an index into the color space list.
+- `exportIntent` is the rendering intent, and `exportFormat`, `exportBitDepth`,
+  `exportQuality`, and `exportLossless` are the export options.
+- `exportSidecar` writes the record of an export, and it is off by default.
+- `previewRes` is the preview size, and `showPlugins`, `showParameters`, and
+  `showFilmstrip` are the panel visibility.
+- `themeIndex` is the theme and `uiFontSizePt` the interface font size in
+  points, where 0 follows the system font size.
+- `channel` is 0 for stable releases and 1 for pre-releases; a release build
+  always checks stable releases. `devWarningShown` records that a development
+  build has already offered to turn the start-up check off.
 
-`channel` is 0 for stable releases and 1 for pre-releases; a release build
-always checks stable releases. `devWarningShown` records that a development
-build has already offered to turn the start-up check off. Update preferences live
-only here, so opening an image with a sidecar never changes them.
+Every one of these belongs to the user, so a directory entry and a sidecar carry
+none of them, and opening a directory or an image never changes them.
 
-A workspace project holds the same `gui` object plus the active image, and its
-`gui` object omits the theme and the interface font size, which stay in the
-per-user settings file:
+## Input sidecar
 
-```json
-{
-  "format": "ofxrawhost-workspace",
-  "version": 1,
-  "activeImage": "subfolder/DSC_0001.cr2",
-  "gui": {
-    "outputIndex": 0,
-    "exportFormat": 1,
-    "jpegQuality": 92,
-    "previewRes": 1,
-    "showPlugins": true,
-    "showParameters": true,
-    "showFilmstrip": true
-  }
-}
-```
-
-Paths in `activeImage` are relative to the workspace directory when possible.
-
-Panel geometry is not stored here or in the sidecars; ImGui's layout `.ini` owns it.
-
-## Input image sidecar
-
-For each source file `photo.cr2`, settings are stored in:
-
-`photo.cr2.ofxrawhost.json`
-
-Same basename as the image, with `.ofxrawhost.json` appended (works for any extension).
+For each source file `photo.cr2`, the chain is stored in
+`{state}/<mirrored path>/photo.cr2.json`. The host writes it when the image
+changes or when the application exits, and reads it when the image opens.
 
 ## Export sidecar
 
-On export, a sibling JSON is written next to the image file:
+An export writes `{state}/<mirrored path>/<export name>.json` only while **Export
+sidecar** is on in the export dialog. The toggle is a per-user setting, off by
+default, and it applies to the next export.
 
-| Export           | Sidecar           |
-| ---------------- | ----------------- |
-| `img-a7Kx.jpg`   | `img-a7Kx.json`   |
-| `out/export.png` | `out/export.json` |
-
-Export sidecars record the full chain, parameters, input path, output color space, and export options so the render can be reproduced or audited later. `inputColorSpace` is the space the file declares; `chainInputColorSpace` is the space the user picked for the chain, which the loader hands to the first plugin.
+An export sidecar records the full chain, parameters, input path, and color
+space, so the render can be reproduced or audited later. `inputColorSpace` is the
+space the file declares; `chainInputColorSpace` is the space the user picked for
+the chain, which the loader hands to the first plugin.
 
 ## Sidecar document shape
 
@@ -107,7 +124,6 @@ Input and export sidecars share the same `sidecar` object:
   "inputColorSpace": "Linear Rec.709",
   "chainInputColorSpace": "Linear Rec.709",
   "exportedAt": "2026-09-27T12:00:00Z",
-  "gui": { "...": "same keys as workspace gui block" },
   "chain": {
     "selectedNode": 0,
     "nodes": [
@@ -134,4 +150,13 @@ Input and export sidecars share the same `sidecar` object:
 
 ## Versioning
 
-`version` is incremented when incompatible changes are made. The host ignores unknown keys and fills missing fields with defaults.
+`version` is incremented when incompatible changes are made. The host ignores
+unknown keys and fills missing fields with defaults.
+
+## Files from an older build
+
+A build before the state moved wrote `{image}.ofxrawhost.json` beside the image,
+`{export}.json` beside the export, and `{folder}/workspace.ofxrawhost.json`
+inside the directory. The host still reads those three when the matching state
+entry is missing, and it never writes them again. Delete them once the state
+directory holds the entry.

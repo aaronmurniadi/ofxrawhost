@@ -64,6 +64,8 @@ static ImFont *addUiFont(ImFontAtlas *fonts, ImFontConfig *cfg) {
 }
 
 static void ImGuiBackend_SetDefaultIni() {
+  // One layout file for the whole application, so the dock layout does not
+  // follow the directory that happens to be open.
   const fs::path dir = userConfigDir();
   if (dir.empty()) {
     gIniPath = "ofxrawhost.ini";
@@ -71,22 +73,6 @@ static void ImGuiBackend_SetDefaultIni() {
     gIniPath = (dir / "layout.ini").string();
   }
   if (ImGui::GetCurrentContext()) ImGui::GetIO().IniFilename = gIniPath.c_str();
-}
-
-bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir) {
-  if (workspaceDir.empty()) {
-    ImGuiBackend_SetDefaultIni();
-    return false;
-  }
-  if (ImGui::GetCurrentContext()) ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
-  gIniPath = (fs::path(workspaceDir) / ".ofxrawhost-layout.ini").string();
-  if (!ImGui::GetCurrentContext()) return false;
-  ImGui::GetIO().IniFilename = gIniPath.c_str();
-  if (fs::exists(gIniPath)) {
-    ImGui::LoadIniSettingsFromDisk(gIniPath.c_str());
-    return true;
-  }
-  return false;
 }
 
 // Resolves the setting against the operating system font size, so a setting of

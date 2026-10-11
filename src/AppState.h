@@ -80,6 +80,9 @@ struct GuiState {
   int exportBitDepth = 8;
   int exportQuality = 92;
   bool exportLossless = false;
+  // Writes the state file that records how the exported file was made. Off by
+  // default: the file itself is what most exports are for.
+  bool exportSidecar = false;
   ColorSpace exportSpace = ColorSpace::sRGB;  // color space of the exported file
   RenderIntent exportIntent = RenderIntent::Perceptual;
   // Color space the preview is encoded in. The host converts the chain output
@@ -107,7 +110,6 @@ struct GuiState {
   bool showSettings = false;
   bool themeApplyPending = false;
   bool fontApplyPending = false;
-  bool layoutApplyPending = false;
   std::string pendingWorkspaceDir;
 };
 

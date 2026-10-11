@@ -27,6 +27,7 @@ JsonValue makeGuiJson(const PersistGui &g) {
   gui.set("exportBitDepth", JsonValue::makeInt(g.exportBitDepth));
   gui.set("exportQuality", JsonValue::makeInt(g.exportQuality));
   gui.set("exportLossless", JsonValue::makeBool(g.exportLossless));
+  gui.set("exportSidecar", JsonValue::makeBool(g.exportSidecar));
   gui.set("previewRes", JsonValue::makeInt(g.previewRes));
   gui.set("showPlugins", JsonValue::makeBool(g.showPlugins));
   gui.set("showParameters", JsonValue::makeBool(g.showParameters));
@@ -81,8 +82,40 @@ bool writeFile(const fs::path &path, const std::string &body) {
   return f.good();
 }
 
+namespace {
+
+// The state root of one file, with the absolute path of the file mirrored under
+// it. The mirror keeps the name of the file readable, and two files that share a
+// name in different directories cannot collide. Returns an empty path when the
+// state directory cannot be determined, which sends the caller back beside the
+// file.
+fs::path stateRootFor(const std::string &path) {
+  const fs::path state = userStateDir();
+  if (state.empty()) return {};
+  std::error_code ec;
+  fs::path full = fs::weakly_canonical(fs::path(path), ec);
+  if (ec) full = fs::absolute(fs::path(path), ec);
+  if (ec) return {};
+  // Dropping the root keeps the joined path relative, so the volume or the
+  // leading slash is replaced by one "state" component instead of nesting.
+  return state / full.relative_path();
+}
+
+// The state file of one file, named "<file name><suffix>.json".
+std::string statePathFor(const std::string &path, const char *suffix) {
+  const fs::path root = stateRootFor(path);
+  if (root.empty()) return std::string();
+  return (root.parent_path() / (root.filename().string() + suffix + ".json")).string();
+}
+
+}  // namespace
+
 std::string workspaceProjectPath(const std::string &workspaceDir) {
-  return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
+  const fs::path root = stateRootFor(workspaceDir);
+  // A directory is its own entry, so the state of a directory sits inside the
+  // mirror of that directory rather than beside its other entries.
+  if (root.empty()) return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
+  return (root / "_directory.json").string();
 }
 
 std::string globalSettingsPath() {
@@ -91,11 +124,23 @@ std::string globalSettingsPath() {
   return (dir / "settings.json").string();
 }
 
-std::string inputSidecarPath(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
+std::string inputSidecarPath(const std::string &imagePath) {
+  const std::string state = statePathFor(imagePath, "");
+  if (!state.empty()) return state;
+  return imagePath + ".ofxrawhost.json";
+}
 
 std::string exportSidecarPath(const std::string &exportPath) {
-  fs::path p(exportPath);
+  const std::string state = statePathFor(exportPath, ".export");
+  if (!state.empty()) return state;
+  const fs::path p(exportPath);
   return (p.parent_path() / (p.stem().string() + ".json")).string();
+}
+
+std::string inputSidecarPathLegacy(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
+
+std::string workspaceProjectPathLegacy(const std::string &workspaceDir) {
+  return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
 }
 
 bool isSupportedImagePath(const std::string &path) {
@@ -148,12 +193,11 @@ std::string relativeToWorkspace(const std::string &workspaceDir, const std::stri
   return absPath;
 }
 
-bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel) {
+bool saveWorkspaceProject(const std::string &workspaceDir, const std::string &activeImageRel) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-workspace"));
   root.set("version", JsonValue::makeInt(1));
   root.set("activeImage", JsonValue::makeString(activeImageRel));
-  root.set("gui", makeGuiJson(gui));
   return writeFile(workspaceProjectPath(workspaceDir), root.dump());
 }
 
@@ -187,7 +231,7 @@ static std::string iso8601Now() {
 }
 
 bool saveInputSidecar(const std::string &imagePath, ColorSpace fileSpace, ColorSpace chainInputSpace,
-                      const PersistGui &gui, const PersistChain &chain) {
+                      const PersistChain &chain) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
   root.set("version", JsonValue::makeInt(1));
@@ -195,13 +239,12 @@ bool saveInputSidecar(const std::string &imagePath, ColorSpace fileSpace, ColorS
   root.set("sourcePath", JsonValue::makeString(fs::path(imagePath).filename().string()));
   root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(fileSpace)));
   root.set("chainInputColorSpace", JsonValue::makeString(colorSpaceName(chainInputSpace)));
-  root.set("gui", makeGuiJson(gui));
   root.set("chain", makeChainJson(chain));
   return writeFile(inputSidecarPath(imagePath), root.dump());
 }
 
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace fileSpace,
-                       const PersistGui &gui, const PersistChain &chain) {
+                       const PersistChain &chain) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
   root.set("version", JsonValue::makeInt(1));
@@ -209,7 +252,6 @@ bool saveExportSidecar(const std::string &exportPath, const std::string &sourceI
   root.set("sourcePath", JsonValue::makeString(sourceImagePath));
   root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(fileSpace)));
   root.set("exportedAt", JsonValue::makeString(iso8601Now()));
-  root.set("gui", makeGuiJson(gui));
   root.set("chain", makeChainJson(chain));
   return writeFile(exportSidecarPath(exportPath), root.dump());
 }

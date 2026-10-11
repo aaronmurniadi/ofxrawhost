@@ -27,9 +27,10 @@ bool openWorkspace(App &app, const std::string &dir) {
   persistWorkspace(app);
   app.doc.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
   refreshFilmstrip(app.filmstrip, app.doc.workspaceDir, app.doc.path);
-  PersistGui wg;
+  // The project records which image was open. Its chain lives in the sidecar of
+  // that image, and the interface state lives in the settings file.
   std::string activeRel;
-  if (loadWorkspaceProject(app.doc.workspaceDir, wg, activeRel)) applyGui(app, wg);
+  loadWorkspaceProject(app.doc.workspaceDir, activeRel);
   std::string toOpen;
   if (!activeRel.empty()) {
     fs::path p = fs::path(app.doc.workspaceDir) / activeRel;
@@ -70,10 +71,9 @@ void openPath(App &app, const std::string &path) {
   app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
   app.filmstrip.index = filmstripIndexForPath(app.filmstrip, path);
   PersistSidecar sc;
-  if (loadSidecarFile(inputSidecarPath(path), sc)) {
+  if (loadInputSidecar(path, sc)) {
     // A sidecar that recorded a chain input space restores that choice.
     app.doc.inputSpace = colorSpaceFromName(sc.chainInputColorSpace, app.doc.workingSpace);
-    applyGui(app, sc.gui);
     applyChain(app, sc.chain);
   }
   rebuildPreview(app);
@@ -167,11 +167,11 @@ void doExport(App &app, const std::string &path) {
   opts.bitDepth = app.gui.exportBitDepth;
   opts.quality = app.gui.exportQuality;
   opts.lossless = app.gui.exportLossless;
-  const PersistGui persistGui = captureGui(app);
   const PersistChain persistChain = captureChain(app);
+  const bool writeSidecar = app.gui.exportSidecar;
   const std::string sourcePath = app.doc.path;
   app.render.exportThread =
-      std::thread([&, src, outPath, pw, ph, space, exportSpace, intent, opts, persistGui, persistChain, sourcePath,
+      std::thread([&, src, outPath, pw, ph, space, exportSpace, intent, opts, persistChain, writeSidecar, sourcePath,
                    inSpace]() mutable {
         RenderSchedule::Guard busy(&app.render.schedule, true);
         for (auto &n : app.chain.nodes)
@@ -188,7 +188,7 @@ void doExport(App &app, const std::string &path) {
         ColorSpace writeSpace = exportSpace;
         if (!converted) writeSpace = space;
         bool ok = st == kOfxStatOK && writeImage(out, outPath, writeSpace, opts);
-        if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
+        if (ok && writeSidecar) saveExportSidecar(outPath, sourcePath, inSpace, persistChain);
         app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
                                 std::to_string(src.h) + ")"
                          : "Export failed (OFX status " + std::to_string(st) + ")");
