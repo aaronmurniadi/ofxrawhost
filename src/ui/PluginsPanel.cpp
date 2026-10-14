@@ -1,6 +1,8 @@
 #include "ui/UiFrame.h"
 
 #include "Actions.h"
+#include "imgio/ImageIO.h"
+#include "ParamBridge.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
 #include "RenderScheduler.h"
@@ -14,7 +16,7 @@
 #include <string>
 
 static void drawPluginPicker(App &app) {
-  if (ImGui::Button("Add plugin...", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
+  if (ImGui::Button("Add Plugin", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
@@ -94,30 +96,48 @@ static void drawNodeList(App &app) {
   ImGui::EndChild();
 }
 
-void drawLeftPanel(App &app) {
+void drawPluginsPanel(App &app) {
   if (ImGui::Button("Open image")) {
     auto f = pfd::open_file("Open image", "", openImageDialogFilters());
     auto r = f.result();
     if (!r.empty()) openPath(app, r[0]);
   }
   ImGui::SameLine();
-  if (ImGui::Button("Open Workspace")) {
-    auto f = pfd::select_folder("Open workspace folder");
+  if (ImGui::Button("Open Directory")) {
+    auto f = pfd::select_folder("Open directory");
     auto r = f.result();
     if (!r.empty()) app.gui.pendingWorkspaceDir = r;
   }
   ImGui::SameLine();
   if (ImGui::Button("Export")) exportImage(app);
 
-  int outTag = static_cast<int>(app.outputTag.load());
-  if (ImGui::Combo("Output tag", &outTag, kOutputSpaces, kOutputSpaceCount)) setOutputTag(app, outTag);
+  // The space the chain is told the image is in. It starts at the space of the
+  // decoded buffer and is handed to the first plugin; a later plugin can change
+  // what leaves the chain. The export color space and the rendering intent live
+  // in the export dialog.
+  int inputSpace = static_cast<int>(app.doc.inputSpace);
+  ImGui::BeginDisabled(app.doc.full.px.empty());
+  if (uiChoiceCombo("Input colorspace", nullptr, kColorSpaces, kColorSpaceCount, &inputSpace))
+    setInputSpace(app, inputSpace);
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    ImGui::SetTooltip("Space given to the first plugin in the chain. It starts at the space of the decoded image.");
+  ImGui::EndDisabled();
+
+  // The space the preview is encoded in. The host converts the chain output into
+  // it and shows those values, so the preview matches the file an export in that
+  // space produces.
+  int previewSpace = static_cast<int>(app.gui.previewSpace);
+  if (uiChoiceCombo("Preview colorspace", nullptr, kColorSpaces, kColorSpaceCount, &previewSpace))
+    setPreviewSpace(app, previewSpace);
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+    ImGui::SetTooltip("Space the preview is shown in. The export has its own color space in the export dialog.");
+
   {
     const char *items[kPreviewResCount];
     for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
     int res = static_cast<int>(app.gui.previewRes);
-    if (ImGui::Combo("Preview", &res, items, kPreviewResCount)) setPreviewRes(app, res);
+    if (uiChoiceCombo("Preview", nullptr, items, kPreviewResCount, &res)) setPreviewRes(app, res);
   }
-  // Export format, bit depth, and quality are chosen in the export dialog.
   ImGui::Separator();
   const std::string status = app.getStatus();
   ImGui::TextWrapped("%s", status.c_str());

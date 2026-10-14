@@ -458,21 +458,27 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace &working) {
   PerfScope _ps("loadImage");
   out = {};
   detected = ColorSpace::sRGB;
+  working = ColorSpace::sRGB;
   const std::string e = lowerFileExtension(path);
   const ImageFormatRow *format = imageFormatFor(e);
 
-  if (format && format->codec == ImageCodec::Raw) {
+  // A decoder that removes the transfer curve leaves a linear buffer, so the
+  // working space is the linear counterpart of the tag it detected.
+  const bool raw = format && format->codec == ImageCodec::Raw;
+  if (raw) {
     if (!loadRaw(path, out)) return false;
-    detected = ColorSpace::LinearRec2020;
+    detected = ColorSpace::LinearRec709;
+    working = detected;
     return true;
   }
   if (format && format->codec == ImageCodec::Exr) {
     if (!loadExr(path, out)) return false;
     detected = ColorSpace::LinearRec2020;
+    working = detected;
     return true;
   }
   if (format && format->codec == ImageCodec::Tiff) {
@@ -480,6 +486,9 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
     bool isFloat = false;
     if (!loadTiff(path, out, icc, isFloat)) return false;
     detected = !icc.empty() ? classifyIcc(icc) : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
+    // Integer TIFF keeps the stored samples, so the working space is the tag; a
+    // float TIFF stores linear samples that its tag already describes.
+    working = detected;
     return true;
   }
 
@@ -488,11 +497,16 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
   if (format && format->readIcc) format->readIcc(path, icc);
   if (loadStb(path, out)) {
     detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
+    // stb applies the transfer curve while it converts to float, so the buffer
+    // holds linear values. It ignores the ICC, so the buffer describes sRGB
+    // primaries even for a wide-gamut file.
+    working = linearWorkingSpace(detected);
     return true;
   }
   // A RAW file whose extension the table does not list.
   if (loadRaw(path, out)) {
-    detected = ColorSpace::LinearRec2020;
+    detected = ColorSpace::LinearRec709;
+    working = detected;
     return true;
   }
   return false;

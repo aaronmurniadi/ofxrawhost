@@ -53,13 +53,13 @@ bool addNode(App &app, int pluginIndex) {
     return false;
   }
   if (app.doc.preview.w) node.instance->setInputSize(app.doc.preview.w, app.doc.preview.h);
-  applyColorDefaults(app, node);
   for (auto &p : node.instance->params)
     if (p->type == kOfxParamTypeGroup) node.groupOpen[p->name] = dprop(p->props, kOfxParamPropGroupOpen, 0, 1) != 0;
   app.chain.nodes.push_back(std::move(node));
   app.chain.selectedNode = (int)app.chain.nodes.size() - 1;
   app.gui.paramFilter[0] = '\0';
-  syncOutputTag(app);
+  // Walk after the push, so the new node receives the space the chain carries.
+  syncChainColorSpaces(app);
   scheduleRender(app);
   return true;
 }
@@ -71,7 +71,7 @@ void moveNode(App &app, int from, int to) {
   app.chain.nodes.erase(app.chain.nodes.begin() + from);
   app.chain.nodes.insert(app.chain.nodes.begin() + to, std::move(n));
   app.chain.selectedNode = to;
-  syncOutputTag(app);
+  syncChainColorSpaces(app);
   scheduleRender(app);
 }
 

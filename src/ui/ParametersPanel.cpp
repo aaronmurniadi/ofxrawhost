@@ -8,7 +8,17 @@
 #include "IconsFontAwesome6.h"
 #include "imgui.h"
 
-#include <string>
+// One row of actions above the parameter list: a reset of every parameter to its
+// OFX default. The reset opens a confirmation modal, because one click would
+// discard the whole edit. Preset loading lives on the plugin's own Load Preset
+// button, which the host wires to its file dialog (see ParamWidgets.cpp).
+static void drawParamActions(App &app, Node &node) {
+  if (!node.instance) return;
+  if (ImGui::Button("Reset Parameters", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+    app.gui.showResetParamsConfirm = true;
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+    ImGui::SetTooltip("Return every parameter of this plugin to its default value.");
+}
 
 static void drawParamSearch(App &app) {
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
@@ -24,7 +34,7 @@ static void drawParamSearch(App &app) {
   }
 }
 
-void drawRightPanel(App &app) {
+void drawParametersPanel(App &app) {
   if (app.chain.nodes.empty()) {
     ImGui::TextDisabled("Add a plugin to edit parameters.");
     return;
@@ -35,23 +45,16 @@ void drawRightPanel(App &app) {
   drawParamSearch(app);
   ImGui::Separator();
 
-  if (ImGui::BeginTabBar("##paramNodeTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
-    for (int i = 0; i < (int)app.chain.nodes.size(); ++i) {
-      const Node &node = app.chain.nodes[i];
-      const std::string tabLabel = gPlugins[node.pluginIndex].label + "##tab" + std::to_string(i);
-      ImGuiTabItemFlags tabFlags = 0;
-      if (app.chain.selectedNode == i) tabFlags |= ImGuiTabItemFlags_SetSelected;
-      if (ImGui::BeginTabItem(tabLabel.c_str(), nullptr, tabFlags)) {
-        app.chain.selectedNode = i;
-        ImGui::EndTabItem();
-      }
-    }
-    ImGui::EndTabBar();
+  // The node list in the Plugins panel selects which plugin to edit, so this
+  // panel only names the plugin whose parameters it shows.
+  Node *node = selectedNode(app);
+  if (node) ImGui::SeparatorText(gPlugins[node->pluginIndex].label.c_str());
+  if (node) {
+    drawParamActions(app, *node);
+    ImGui::Separator();
   }
 
-  ImGui::Separator();
   ImGui::BeginChild("paramsScroll", ImVec2(0, 0), ImGuiChildFlags_None);
-  Node *node = selectedNode(app);
   if (node) drawParams(app, *node, "");
   ImGui::EndChild();
 }

@@ -6,9 +6,12 @@
 namespace DockLayout {
 
 // Default split fractions used until ImGui's layout .ini supplies real geometry.
+// The right column holds the plugin list over the parameter list, one third over
+// two thirds. ImGui writes the .ini on the first run and reloads it afterwards,
+// so a user who moves a splitter keeps that arrangement.
 static constexpr float kDefaultRightRatio = 0.24f;
 static constexpr float kDefaultStripRatio = 0.09f;
-static constexpr float kDefaultPluginsShareOfRight = 0.38f;
+static constexpr float kDefaultPluginsShareOfRight = 1.0f / 3.0f;
 
 static void buildDefaultLayout(ImGuiID dockspaceId) {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
@@ -26,11 +29,11 @@ static void buildDefaultLayout(ImGuiID dockspaceId) {
   ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, rightRatio, &dockRight, &dockMain);
 
   ImGuiID dockPlugins = 0;
-  ImGuiID dockParams = 0;
-  ImGui::DockBuilderSplitNode(dockRight, ImGuiDir_Up, kDefaultPluginsShareOfRight, &dockPlugins, &dockParams);
+  ImGuiID dockParameters = 0;
+  ImGui::DockBuilderSplitNode(dockRight, ImGuiDir_Up, kDefaultPluginsShareOfRight, &dockPlugins, &dockParameters);
 
-  ImGui::DockBuilderDockWindow(kLeft, dockPlugins);
-  ImGui::DockBuilderDockWindow(kParams, dockParams);
+  ImGui::DockBuilderDockWindow(kPlugins, dockPlugins);
+  ImGui::DockBuilderDockWindow(kParameters, dockParameters);
   ImGui::DockBuilderDockWindow(kFilmstrip, dockBottom);
   ImGui::DockBuilderDockWindow(kPreview, dockMain);
 
@@ -40,7 +43,7 @@ static void buildDefaultLayout(ImGuiID dockspaceId) {
   ImGui::DockBuilderFinish(dockspaceId);
 }
 
-void BeginMainDockSpace(App &app) {
+void BeginMainDockSpace() {
   const ImGuiViewport *vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->WorkPos);
   ImGui::SetNextWindowSize(vp->WorkSize);
@@ -56,11 +59,9 @@ void BeginMainDockSpace(App &app) {
   ImGui::PopStyleVar(3);
 
   const ImGuiID dockspaceId = ImGui::GetID("OfxRawHostDock");
-  const bool missingNode = ImGui::DockBuilderGetNode(dockspaceId) == nullptr;
-  if (missingNode || app.gui.layoutApplyPending) {
-    buildDefaultLayout(dockspaceId);
-    app.gui.layoutApplyPending = false;
-  }
+  // The layout file is global, so a missing node means the first run rather than
+  // a directory that was never opened before.
+  if (ImGui::DockBuilderGetNode(dockspaceId) == nullptr) buildDefaultLayout(dockspaceId);
 
   ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
   ImGui::End();

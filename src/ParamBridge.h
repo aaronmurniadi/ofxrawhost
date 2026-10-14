@@ -8,7 +8,11 @@
 
 #include <vector>
 
-void syncOutputTag(App &app);
+void syncChainColorSpaces(App &app);
+// Host color space that matches a plug-in color space option name. Returns false
+// when the name has no close host tag.
+bool hostSpaceForPluginName(const std::string &name, ColorSpace &out);
+// True when at least one node is enabled, so a chain output exists at all.
+bool chainHasEnabledNode(App &app);
 void notifyChanged(Node &node, Param *p);
-void applyColorDefaults(App &app, Node &node);
 const std::vector<Val> &choiceOptions(Param *p);

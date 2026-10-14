@@ -1,4 +1,4 @@
-// Self-test cases: decode and color checks, the bundled Transform plugin, every
+// Self-test cases: decode and color checks, the bundled plugins, every
 // installed plugin, and a concurrency smoke case. Run with --selftest.
 
 #include "selftest/Selftest.h"
@@ -9,16 +9,28 @@
 #include "imgio/ImageIO.h"
 #include "ParamBridge.h"
 #include "ofx/OfxHost.h"
+#include "persist/ChainIO.h"
+#include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
+#include "persist/ProjectPersistPriv.h"
 #include "platform/EmbeddedResource.h"
+#include "platform/Paths.h"
+#include "platform/SystemUiFont.h"
+#include "UpdateCheck.h"
+#include "ui/ParamEdit.h"
+
+#include "imgui.h"
 
 #include <tiffio.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -34,11 +46,57 @@ static bool selftestExcluded(const PluginEntry &pe) {
   return pe.plugin && pe.plugin->pluginIdentifier && !strcmp(pe.plugin->pluginIdentifier, "org.spektrafilm.dev");
 }
 
-// The Windows release is one executable, so the icon font must travel inside it.
-static int testEmbeddedIconFont() {
+// The release bundles the interface font (Inter) and the icon font, so the host
+// never depends on a system font. The interface font must also be loadable: a
+// truncated or unsupported file would fail here instead of at startup.
+static int testBundledFonts() {
 #if defined(_WIN32)
   if (embeddedResource(kIconFontResourceId).empty()) return fail("embedded icon font is missing");
+  if (embeddedResource(kUiFontResourceId).empty()) return fail("embedded interface font is missing");
 #endif
+
+  // Read the interface font from the same places the UI does.
+  std::vector<unsigned char> bytes = embeddedResource(kUiFontResourceId);
+  if (bytes.empty()) {
+    const fs::path exe = exeDir();
+    const std::vector<std::string> cands = {
+        OFX_UI_FONT_PATH,
+        (exe / "Inter.ttf").string(),
+        (exe / ".." / "Resources" / "Inter.ttf").string(),
+        "Inter.ttf",
+    };
+    for (const std::string &path : cands) {
+      if (path.empty() || !fs::exists(path)) continue;
+      std::ifstream in(path, std::ios::binary);
+      if (!in) continue;
+      bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+      if (!bytes.empty()) break;
+    }
+  }
+  if (bytes.empty()) return fail("bundled interface font not found");
+
+  ImFontAtlas atlas;
+  ImFontConfig cfg;
+  cfg.SizePixels = 18.0f;
+  // ImGui takes ownership of the buffer, so hand it a heap copy.
+  void *copy = std::malloc(bytes.size());
+  if (!copy) return fail("bundled interface font: out of memory");
+  std::memcpy(copy, bytes.data(), bytes.size());
+  ImFont *font = atlas.AddFontFromMemoryTTF(copy, (int)bytes.size(), cfg.SizePixels, &cfg);
+  if (!font) return fail("bundled interface font did not load");
+  if (!atlas.Build()) return fail("bundled interface font atlas did not build");
+  unsigned char *pixels = nullptr;
+  int texW = 0, texH = 0;
+  atlas.GetTexDataAsAlpha8(&pixels, &texW, &texH);
+  if (!pixels || texW <= 0 || texH <= 0) return fail("bundled interface font has no atlas texture");
+  if (!font->FindGlyphNoFallback('A')) return fail("bundled interface font has no glyphs");
+
+  // The interface font size follows the operating system, so it must resolve to
+  // a usable size on every platform and in a headless run.
+  const float systemPt = systemUiFontSizePt();
+  if (!(systemPt > 4.0f) || systemPt > 40.0f) return fail("system UI font size is out of range");
+
+  printf("ok  bundled fonts (system size %.1f pt)\n", systemPt);
   return 0;
 }
 
@@ -69,23 +127,30 @@ static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
   return ok;
 }
 
-// Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB.
+// Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB. The working space
+// of an integer TIFF is its tag, because the samples stay encoded.
 static int testTiffDecode() {
   for (bool half : {false, true}) {
     const fs::path p = fs::temp_directory_path() / (half ? "ofxrawhost-selftest-half.tif" : "ofxrawhost-selftest.tif");
     if (!writeTinyTiff(p, half)) return fail(half ? "tiff write half" : "tiff write");
     Image img;
     ColorSpace cs = ColorSpace::sRGB;
-    if (!loadImage(p.string(), img, cs) || img.w != 2 || img.h != 2) return fail(half ? "tiff load half" : "tiff load");
+    ColorSpace working = ColorSpace::sRGB;
+    if (!loadImage(p.string(), img, cs, working) || img.w != 2 || img.h != 2) {
+      if (half) return fail("tiff load half");
+      return fail("tiff load");
+    }
     if (img.px[(size_t)1 * 2 * 4 + 0] < 0.9f) return fail(half ? "tiff pixels half" : "tiff pixels");
     if (half && cs != ColorSpace::LinearRec2020) return fail("tiff half colorspace");
     if (!half && cs != ColorSpace::sRGB) return fail("tiff uint colorspace");
+    if (working != cs) return fail("tiff working space");
     fs::remove(p);
   }
   return 0;
 }
 
-// Minimal 1x1 RGB PNG, no iCCP (untagged LDR → sRGB).
+// Minimal 1x1 RGB PNG, no iCCP (untagged LDR → sRGB tag, linear working space,
+// because stb removes the transfer curve while it converts to float).
 static int testPngColorSpace() {
   static const unsigned char kPng[] = {
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
@@ -101,9 +166,200 @@ static int testPngColorSpace() {
   fclose(f);
   Image img;
   ColorSpace cs = ColorSpace::LinearRec2020;
-  if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
+  ColorSpace working = ColorSpace::sRGB;
+  if (!loadImage(p.string(), img, cs, working) || cs != ColorSpace::sRGB) return fail("png colorspace");
+  if (working != ColorSpace::LinearRec709) return fail("png working space");
   fs::remove(p);
   return 0;
+}
+
+// The font setting is a point size, and 0 follows the system size. It belongs to
+// the settings file, so a settings file written while the setting was a scale of
+// the system size must still apply, and a hand-edited value must snap back into
+// the range.
+static int testFontSizeMigration() {
+  const float systemPt = systemUiFontSizePt();
+
+  PersistAppearance appearance;
+  JsonValue none = JsonValue::makeObject();
+  loadAppearance(none, appearance);
+  if (appearance.uiFontPt != kUiFontPtAuto)
+    return fail("font size: a file without the setting does not follow the system");
+
+  JsonValue explicitPt = JsonValue::makeObject();
+  explicitPt.set("uiFontSizePt", JsonValue::makeInt(17));
+  loadAppearance(explicitPt, appearance);
+  if (appearance.uiFontPt != 17) return fail("font size: the stored point size was not read");
+
+  // Scale 1 was the system size, so it becomes the automatic setting.
+  JsonValue normal = JsonValue::makeObject();
+  normal.set("uiFontScale", JsonValue::makeInt(1));
+  loadAppearance(normal, appearance);
+  if (appearance.uiFontPt != kUiFontPtAuto) return fail("font size: the normal scale did not follow the system");
+
+  // Scales 0 and 2 were 0.85 and 1.2 of the system size.
+  JsonValue smaller = JsonValue::makeObject();
+  smaller.set("uiFontScale", JsonValue::makeInt(0));
+  loadAppearance(smaller, appearance);
+  if (appearance.uiFontPt != (int)std::lround(systemPt * 0.85f))
+    return fail("font size: the smaller scale did not convert");
+
+  JsonValue bigger = JsonValue::makeObject();
+  bigger.set("uiFontScale", JsonValue::makeInt(2));
+  loadAppearance(bigger, appearance);
+  if (appearance.uiFontPt != (int)std::lround(systemPt * 1.2f))
+    return fail("font size: the bigger scale did not convert");
+
+  App app;
+  PersistAppearance tooSmall;
+  tooSmall.uiFontPt = 2;
+  applyAppearance(app, tooSmall);
+  if (app.gui.uiFontPt != kUiFontPtMin) return fail("font size: a small value was not raised to the minimum");
+  PersistAppearance tooBig;
+  tooBig.uiFontPt = 200;
+  applyAppearance(app, tooBig);
+  if (app.gui.uiFontPt != kUiFontPtMax) return fail("font size: a large value was not lowered to the maximum");
+  PersistAppearance negative;
+  negative.uiFontPt = -5;
+  applyAppearance(app, negative);
+  if (app.gui.uiFontPt != kUiFontPtAuto) return fail("font size: a negative value did not return to the system size");
+
+  printf("ok  font size migration (system size %.1f pt)\n", systemPt);
+  return 0;
+}
+
+// The state of a file or a directory lives in the per-user state directory, one
+// entry per image, per export, and per directory, and none of it is written
+// beside the source. The interface state belongs to the user alone, so these
+// files carry none of it. A file that a build before the move wrote beside the
+// source is still read while the state file is missing.
+static int testStateFilesAreAppLevel() {
+  const fs::path base = fs::temp_directory_path() / "ofxrawhost-selftest-state";
+  const fs::path dir = base / "shots";
+  std::error_code ec;
+  fs::remove_all(base, ec);
+  fs::create_directories(dir, ec);
+
+  // Point the configuration directory at the temp folder, so the state files
+  // land there instead of the real user directory.
+#ifdef _WIN32
+  const char *envKey = "APPDATA";
+#else
+  const char *envKey = "HOME";
+#endif
+  const char *oldEnv = std::getenv(envKey);
+  std::string oldValue;
+  if (oldEnv) oldValue = oldEnv;
+#ifdef _WIN32
+  _putenv_s(envKey, base.string().c_str());
+#else
+  setenv(envKey, base.string().c_str(), 1);
+#endif
+
+  int rc = 0;
+  const std::string image = (dir / "shot.png").string();
+  const std::string out = (dir / "shot-export.jpg").string();
+  PersistGui gui;
+
+  PersistChain chain;
+  chain.selectedNode = 0;
+  PersistNode node;
+  node.pluginIdentifier = "com.example.chain";
+  node.pluginLabel = "Chain";
+  chain.nodes.push_back(node);
+
+  // A save writes under the state directory. The state of a directory is an entry
+  // inside the mirror of that directory, and nothing lands beside the source.
+  if (rc == 0 && !saveWorkspaceProject(dir.string(), std::string("shot.png")))
+    rc = fail("state: the project was not written");
+  if (rc == 0 && !saveInputSidecar(image, ColorSpace::sRGB, ColorSpace::sRGB, chain))
+    rc = fail("state: the sidecar was not written");
+  if (rc == 0 && !saveExportSidecar(out, image, ColorSpace::sRGB, chain))
+    rc = fail("state: the export sidecar was not written");
+  if (rc == 0 && fs::exists(dir / "workspace.ofxrawhost.json"))
+    rc = fail("state: a project was written beside the directory");
+  if (rc == 0 && fs::exists(image + ".ofxrawhost.json"))
+    rc = fail("state: a sidecar was written beside the image");
+  if (rc == 0 && fs::exists(dir / "shot-export.json"))
+    rc = fail("state: a sidecar was written beside the export");
+
+  const fs::path state = userStateDir();
+  if (rc == 0 && state.empty()) rc = fail("state: the state directory was not found");
+  if (rc == 0) {
+    const std::string project = workspaceProjectPath(dir.string());
+    const std::string sidecar = inputSidecarPath(image);
+    const std::string exported = exportSidecarPath(out);
+    if (project.rfind(state.string(), 0) != 0 || sidecar.rfind(state.string(), 0) != 0 ||
+        exported.rfind(state.string(), 0) != 0)
+      rc = fail("state: a state file was not written under the state directory");
+  }
+
+  // None of the three carries interface state, so opening one cannot change the
+  // view, the color spaces, the panels, the theme, or the font.
+  if (rc == 0) {
+    static const char *const kKeys[] = {"gui",       "showPlugins",  "showParameters", "showFilmstrip",
+                                        "previewRes", "themeIndex",   "uiFontSizePt",   "exportQuality"};
+    const char *files[] = {"the project", "the sidecar", "the export sidecar"};
+    const std::string paths[] = {workspaceProjectPath(dir.string()), inputSidecarPath(image),
+                                 exportSidecarPath(out)};
+    for (int i = 0; i < 3 && rc == 0; ++i) {
+      std::string text;
+      if (!readAllText(paths[i], text)) {
+        rc = fail("state: a state file was not read");
+        break;
+      }
+      for (const char *key : kKeys) {
+        if (text.find(key) != std::string::npos) {
+          rc = fail((std::string("state: ") + files[i] + " carries " + key).c_str());
+          break;
+        }
+      }
+    }
+  }
+  // A sidecar and a project written before the move sit beside the source. They
+  // must still be read while the state directory holds nothing for that file.
+  if (rc == 0) {
+    fs::remove(workspaceProjectPath(dir.string()), ec);
+    fs::remove(inputSidecarPath(image), ec);
+    static const char *kLegacySidecar =
+        "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+        "\"inputColorSpace\":\"sRGB\",\"chainInputColorSpace\":\"sRGB\","
+        "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"com.example.legacy\","
+        "\"pluginLabel\":\"Legacy\",\"enabled\":true,\"groupOpen\":{},\"params\":{}}]}}";
+    if (!writeFile(inputSidecarPathLegacy(image), kLegacySidecar))
+      rc = fail("state: the legacy sidecar was not written");
+  }
+  if (rc == 0) {
+    PersistSidecar legacy;
+    if (!loadInputSidecar(image, legacy) || legacy.chain.nodes.size() != 1 ||
+        legacy.chain.nodes[0].pluginIdentifier != "com.example.legacy")
+      rc = fail("state: the sidecar beside the image was not read");
+  }
+  if (rc == 0) {
+    JsonValue legacyProject = JsonValue::makeObject();
+    legacyProject.set("format", JsonValue::makeString("ofxrawhost-workspace"));
+    legacyProject.set("version", JsonValue::makeInt(1));
+    legacyProject.set("activeImage", JsonValue::makeString("shot.png"));
+    if (!writeFile(workspaceProjectPathLegacy(dir.string()), legacyProject.dump()))
+      rc = fail("state: the legacy project was not written");
+  }
+  if (rc == 0) {
+    std::string activeRel;
+    if (!loadWorkspaceProject(dir.string(), activeRel) || activeRel != "shot.png")
+      rc = fail("state: the project beside the directory was not read");
+  }
+
+  if (rc == 0) std::printf("ok  state files are app level\n");
+
+#ifdef _WIN32
+  if (oldValue.empty()) _putenv_s(envKey, "");
+  else _putenv_s(envKey, oldValue.c_str());
+#else
+  if (oldValue.empty()) unsetenv(envKey);
+  else setenv(envKey, oldValue.c_str(), 1);
+#endif
+  fs::remove_all(base, ec);
+  return rc;
 }
 
 // Row-order check: bottom-up means index 0 is the bottom row.
@@ -120,6 +376,213 @@ static int testRowOrder() {
   return 0;
 }
 
+// The per-user settings file must round-trip the preference fields, so a
+// restart restores the theme, font, panel visibility, and export defaults. The
+// case points the config directory at a temp folder, so it never reads or
+// writes the real user settings.
+static int testGlobalSettingsRoundTrip() {
+  const fs::path base = fs::temp_directory_path() / "ofxrawhost-selftest-config";
+  std::error_code ec;
+  fs::remove_all(base, ec);
+
+#ifdef _WIN32
+  const char *envKey = "APPDATA";
+#else
+  const char *envKey = "HOME";
+#endif
+  const char *oldEnv = std::getenv(envKey);
+  std::string oldValue;
+  if (oldEnv) oldValue = oldEnv;
+#ifdef _WIN32
+  _putenv_s(envKey, base.string().c_str());
+#else
+  setenv(envKey, base.string().c_str(), 1);
+#endif
+
+  PersistGui saved;
+  saved.showPlugins = false;
+  saved.showParameters = true;
+  saved.showFilmstrip = true;
+  saved.previewRes = 3;
+  saved.outputIndex = 2;
+  saved.exportIndex = 3;
+  saved.exportIntent = 2;
+  saved.exportQuality = 71;
+  saved.exportSidecar = true;
+
+  // The theme and the interface font size belong to the user, so they travel in
+  // their own part of the settings file.
+  PersistAppearance savedAppearance;
+  savedAppearance.themeIndex = 5;
+  savedAppearance.uiFontPt = 15;
+
+  PersistUpdates savedUpdates;
+  savedUpdates.channel = static_cast<int>(UpdateChannel::Prereleases);
+  savedUpdates.checkAtStartup = false;
+  savedUpdates.devWarningShown = true;
+
+  int rc = 0;
+  if (!saveGlobalSettings(saved, savedAppearance, savedUpdates)) rc = fail("settings: save");
+  PersistGui loaded;
+  PersistAppearance loadedAppearance;
+  PersistUpdates loadedUpdates;
+  if (rc == 0 && !loadGlobalSettings(loaded, loadedAppearance, loadedUpdates)) rc = fail("settings: load");
+  if (rc == 0) {
+    bool same = loaded.showPlugins == saved.showPlugins &&
+                loaded.showParameters == saved.showParameters && loaded.showFilmstrip == saved.showFilmstrip &&
+                loaded.previewRes == saved.previewRes && loaded.outputIndex == saved.outputIndex &&
+                loaded.exportIndex == saved.exportIndex && loaded.exportIntent == saved.exportIntent &&
+                loaded.exportQuality == saved.exportQuality && loaded.exportSidecar == saved.exportSidecar;
+    if (!same) rc = fail("settings: values did not round-trip");
+  }
+  if (rc == 0) {
+    const bool same = loadedAppearance.themeIndex == savedAppearance.themeIndex &&
+                      loadedAppearance.uiFontPt == savedAppearance.uiFontPt;
+    if (!same) rc = fail("settings: the theme and the font size did not round-trip");
+  }
+  if (rc == 0) {
+    const bool same = loadedUpdates.channel == savedUpdates.channel &&
+                      loadedUpdates.checkAtStartup == savedUpdates.checkAtStartup &&
+                      loadedUpdates.devWarningShown == savedUpdates.devWarningShown;
+    if (!same) rc = fail("settings: update preferences did not round-trip");
+  }
+
+#ifdef _WIN32
+  if (oldValue.empty()) _putenv_s(envKey, "");
+  else _putenv_s(envKey, oldValue.c_str());
+#else
+  if (oldValue.empty()) unsetenv(envKey);
+  else setenv(envKey, oldValue.c_str(), 1);
+#endif
+  fs::remove_all(base, ec);
+  if (rc == 0) printf("ok  global settings round-trip\n");
+  return rc;
+}
+
+// The update check compares release tags. A tag carries a "v" prefix and a
+// development build carries a "-dev-<sha>" suffix, and neither may be read as a
+// different version; two versions of different length must still order.
+static int testUpdateVersionOrdering() {
+  struct Case {
+    const char *left;
+    const char *right;
+    int expected;  // sign only
+  };
+  static const Case cases[] = {
+      {"v0.4.2", "0.4.2", 0},
+      {"0.4.2-dev-ac9deb", "0.4.2", 0},
+      {"0.4.2-dev-ac9deb", "0.4.2-dev-ffffff", 0},
+      {"0.4.2", "0.4.10", -1},
+      {"0.5", "0.4.9", 1},
+      {"0.4.2-dev-ac9deb", "0.4.1", 1},
+      {"v0.4.3-dev-abc", "0.4.2-dev-def", 1},
+      {"1.0.0", "0.99.99", 1},
+      {"0.4", "0.4.0", 0},
+      {"junk", "0.1", -1},
+      {"0.1", "junk", 1},
+      {"junk", "other", 0},
+  };
+  for (const Case &c : cases) {
+    const int order = compareVersions(c.left, c.right);
+    int sign = 0;
+    if (order < 0) sign = -1;
+    if (order > 0) sign = 1;
+    if (sign != c.expected) return fail((std::string("version order: ") + c.left + " vs " + c.right).c_str());
+  }
+
+  std::vector<int> parts;
+  if (!versionParts("v1.2.3", parts) || parts.size() != 3 || parts[0] != 1 || parts[1] != 2 || parts[2] != 3)
+    return fail("version parts");
+  if (versionParts("-dev-abc", parts) || !parts.empty()) return fail("version parts accepted a tag with no number");
+
+  // A release object names one version.
+  ReleaseEntry one;
+  static const char *kRelease =
+      "{\"tag_name\":\"v0.5.0\",\"html_url\":\"https://github.com/aaronmurniadi/ofxrawhost/releases/tag/v0.5.0\"}";
+  if (!parseReleaseResponse(kRelease, one) || one.tag != "v0.5.0") return fail("release tag");
+  if (one.url.find("/releases/tag/v0.5.0") == std::string::npos) return fail("release page url");
+  if (parseReleaseResponse("{}", one)) return fail("release: empty object accepted");
+  if (parseReleaseResponse("[]", one)) return fail("release: array accepted");
+  if (parseReleaseResponse("{\"tag_name\":\"\"}", one)) return fail("release: empty tag accepted");
+  if (parseReleaseResponse("not json", one)) return fail("release: junk accepted");
+  if (parseReleaseResponse("{\"message\":\"API rate limit exceeded\"}", one))
+    return fail("release: rate limit answer accepted");
+
+  // The release list holds both kinds, newest first. A newer version wins, and a
+  // pre-release wins a tie because the caller asked for pre-releases.
+  ReleaseEntry newest, current;
+  static const char *kList =
+      "[{\"tag_name\":\"v0.5.0\",\"prerelease\":false,\"html_url\":\"u5\"},"
+      "{\"tag_name\":\"v0.6.0-dev-abc1234\",\"prerelease\":true,\"html_url\":\"u6\"},"
+      "{\"tag_name\":\"v0.4.9\",\"prerelease\":false,\"html_url\":\"u4\"}]";
+  if (!parseReleasesResponse(kList, "0.4.9", newest, current) || newest.tag != "v0.6.0-dev-abc1234" ||
+      newest.url != "u6")
+    return fail("release list: newest version not chosen");
+  if (current.tag != "v0.4.9") return fail("release list: the running build was not found");
+
+  static const char *kSameVersion =
+      "[{\"tag_name\":\"v0.5.0\",\"prerelease\":false,\"html_url\":\"stable\"},"
+      "{\"tag_name\":\"v0.5.0-dev-ffff\",\"prerelease\":true,\"html_url\":\"pre\"}]";
+  if (!parseReleasesResponse(kSameVersion, "0.5.0", newest, current) || newest.tag != "v0.5.0-dev-ffff")
+    return fail("release list: pre-release did not win a tie");
+
+  static const char *kNewestFirst =
+      "[{\"tag_name\":\"v0.5.0-dev-bbbb\",\"prerelease\":true,\"html_url\":\"b\"},"
+      "{\"tag_name\":\"v0.5.0-dev-aaaa\",\"prerelease\":true,\"html_url\":\"a\"}]";
+  if (!parseReleasesResponse(kNewestFirst, "0.5.0-dev-aaaa", newest, current) ||
+      newest.tag != "v0.5.0-dev-bbbb")
+    return fail("release list: same-version development builds are not ordered by list order");
+
+  if (parseReleasesResponse("[]", "0.5.0", newest, current)) return fail("release list: empty list accepted");
+  if (parseReleasesResponse("{\"tag_name\":\"v1.0.0\"}", "0.5.0", newest, current))
+    return fail("release list: object accepted");
+  if (parseReleasesResponse("[{\"name\":\"no tag\"}]", "0.5.0", newest, current))
+    return fail("release list: entry with no tag accepted");
+
+  // Two development builds of one version carry the same numbers, so the time
+  // their releases were created decides which one is newer.
+  static const char *kTwoBuilds =
+      "[{\"tag_name\":\"v0.4.2-dev-ec3ace\",\"prerelease\":true,\"created_at\":\"2026-10-11T05:53:41Z\"},"
+      "{\"tag_name\":\"v0.4.2-dev-b56123\",\"prerelease\":true,\"created_at\":\"2026-10-10T19:49:27Z\"}]";
+  if (!parseReleasesResponse(kTwoBuilds, "0.4.2-dev-b56123", newest, current))
+    return fail("release list: the development builds were not read");
+  if (!releaseIsNewer(newest, current, "0.4.2-dev-b56123"))
+    return fail("release time: the newer development build was not newer");
+  if (releaseIsNewer(newest, newest, "0.4.2-dev-ec3ace"))
+    return fail("release time: the newest development build was newer than itself");
+  ReleaseEntry noTime;
+  if (releaseIsNewer(newest, noTime, "0.4.2-dev-b56123"))
+    return fail("release time: a build missing from the list was treated as older");
+  if (!releaseIsNewer(ReleaseEntry{"v0.4.3-dev-abc", "u", ""}, current, "0.4.2-dev-b56123"))
+    return fail("release time: a higher version was not newer");
+  if (releaseIsNewer(ReleaseEntry{"v0.4.1", "u", ""}, current, "0.4.2-dev-b56123"))
+    return fail("release time: a lower version was newer");
+  // A time in another shape must not order anything.
+  if (releaseIsNewer(ReleaseEntry{"v0.4.2-dev-ec3ace", "u", "yesterday"}, current, "0.4.2-dev-b56123"))
+    return fail("release time: a time that is not a timestamp was accepted");
+
+  // A release build follows releases only, and a development build may follow
+  // pre-releases, which is also the channel it starts on.
+  if (!channelAllowed(UpdateChannel::Stable)) return fail("stable channel rejected");
+  const bool dev = isDevelopmentBuild();
+  if (channelAllowed(UpdateChannel::Prereleases) != dev) return fail("pre-release channel allowed on a release build");
+  if ((defaultUpdateChannel() == UpdateChannel::Prereleases) != dev) return fail("default channel");
+
+  // The stored channel is clamped when it is applied, so a release build that
+  // once ran a development build cannot keep checking pre-releases.
+  App app;
+  PersistUpdates stored;
+  stored.channel = static_cast<int>(UpdateChannel::Prereleases);
+  stored.checkAtStartup = false;
+  applyUpdates(app, stored);
+  if (!dev && app.gui.updateChannel != UpdateChannel::Stable) return fail("stored pre-release channel was not clamped");
+  if (dev && app.gui.updateChannel != UpdateChannel::Prereleases) return fail("development build channel was clamped");
+  if (app.gui.checkUpdatesAtStartup) return fail("stored start-up preference was not applied");
+
+  printf("ok  update version ordering\n");
+  return 0;
+}
+
 // A gray ramp that gives every plugin something with a large dynamic range.
 static Image makeTestImage() {
   Image src;
@@ -133,7 +596,7 @@ static Image makeTestImage() {
 }
 
 // Bundled Transform plugin: defaults must be an identity pass-through with a
-// full-size RoD; the crop slider must shrink the RoD and change the rendered
+// full-size RoD; the zoom slider must shrink the RoD and change the rendered
 // output. Checked first so a flaky third-party plugin later in the list
 // cannot mask a regression here.
 static int testTransformPlugin(Image &src) {
@@ -142,25 +605,25 @@ static int testTransformPlugin(Image &src) {
   auto e = createInstance(*it);
   if (!e) return fail("createInstance: Transform");
 
-  // At default (crop=0): RoD matches source size and render is identity.
+  // At default (zoom=100): RoD matches source size and render is identity.
   int ow = src.w, oh = src.h;
   queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
-  if (ow != src.w || oh != src.h) return fail("crop RoD at default != source size");
+  if (ow != src.w || oh != src.h) return fail("zoom RoD at default != source size");
   Image out;
   out.w = src.w;
   out.h = src.h;
   out.px.assign(src.px.size(), -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, src.w, src.h, 0) != kOfxStatOK)
     return fail("render: Transform (defaults)");
-  if (out.px != src.px) return fail("crop defaults are not identity");
+  if (out.px != src.px) return fail("zoom defaults are not identity");
 
-  // At crop=80: RoD should shrink and render to the smaller output should differ.
-  Param *crop = findParam(e.get(), "crop");
-  if (!crop || crop->v.empty()) return fail("crop param missing");
-  crop->v[0] = 80;
+  // At zoom=500: RoD should shrink to 20% and render to the smaller output should differ.
+  Param *zoom = findParam(e.get(), "zoom");
+  if (!zoom || zoom->v.empty()) return fail("zoom param missing");
+  zoom->v[0] = 500;
   ow = src.w; oh = src.h;
   queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
-  if (ow >= src.w || oh >= src.h) return fail("crop RoD did not shrink at 80%");
+  if (ow >= src.w || oh >= src.h) return fail("zoom RoD did not shrink at 500");
   out.w = ow;
   out.h = oh;
   out.px.assign((size_t)ow * oh * 4, -1.0f);
@@ -171,13 +634,13 @@ static int testTransformPlugin(Image &src) {
     finite &= std::isfinite(v);
     changed |= v != -1.0f;
   }
-  if (!finite || !changed) return fail("crop zoom output");
-  if (out.px == src.px) return fail("crop slider had no effect");
+  if (!finite || !changed) return fail("zoom output");
+  if (out.px == src.px) return fail("zoom slider had no effect");
 
-  // At crop=0 the window fills the source, so both pan ranges must fall back
-  // to half the crop size (not zero). Panning ±100 should slide the window
+  // At zoom=100 the window fills the source, so both pan ranges must fall back
+  // to half the window size (not zero). Panning ±100 should slide the window
   // past the source edge, producing black where no source data exists.
-  crop->v[0] = 0;
+  zoom->v[0] = 100;
   Param *offsetX = findParam(e.get(), "offsetX");
   Param *offsetY = findParam(e.get(), "offsetY");
   if (!offsetX || offsetX->v.empty()) return fail("offsetX param missing");
@@ -190,7 +653,7 @@ static int testTransformPlugin(Image &src) {
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
     return fail("render: Transform (centered)");
   for (float v : out.px)
-    if (v == 0.0f) return fail("centered crop should have no black pixels");
+    if (v == 0.0f) return fail("centered window should have no black pixels");
   offsetY->v[0] = 100;
   std::fill(out.px.begin(), out.px.end(), -1.0f);
   if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, 0) != kOfxStatOK)
@@ -231,7 +694,233 @@ static int testTransformPlugin(Image &src) {
   if (!finiteRot || !touched) return fail("rotate output");
   if (hasBlack) return fail("rotate left black pixels in frame");
   callAction(it->plugin, kOfxActionDestroyInstance, e.get());
-  printf("ok  Transform crop/zoom/rotate\n");
+  printf("ok  Transform zoom/rotate\n");
+  return 0;
+}
+
+// A project saved before the Crop/Zoom merge stores both names. Loading it must
+// fold them into the merged Zoom and keep the field of view the node showed.
+static int testTransformLegacyMigration() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == gPlugins.end()) return fail("migration: bundled Transform plugin not found");
+
+  PersistChain chain;
+  PersistNode pn;
+  pn.pluginIdentifier = it->plugin->pluginIdentifier;
+  pn.pluginLabel = "Transform";
+  pn.paramsJson["crop"] = "50";
+  pn.paramsJson["zoom"] = "100";
+  chain.nodes.push_back(std::move(pn));
+
+  App app;
+  applyChain(app, chain);
+  if (app.chain.nodes.size() != 1) return fail("migration: node missing");
+  Param *zoom = findParam(app.chain.nodes[0].instance.get(), "zoom");
+  if (!zoom || zoom->v.empty()) return fail("migration: zoom param missing");
+  // crop 50 keeps half the source, so the merged Zoom must show the same field.
+  if (std::abs(zoom->v[0] - 200.0) > 1e-9) return fail("migration: crop 50 and zoom 100 did not fold to 200");
+  clearNodes(app);
+  printf("ok  Transform legacy migration\n");
+  return 0;
+}
+
+// Bundled Auto Exposure plugin: a mid-gray frame must stay unchanged, a dark
+// frame must brighten, a bright frame must darken, and a compensation bias must
+// add to the gain.
+static int testAutoExposurePlugin() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Auto Exposure"; });
+  if (it == gPlugins.end()) return fail("bundled Auto Exposure plugin not found");
+  auto e = createInstance(*it);
+  if (!e) return fail("createInstance: Auto Exposure");
+
+  // Meter on linear values so a flat frame maps straight to the gain.
+  Param *space = findParam(e.get(), "inputSpace");
+  Param *method = findParam(e.get(), "method");
+  Param *comp = findParam(e.get(), "compensation");
+  if (!space || space->v.empty()) return fail("auto exposure: inputSpace missing");
+  if (!method || method->v.empty()) return fail("auto exposure: method missing");
+  if (!comp || comp->v.empty()) return fail("auto exposure: compensation missing");
+  space->v[0] = 2;  // Linear Rec.709
+  method->v[0] = 0;  // Average, so a flat frame has one meter value
+  comp->v[0] = 0;
+
+  const int w = 16, h = 12;
+  auto renderFlat = [&](float value, Image &out) {
+    Image in;
+    in.w = w;
+    in.h = h;
+    in.px.assign((size_t)w * h * 4, value);
+    out.w = w;
+    out.h = h;
+    out.px.assign((size_t)w * h * 4, -1.0f);
+    return renderEffect(it->plugin, e.get(), in.px.data(), out.px.data(), w, h, w, h, 0);
+  };
+
+  Image out;
+  // 18.4% gray meters to 0 EV, so the frame is unchanged.
+  if (renderFlat(0.184f, out) != kOfxStatOK) return fail("render: Auto Exposure (mid gray)");
+  for (float v : out.px)
+    if (std::abs(v - 0.184f) > 1e-4f) return fail("auto exposure changed mid gray");
+
+  // A dark frame must brighten and a bright frame must darken toward mid gray.
+  if (renderFlat(0.046f, out) != kOfxStatOK) return fail("render: Auto Exposure (dark)");
+  if (out.px[0] <= 0.046f + 1e-4f) return fail("auto exposure did not brighten a dark frame");
+  if (renderFlat(0.736f, out) != kOfxStatOK) return fail("render: Auto Exposure (bright)");
+  if (out.px[0] >= 0.736f - 1e-4f) return fail("auto exposure did not darken a bright frame");
+
+  // One stop of compensation doubles a mid-gray frame.
+  comp->v[0] = 1.0;
+  if (renderFlat(0.184f, out) != kOfxStatOK) return fail("render: Auto Exposure (compensation)");
+  if (std::abs(out.px[0] - 0.368f) > 1e-3f) return fail("auto exposure compensation != 1 EV");
+
+  callAction(it->plugin, kOfxActionDestroyInstance, e.get());
+  printf("ok  Auto Exposure\n");
+  return 0;
+}
+
+// The preview color space follows the plug-in that declares one, so the map from
+// a plug-in option name to a host ICC tag must cover the common names and reject
+// the rest instead of guessing.
+static int testPluginColorSpaceMapping() {
+  struct Case {
+    const char *name;
+    ColorSpace host;
+    bool mapped;
+  };
+  static const Case cases[] = {
+      {"sRGB", ColorSpace::sRGB, true},
+      {"Rec.709 Gamma 2.2", ColorSpace::sRGB, true},
+      {"Rec.709 Gamma 2.4", ColorSpace::sRGB, true},
+      {"Display P3", ColorSpace::DisplayP3, true},
+      {"DCI-P3", ColorSpace::DisplayP3, true},
+      {"P3-D65 Gamma 2.2", ColorSpace::DisplayP3, true},
+      {"P3-D65 Gamma 2.6", ColorSpace::DisplayP3, true},
+      {"Linear Rec.709", ColorSpace::LinearRec709, true},
+      {"Linear P3-D65", ColorSpace::LinearRec2020, true},
+      {"Linear Rec.2020", ColorSpace::LinearRec2020, true},
+      {"ProPhoto RGB", ColorSpace::LinearRec2020, true},
+      {"Adobe RGB (1998)", ColorSpace::LinearRec2020, true},
+      {"ACES2065-1", ColorSpace::sRGB, false},
+      {"Sony S-Log3 S-Gamut3", ColorSpace::sRGB, false},
+      {"", ColorSpace::sRGB, false},
+  };
+  for (const Case &c : cases) {
+    ColorSpace mapped = ColorSpace::sRGB;
+    const bool ok = hostSpaceForPluginName(c.name, mapped);
+    if (ok != c.mapped) return fail("color space map: wrong match");
+    if (ok && mapped != c.host) return fail("color space map: wrong target");
+  }
+  printf("ok  plug-in color space mapping\n");
+  return 0;
+}
+
+// The export converts the chain output from the preview space into the export
+// space with a rendering intent. A same-space request must be an exact no-op,
+// and a real conversion must change the pixels, stay finite, and round-trip back
+// to the original values within a small tolerance.
+static int testColorSpaceConversion() {
+  Image img;
+  img.w = 16;
+  img.h = 8;
+  img.px.assign((size_t)img.w * img.h * 4, 0.0f);
+  for (int y = 0; y < img.h; ++y)
+    for (int x = 0; x < img.w; ++x) {
+      const size_t i = ((size_t)y * img.w + x) * 4;
+      img.px[i + 0] = 0.18f + 0.02f * (float)x;
+      img.px[i + 1] = 0.30f;
+      img.px[i + 2] = 0.60f - 0.01f * (float)y;
+      img.px[i + 3] = 1.0f;
+    }
+  const Image original = img;
+
+  if (!convertColorSpace(img, ColorSpace::sRGB, ColorSpace::sRGB, RenderIntent::Perceptual))
+    return fail("convert: same space failed");
+  if (img.px != original.px) return fail("convert: same space changed pixels");
+
+  if (!convertColorSpace(img, ColorSpace::sRGB, ColorSpace::LinearRec709, RenderIntent::RelativeColorimetric))
+    return fail("convert: sRGB to Linear Rec.709 failed");
+  bool finite = true;
+  bool changed = false;
+  bool alphaKept = true;
+  for (size_t i = 0; i < img.px.size(); i += 4) {
+    for (int c = 0; c < 3; ++c) {
+      finite &= std::isfinite(img.px[i + c]);
+      changed |= std::abs(img.px[i + c] - original.px[i + c]) > 1e-6f;
+    }
+    alphaKept &= img.px[i + 3] == 1.0f;
+  }
+  if (!finite) return fail("convert: output is not finite");
+  if (!changed) return fail("convert: a real conversion changed nothing");
+  if (!alphaKept) return fail("convert: alpha was not preserved");
+
+  if (!convertColorSpace(img, ColorSpace::LinearRec709, ColorSpace::sRGB, RenderIntent::RelativeColorimetric))
+    return fail("convert: round trip failed");
+  for (size_t i = 0; i < img.px.size(); ++i) {
+    if (std::abs(img.px[i] - original.px[i]) > 2e-3f) return fail("convert: round trip drifted");
+  }
+  printf("ok  color space conversion\n");
+  return 0;
+}
+
+// "Reset Parameters" must return every value parameter to its OFX default, so a
+// plugin that was edited returns to the state it has when it is added.
+static int testResetNodeParams() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == gPlugins.end()) return fail("reset: bundled Transform plugin not found");
+  const int index = (int)(it - gPlugins.begin());
+
+  App app;
+  if (!addNode(app, index)) return fail("reset: addNode");
+  Node &node = app.chain.nodes.back();
+  Param *zoom = findParam(node.instance.get(), "zoom");
+  Param *rotate = findParam(node.instance.get(), "rotate");
+  if (!zoom || zoom->v.empty()) return fail("reset: zoom param missing");
+  if (!rotate || rotate->v.empty()) return fail("reset: rotate param missing");
+  zoom->v[0] = 500;
+  rotate->v[0] = 45;
+
+  const int count = resetNodeParamsToDefaults(app, node);
+  if (count <= 0) return fail("reset: nothing was reset");
+  if (std::abs(zoom->v[0] - 100.0) > 1e-9) return fail("reset: zoom did not return to 100");
+  if (std::abs(rotate->v[0] - 0.0) > 1e-9) return fail("reset: rotate did not return to 0");
+  clearNodes(app);
+  printf("ok  reset parameters\n");
+  return 0;
+}
+
+// The chain walk hands the document input space to the first plugin and carries
+// the space each plugin declares to the next one. A plugin that declares no
+// output space passes the carried space through. The space that leaves the chain
+// is what the preview and the export start from, and the preview destination is
+// independent of it.
+static int testChainColorSpaceFlow() {
+  auto it = std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == gPlugins.end()) return fail("chain space: bundled Transform plugin not found");
+
+  App app;
+  if (app.gui.previewSpace != ColorSpace::sRGB) return fail("chain space: preview default is not sRGB");
+  if (app.gui.exportSpace != ColorSpace::sRGB) return fail("chain space: export default is not sRGB");
+
+  app.doc.fileSpace = ColorSpace::LinearRec709;
+  app.doc.workingSpace = ColorSpace::LinearRec709;
+  app.doc.inputSpace = ColorSpace::LinearRec709;
+  if (!addNode(app, (int)(it - gPlugins.begin()))) return fail("chain space: addNode");
+  if (app.chainOutputSpace.load() != ColorSpace::LinearRec709) return fail("chain space: space not carried through");
+
+  // The document input space reaches the chain output, because Transform declares
+  // no output space of its own.
+  setInputSpace(app, 0);  // sRGB
+  if (app.doc.inputSpace != ColorSpace::sRGB) return fail("chain space: input space not set");
+  if (app.chainOutputSpace.load() != ColorSpace::sRGB) return fail("chain space: input space not carried");
+
+  // The preview destination is the last conversion, so it must not move the
+  // chain.
+  setPreviewSpace(app, 3);  // Linear Rec.2020
+  if (app.gui.previewSpace != ColorSpace::LinearRec2020) return fail("chain space: preview space not set");
+  if (app.chainOutputSpace.load() != ColorSpace::sRGB) return fail("chain space: preview changed the chain");
+
+  clearNodes(app);
+  printf("ok  chain color space flow\n");
   return 0;
 }
 
@@ -318,9 +1007,11 @@ static int testConcurrency(const Image &src) {
     scheduleRender(app);
     if (i % 11 == 0) scheduleDisplayRecolor(app);
     if (i % 13 == 0) {
-      // UI keeps writing outputTag while renders run (ParamWidgets/output combo).
-      app.outputTag = app.outputTag.load() == ColorSpace::sRGB ? ColorSpace::LinearRec709 : ColorSpace::sRGB;
-      syncOutputTag(app);
+      // UI keeps writing the preview destination while renders run (the
+      // Plugins panel colorspace combo).
+      if (app.gui.previewSpace == ColorSpace::sRGB) app.gui.previewSpace = ColorSpace::LinearRec709;
+      else app.gui.previewSpace = ColorSpace::sRGB;
+      syncChainColorSpaces(app);
     }
     if (i % 17 == 0) rebuildPreview(app);  // preview rewrite must wait out the worker
     if (i == 50) {
@@ -351,14 +1042,24 @@ static int testConcurrency(const Image &src) {
 }
 
 int runSelfTest() {
-  if (const int rc = testEmbeddedIconFont()) return rc;
+  if (const int rc = testBundledFonts()) return rc;
   if (const int rc = testTiffDecode()) return rc;
   if (const int rc = testPngColorSpace()) return rc;
   Image src = makeTestImage();
   if (const int rc = testRowOrder()) return rc;
+  if (const int rc = testGlobalSettingsRoundTrip()) return rc;
+  if (const int rc = testFontSizeMigration()) return rc;
+  if (const int rc = testStateFilesAreAppLevel()) return rc;
+  if (const int rc = testUpdateVersionOrdering()) return rc;
+  if (const int rc = testColorSpaceConversion()) return rc;
+  if (const int rc = testPluginColorSpaceMapping()) return rc;
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
+  if (const int rc = testResetNodeParams()) return rc;
+  if (const int rc = testChainColorSpaceFlow()) return rc;
   if (const int rc = testTransformPlugin(src)) return rc;
+  if (const int rc = testTransformLegacyMigration()) return rc;
+  if (const int rc = testAutoExposurePlugin()) return rc;
   if (const int rc = testEveryPlugin(src)) return rc;
   if (const int rc = testConcurrency(src)) return rc;
   return 0;

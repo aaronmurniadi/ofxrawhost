@@ -2,6 +2,7 @@
 #include "persist/ProjectPersistPriv.h"
 
 #include "imgio/ImageIO.h"
+#include "platform/Paths.h"
 
 #include <algorithm>
 #include <cctype>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -19,18 +21,34 @@ JsonValue makeGuiJson(const PersistGui &g) {
   // Panel geometry lives in ImGui's layout .ini, not in this JSON.
   JsonValue gui = JsonValue::makeObject();
   gui.set("outputIndex", JsonValue::makeInt(g.outputIndex));
+  gui.set("exportIndex", JsonValue::makeInt(g.exportIndex));
+  gui.set("exportIntent", JsonValue::makeInt(g.exportIntent));
   gui.set("exportFormat", JsonValue::makeInt(g.exportFormat));
   gui.set("exportBitDepth", JsonValue::makeInt(g.exportBitDepth));
   gui.set("exportQuality", JsonValue::makeInt(g.exportQuality));
   gui.set("exportLossless", JsonValue::makeBool(g.exportLossless));
+  gui.set("exportSidecar", JsonValue::makeBool(g.exportSidecar));
   gui.set("previewRes", JsonValue::makeInt(g.previewRes));
-  gui.set("themeIndex", JsonValue::makeInt(g.themeIndex));
-  gui.set("uiFontSizePt", JsonValue::makeInt(g.uiFontSizePt));
-  gui.set("uiFontFamily", JsonValue::makeString(g.uiFontFamily));
-  gui.set("showLeft", JsonValue::makeBool(g.showLeft));
-  gui.set("showRight", JsonValue::makeBool(g.showRight));
+  gui.set("showPlugins", JsonValue::makeBool(g.showPlugins));
+  gui.set("showParameters", JsonValue::makeBool(g.showParameters));
   gui.set("showFilmstrip", JsonValue::makeBool(g.showFilmstrip));
   return gui;
+}
+
+// The theme and the interface font size belong to the user, so a project, a
+// sidecar, and a directory never record them; only the settings file does.
+void writeAppearance(JsonValue &gui, const PersistAppearance &appearance) {
+  gui.set("themeIndex", JsonValue::makeInt(appearance.themeIndex));
+  gui.set("uiFontSizePt", JsonValue::makeInt(appearance.uiFontPt));
+}
+
+JsonValue makeUpdatesJson(const PersistUpdates &u) {
+  // Only the settings file carries this object, so it stays out of makeGuiJson.
+  JsonValue updates = JsonValue::makeObject();
+  updates.set("channel", JsonValue::makeInt(u.channel));
+  updates.set("checkAtStartup", JsonValue::makeBool(u.checkAtStartup));
+  updates.set("devWarningShown", JsonValue::makeBool(u.devWarningShown));
+  return updates;
 }
 
 JsonValue makeChainJson(const PersistChain &chain) {
@@ -64,15 +82,65 @@ bool writeFile(const fs::path &path, const std::string &body) {
   return f.good();
 }
 
-std::string workspaceProjectPath(const std::string &workspaceDir) {
-  return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
+namespace {
+
+// The state root of one file, with the absolute path of the file mirrored under
+// it. The mirror keeps the name of the file readable, and two files that share a
+// name in different directories cannot collide. Returns an empty path when the
+// state directory cannot be determined, which sends the caller back beside the
+// file.
+fs::path stateRootFor(const std::string &path) {
+  const fs::path state = userStateDir();
+  if (state.empty()) return {};
+  std::error_code ec;
+  fs::path full = fs::weakly_canonical(fs::path(path), ec);
+  if (ec) full = fs::absolute(fs::path(path), ec);
+  if (ec) return {};
+  // Dropping the root keeps the joined path relative, so the volume or the
+  // leading slash is replaced by one "state" component instead of nesting.
+  return state / full.relative_path();
 }
 
-std::string inputSidecarPath(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
+// The state file of one file, named "<file name><suffix>.json".
+std::string statePathFor(const std::string &path, const char *suffix) {
+  const fs::path root = stateRootFor(path);
+  if (root.empty()) return std::string();
+  return (root.parent_path() / (root.filename().string() + suffix + ".json")).string();
+}
+
+}  // namespace
+
+std::string workspaceProjectPath(const std::string &workspaceDir) {
+  const fs::path root = stateRootFor(workspaceDir);
+  // A directory is its own entry, so the state of a directory sits inside the
+  // mirror of that directory rather than beside its other entries.
+  if (root.empty()) return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
+  return (root / "_directory.json").string();
+}
+
+std::string globalSettingsPath() {
+  const fs::path dir = userConfigDir();
+  if (dir.empty()) return std::string();
+  return (dir / "settings.json").string();
+}
+
+std::string inputSidecarPath(const std::string &imagePath) {
+  const std::string state = statePathFor(imagePath, "");
+  if (!state.empty()) return state;
+  return imagePath + ".ofxrawhost.json";
+}
 
 std::string exportSidecarPath(const std::string &exportPath) {
-  fs::path p(exportPath);
+  const std::string state = statePathFor(exportPath, ".export");
+  if (!state.empty()) return state;
+  const fs::path p(exportPath);
   return (p.parent_path() / (p.stem().string() + ".json")).string();
+}
+
+std::string inputSidecarPathLegacy(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
+
+std::string workspaceProjectPathLegacy(const std::string &workspaceDir) {
+  return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
 }
 
 bool isSupportedImagePath(const std::string &path) {
@@ -125,13 +193,25 @@ std::string relativeToWorkspace(const std::string &workspaceDir, const std::stri
   return absPath;
 }
 
-bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel) {
+bool saveWorkspaceProject(const std::string &workspaceDir, const std::string &activeImageRel) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-workspace"));
   root.set("version", JsonValue::makeInt(1));
   root.set("activeImage", JsonValue::makeString(activeImageRel));
-  root.set("gui", makeGuiJson(gui));
   return writeFile(workspaceProjectPath(workspaceDir), root.dump());
+}
+
+bool saveGlobalSettings(const PersistGui &gui, const PersistAppearance &appearance, const PersistUpdates &updates) {
+  const std::string path = globalSettingsPath();
+  if (path.empty()) return false;
+  JsonValue guiJson = makeGuiJson(gui);
+  writeAppearance(guiJson, appearance);
+  JsonValue root = JsonValue::makeObject();
+  root.set("format", JsonValue::makeString("ofxrawhost-settings"));
+  root.set("version", JsonValue::makeInt(1));
+  root.set("gui", std::move(guiJson));
+  root.set("updates", makeUpdatesJson(updates));
+  return writeFile(path, root.dump());
 }
 
 static std::string iso8601Now() {
@@ -150,29 +230,28 @@ static std::string iso8601Now() {
   return buf;
 }
 
-bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
+bool saveInputSidecar(const std::string &imagePath, ColorSpace fileSpace, ColorSpace chainInputSpace,
                       const PersistChain &chain) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
   root.set("version", JsonValue::makeInt(1));
   root.set("kind", JsonValue::makeString("input"));
   root.set("sourcePath", JsonValue::makeString(fs::path(imagePath).filename().string()));
-  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(inputSpace)));
-  root.set("gui", makeGuiJson(gui));
+  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(fileSpace)));
+  root.set("chainInputColorSpace", JsonValue::makeString(colorSpaceName(chainInputSpace)));
   root.set("chain", makeChainJson(chain));
   return writeFile(inputSidecarPath(imagePath), root.dump());
 }
 
-bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
-                       const PersistGui &gui, const PersistChain &chain) {
+bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace fileSpace,
+                       const PersistChain &chain) {
   JsonValue root = JsonValue::makeObject();
   root.set("format", JsonValue::makeString("ofxrawhost-sidecar"));
   root.set("version", JsonValue::makeInt(1));
   root.set("kind", JsonValue::makeString("export"));
   root.set("sourcePath", JsonValue::makeString(sourceImagePath));
-  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(inputSpace)));
+  root.set("inputColorSpace", JsonValue::makeString(colorSpaceName(fileSpace)));
   root.set("exportedAt", JsonValue::makeString(iso8601Now()));
-  root.set("gui", makeGuiJson(gui));
   root.set("chain", makeChainJson(chain));
   return writeFile(exportSidecarPath(exportPath), root.dump());
 }

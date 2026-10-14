@@ -38,7 +38,7 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 
 ### Transform
 
-A bundled OFX plugin that crops, rotates, and zooms the image. It is compiled into the
+A bundled OFX plugin that zooms into an aspect-ratio region and rotates the image. It is compiled into the
 Windows executable and shipped as an OFX bundle on macOS and Linux. Intended at the
 **beginning of a plugin
 chain** so downstream plugins process fewer pixels, it implements `getRegionOfDefinition` to report
@@ -46,12 +46,24 @@ the output dimensions directly to the host.
 
 **Parameters:**
 
-- **Crop** — crop amount from 0 to 100, default 0. At 0 the plugin outputs the full image (identity). At 100 the region is 2% of the source in each dimension, which is 0.04% of the source area.
 - **Aspect Ratio** — crop window aspect ratio. The list holds landscape ratios: _Original_ (source ratio), _1:1 (Square)_, _6:5 (Photo)_, _5:4 (Large Format)_, _4:3 (Classic TV)_, _1.37:1 (Academy)_, _7:5 (Photo)_, _1.43:1 (IMAX)_, _3:2 (Film Landscape)_, _16:10 (Widescreen)_, _1.66:1 (Super 16)_, _5:3 (Wide)_, _7:4 (Wide)_, _16:9 (Widescreen)_, _1.85:1 (Cinema Flat)_, _2:1 (Univisium)_, _21:9 (Ultrawide)_, _2.39:1 (Anamorphic)_, _3:1 (Panorama)_, and _4:1 (Extreme Wide)_. The default is _Original_.
 - **Orientation** — _Landscape_ or _Portrait_, default _Landscape_. Portrait swaps the width and height of the chosen aspect ratio. _Original_ keeps the source shape and ignores this parameter.
-- **Zoom** — magnification inside the crop window, from 1 to 1000, default 100. 100 samples the crop window at 1:1. Higher values sample a smaller source region and magnify; lower values sample a wider region and shrink. The output size does not change.
-- **Rotate** — rotate the cropped image about its center, in degrees, from -180 to 180, default 0. The crop window stays the output size; the image scales up as needed so the frame stays filled (straight edges, no black corner wedges).
+- **Zoom** — zoom amount from 100 to 1000, default 100. At 100 the plugin outputs the full image (identity). Higher values crop to a centered region that matches the aspect ratio and sample it one to one. The output shrinks with the region, so downstream plugins process fewer pixels. At 1000 the region is 10% of the source in each dimension.
+- **Rotate** — rotate the zoomed image about its center, in degrees, from -180 to 180, default 0. The crop window stays the output size; the image scales up as needed so the frame stays filled (straight edges, no black corner wedges).
 - **Offset X / Offset Y** — pan the crop window from -100 to 100, default 0. At ±100 the window reaches the corresponding source edge. When the crop window fills the source in a dimension (e.g. a portrait aspect ratio on a wider source fills the height), the offset can slide the window **past** the source edge. The out-of-bounds area is filled with **black pixels**.
+
+### Auto Exposure
+
+A bundled OFX plugin that meters the frame brightness and applies one exposure
+gain so the metered level lands on 18.4% gray. It is compiled into the Windows
+executable and shipped in the same OFX bundle as Transform. The meter follows
+the metering methods of the spektrafilm pipeline.
+
+**Parameters:**
+
+- **Metering**: _Average_, _Median_, _Center Weighted_ (default), _Partial_, _Matrix_, _Multi Zone_, or _Highlight Weighted_. Average and Median use the whole frame. Center Weighted, Partial, Matrix, and Multi Zone weight the center like a camera meter. Highlight Weighted favors the bright pixels.
+- **Exposure Compensation**: bias added to the measured exposure, in EV, from -10 to 10, default 0. Negative values darken the image. Positive values brighten it.
+- **Input Color Space**: color space of the source pixels, one of _sRGB_, _Display P3_, _Linear Rec.709_, or _Linear Rec.2020_. The host sets this from the opened image. The meter decodes the transfer curve and uses the matching luminance weights.
 
 ---
 
@@ -190,54 +202,63 @@ build/OfxRawHost --selftest
 
 ## Development Roadmap
 
-| Feature                                                             | Status         |
-| ------------------------------------------------------------------- | -------------- |
-| C++17 + Dear ImGui UI (cross-platform codebase)                     | Done (v0.2)    |
-| Plugin chaining with reorder / bypass                               | Done (v0.3)    |
-| Preview zoom / pan                                                  | Done (v0.3.2)  |
-| TIFF open via libtiff (incl. half float)                            | Done (v0.3.3)  |
-| Selectable ImGui themes (Photoshop default)                         | Done (v0.3.4)  |
-| Performance: ICC caching, LTO, multithreaded resize, pooled buffers | Done (v0.3.5)  |
-| Auto-detect input color space (ICC / RAW policy)                    | Done (v0.3.6)  |
-| Workspace folder + filmstrip thumbnails                             | Done (v0.3.7)  |
-| Project / sidecar JSON (reproducible chain + export metadata)       | Done (v0.3.7)  |
-| ImGui DockSpace layout + modular UI modules                         | Done (v0.3.7)  |
-| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)          | Done (v0.3.8)  |
-| Correct JPEG/PNG passthrough preview color                          | Done (v0.3.8)  |
-| Cached display buffer + Output tag recolor without re-render        | Done (v0.3.9)  |
-| OFX multi-thread worker pool                                        | Done (v0.3.9)  |
-| Open dialog / workspace filters (exclude sidecar JSON)              | Done (v0.3.9)  |
-| OFX Metal GPU render support (spektrafilm diffuse/flow)             | Done (v0.3.10) |
-| Selftest validation + performance instrumentation                   | Done (v0.3.10) |
-| Fix OFX Metal render readback (blank spektrafilm output)            | Done (v0.3.11) |
-| Click-to-step −/+ buttons on numeric parameter sliders              | Done (v0.3.11) |
-| Code cleanup: dedupe helpers, split Actions module, drop dead code  | Done (v0.3.12) |
-| Race fixes: idle wait, export gate, atomic tag, locked dims/params  | Done (v0.3.12) |
-| ThreadSanitizer-clean concurrency + concurrency selftest            | Done (v0.3.12) |
-| Refactor: JsonValue, RenderSchedule, GlTexture, ChainRenderer       | Done (v0.3.13) |
-| Refactor: ParamType enum replaces repeated OFX type compares        | Done (v0.3.13) |
-| Refactor: one image format table; shared extension helpers          | Done (v0.3.13) |
-| Refactor: self-test cases move to `src/selftest/Selftest.cpp`       | Done (v0.3.13) |
-| Metal scratch buffers reused per instance across renders            | Done (v0.3.13) |
-| Correct Crop parameter docs: aspect list, amount, offsets           | Done (v0.3.13) |
-| Performance: chained Metal GPU render skips per-node copies         | Done (v0.3.14) |
-| Performance: parameter panel uses cached metadata                   | Done (v0.3.14) |
-| Performance: filmstrip clips off-screen entries, O(1) lookup        | Done (v0.3.14) |
-| Performance: progressive preview draws a draft then full res        | Done (v0.3.15) |
-| Performance: async PBO display texture upload                       | Done (v0.3.15) |
-| Performance: parallel display color conversion                      | Done (v0.3.15) |
-| Bundled plugin: Crop becomes Transform (orientation, zoom, rotate)  | Done (v0.3.16) |
-| Transform rotates with cover-scale so the frame has no black wedges | Done (v0.3.16) |
-| Transform samples bilinearly with clamped edge pixels               | Done (v0.3.16) |
-| Parameter widgets honor the OFX increment; wide ranges use drag     | Done (v0.3.16) |
-| UI: DaVinci-style parameter rows (slider, value field, reset)       | Done (v0.3.17) |
-| UI: Per-node parameter tabs in the right panel                      | Done (v0.3.17) |
-| UI: Dock splits Plugins and Parameters; preview without tab bar     | Done (v0.3.17) |
-| UI: System sans font and adjustable UI font size (Settings)         | Done (v0.3.17) |
-| Refactor: Document / Chain / GuiState; scheduler + chain renderer   | Done (v0.3.17) |
-| Packaged macOS, Linux, and single-file Windows releases                 | Done (v0.4.0)  |
-| Release pipeline: cached, release-only dependency builds                | Done (v0.4.1)  |
-| Windows: message box on a start-up failure, legacy OpenGL fallback      | Done (v0.4.1)  |
+| Feature                                                                         | Status         |
+| ------------------------------------------------------------------------------- | -------------- |
+| C++17 + Dear ImGui UI (cross-platform codebase)                                 | Done (v0.2)    |
+| Plugin chaining with reorder / bypass                                           | Done (v0.3)    |
+| Preview zoom / pan                                                              | Done (v0.3.2)  |
+| TIFF open via libtiff (incl. half float)                                        | Done (v0.3.3)  |
+| Selectable ImGui themes (Photoshop default)                                     | Done (v0.3.4)  |
+| Performance: ICC caching, LTO, multithreaded resize, pooled buffers             | Done (v0.3.5)  |
+| Auto-detect input color space (ICC / RAW policy)                                | Done (v0.3.6)  |
+| Workspace folder + filmstrip thumbnails                                         | Done (v0.3.7)  |
+| Project / sidecar JSON (reproducible chain + export metadata)                   | Done (v0.3.7)  |
+| ImGui DockSpace layout + modular UI modules                                     | Done (v0.3.7)  |
+| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)                      | Done (v0.3.8)  |
+| Correct JPEG/PNG passthrough preview color                                      | Done (v0.3.8)  |
+| Cached display buffer + Output tag recolor without re-render                    | Done (v0.3.9)  |
+| OFX multi-thread worker pool                                                    | Done (v0.3.9)  |
+| Open dialog / workspace filters (exclude sidecar JSON)                          | Done (v0.3.9)  |
+| OFX Metal GPU render support (spektrafilm diffuse/flow)                         | Done (v0.3.10) |
+| Selftest validation + performance instrumentation                               | Done (v0.3.10) |
+| Fix OFX Metal render readback (blank spektrafilm output)                        | Done (v0.3.11) |
+| Click-to-step −/+ buttons on numeric parameter sliders                          | Done (v0.3.11) |
+| Code cleanup: dedupe helpers, split Actions module, drop dead code              | Done (v0.3.12) |
+| Race fixes: idle wait, export gate, atomic tag, locked dims/params              | Done (v0.3.12) |
+| ThreadSanitizer-clean concurrency + concurrency selftest                        | Done (v0.3.12) |
+| Refactor: JsonValue, RenderSchedule, GlTexture, ChainRenderer                   | Done (v0.3.13) |
+| Refactor: ParamType enum replaces repeated OFX type compares                    | Done (v0.3.13) |
+| Refactor: one image format table; shared extension helpers                      | Done (v0.3.13) |
+| Refactor: self-test cases move to `src/selftest/Selftest.cpp`                   | Done (v0.3.13) |
+| Metal scratch buffers reused per instance across renders                        | Done (v0.3.13) |
+| Correct Crop parameter docs: aspect list, amount, offsets                       | Done (v0.3.13) |
+| Performance: chained Metal GPU render skips per-node copies                     | Done (v0.3.14) |
+| Performance: parameter panel uses cached metadata                               | Done (v0.3.14) |
+| Performance: filmstrip clips off-screen entries, O(1) lookup                    | Done (v0.3.14) |
+| Performance: progressive preview draws a draft then full res                    | Done (v0.3.15) |
+| Performance: async PBO display texture upload                                   | Done (v0.3.15) |
+| Performance: parallel display color conversion                                  | Done (v0.3.15) |
+| Bundled plugin: Crop becomes Transform (orientation, zoom, rotate)              | Done (v0.3.16) |
+| Transform rotates with cover-scale so the frame has no black wedges             | Done (v0.3.16) |
+| Transform samples bilinearly with clamped edge pixels                           | Done (v0.3.16) |
+| Parameter widgets honor the OFX increment; wide ranges use drag                 | Done (v0.3.16) |
+| UI: DaVinci-style parameter rows (slider, value field, reset)                   | Done (v0.3.17) |
+| UI: Per-node parameter tabs in the right panel                                  | Done (v0.3.17) |
+| UI: Dock splits Plugins and Parameters; preview without tab bar                 | Done (v0.3.17) |
+| UI: Bundled Inter interface font, three sizes, system-default scaling           | Done (v0.4.2)  |
+| UI: System sans font and adjustable UI font size (Settings)                     | Done (v0.3.17) |
+| Refactor: Document / Chain / GuiState; scheduler + chain renderer               | Done (v0.3.17) |
+| Packaged macOS, Linux, and single-file Windows releases                         | Done (v0.4.0)  |
+| Release pipeline: cached, release-only dependency builds                        | Done (v0.4.1)  |
+| Windows: message box on a start-up failure, legacy OpenGL fallback              | Done (v0.4.1)  |
+| spektrafilm Load Preset opens the host `.spkpreset` file dialog                 | Done (v0.4.2)  |
+| spektrafilm Export LUT asks for a `.cube` path and moves the file there         | Done (v0.4.2)  |
+| UI: browse button on OFX string parameters marked as file or directory paths    | Done (v0.4.2)  |
+| Preview size "Fit to preview" (matches the preview panel pixels)                | Done (v0.4.2)  |
+| Bundled Transform: Crop and Zoom merge into one Zoom control                    | Done (v0.4.2)  |
+| Bundled Auto Exposure plugin (spektrafilm metering methods)                     | Done (v0.4.2)  |
+| UI: Input / Preview colorspace in the Plugins panel; Export colorspace + Intent | Done (v0.4.2)  |
+| UI: Parameter panel drops its plugin tabs (node list selects the plugin)        | Done (v0.4.2)  |
 
 ---
 

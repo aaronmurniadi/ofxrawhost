@@ -4,6 +4,7 @@
 #include "Document.h"
 #include "Filmstrip.h"
 #include "RenderState.h"
+#include "UpdateCheck.h"
 #include "ui/GlTexture.h"
 
 #include <algorithm>
@@ -14,8 +15,8 @@
 // Forward-declared so this header does not pull in GLFW/OpenGL.
 struct GLFWwindow;
 
-inline constexpr const char *kOutputSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
-inline constexpr int kOutputSpaceCount = 4;
+inline constexpr const char *kColorSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
+inline constexpr int kColorSpaceCount = 4;
 
 enum class ExportFormat { PNG = 0, JPEG = 1, TIFF = 2, WEBP = 3, JXL = 4 };
 inline constexpr int kExportFormatCount = 5;
@@ -32,49 +33,45 @@ inline bool exportSupportsLossless(ExportFormat fmt) {
   return fmt == ExportFormat::WEBP || fmt == ExportFormat::JXL;
 }
 
-enum class PreviewRes { R720p = 0, R1080p, R1440p, Full };
+// The combo shows these in enum order, so the values double as the persisted
+// setting. "Fit to preview" tracks the preview panel size; the fixed entries
+// cap the 16:9 long edge. maxEdge 0 keeps the full resolution, -1 means fit.
+enum class PreviewRes { Fit = 0, R720p, R1080p, R1440p, Full };
 
-// Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
   const char *label;
   int maxEdge;
 } kPreviewRes[] = {
+    {"Fit to preview", -1},
     {"720p", 1280},
     {"1080p", 1920},
     {"1440p", 2560},
     {"Full res", 0},
 };
-inline constexpr int kPreviewResCount = 4;
+inline constexpr int kPreviewResCount = 5;
+
+// Preview long-edge cap used before the panel has reported its size.
+inline constexpr int kFitPreviewFallbackMaxEdge = 1920;
 
 inline ColorSpace outputSpace(int index) {
   index = std::clamp(index, 0, 3);
   return static_cast<ColorSpace>(index);
 }
 
-// Working buffers are scene-linear (stbi_loadf / LibRaw). Gamma tags (sRGB, Display P3)
-// describe the *file*; for CMS display of unprocessed source use the linear counterpart.
-inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
-  switch (fileOrTag) {
-    case ColorSpace::sRGB:
-      return ColorSpace::LinearRec709;
-    case ColorSpace::DisplayP3:
-      // No linear-P3 tag yet; Rec.2020 is the closest wider linear space we have.
-      return ColorSpace::LinearRec2020;
-    case ColorSpace::LinearRec709:
-    case ColorSpace::LinearRec2020:
-      return fileOrTag;
-  }
-  return ColorSpace::LinearRec709;
-}
+// The interface font is the bundled Inter face, so only its size is a setting.
+// The setting is the size in points, and 0 follows the operating system font
+// size. The step buttons offer the points between the two limits.
+inline constexpr int kUiFontPtAuto = 0;
+inline constexpr int kUiFontPtMin = 8;
+inline constexpr int kUiFontPtMax = 64;
 
 // UI-only state: layout, theme, view transform, persistable preferences.
 struct GuiState {
-  bool showLeft = true;
-  bool showRight = true;
+  bool showPlugins = true;
+  bool showParameters = true;
   bool showFilmstrip = false;
-  int themeIndex = 2;  // Photoshop
-  int uiFontSizePt = 13;       // UI font size in points, before the Retina scale
-  std::string uiFontFamily;    // absolute path to the font file; empty is the system default
+  int themeIndex = 2;  // Photoshop; app-level, so it never travels in a project or a sidecar
+  int uiFontPt = kUiFontPtAuto;  // interface font size in points; 0 follows the system
   int settingsSection = 0;     // row selected in the settings modal sidebar
   float previewZoom = 1.0f;  // 1 = fit in view
   float previewPanX = 0.0f;
@@ -83,18 +80,49 @@ struct GuiState {
   int exportBitDepth = 8;
   int exportQuality = 92;
   bool exportLossless = false;
-  PreviewRes previewRes = PreviewRes::R1080p;
+  // Writes the state file that records how the exported file was made. Off by
+  // default: the file itself is what most exports are for.
+  bool exportSidecar = false;
+  ColorSpace exportSpace = ColorSpace::sRGB;  // color space of the exported file
+  RenderIntent exportIntent = RenderIntent::Perceptual;
+  // Color space the preview is encoded in. The host converts the chain output
+  // into it and shows those values, so the preview shows what a file in that
+  // space looks like in a viewer without color management. Default sRGB.
+  ColorSpace previewSpace = ColorSpace::sRGB;
+  PreviewRes previewRes = PreviewRes::Fit;
+  // Preview canvas size in framebuffer pixels, republished by the preview panel
+  // every frame. "Fit to preview" renders the preview at this size.
+  int previewAreaW = 0;
+  int previewAreaH = 0;
+  double previewFitSettleTime = 0.0;  // ImGui time when the fit size last changed
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
   bool showAbout = false;
   bool showDonate = false;
+  // Update checking. Not per-image state: only the settings file carries it, so
+  // a workspace or a sidecar never turns it on or off.
+  UpdateChannel updateChannel = defaultUpdateChannel();
+  bool checkUpdatesAtStartup = true;
+  bool devBuildWarningShown = false;   // the one-time development build warning
+  bool showDevBuildWarning = false;    // it is due on this run
   bool showExportDialog = false;
+  bool showResetParamsConfirm = false;
   bool showSettings = false;
   bool themeApplyPending = false;
   bool fontApplyPending = false;
-  bool layoutApplyPending = false;
   std::string pendingWorkspaceDir;
 };
+
+// Long-edge cap for the current preview size. "Fit to preview" follows the
+// preview panel size in framebuffer pixels, so 100% zoom maps one image pixel to
+// one screen pixel. The fixed entries are their own cap.
+inline int previewMaxEdge(const GuiState &gui) {
+  const int cap = kPreviewRes[(int)gui.previewRes].maxEdge;
+  if (cap >= 0) return cap;
+  const int edge = std::max(gui.previewAreaW, gui.previewAreaH);
+  if (edge > 0) return edge;
+  return kFitPreviewFallbackMaxEdge;
+}
 
 // Composition root: owns the window and the cohesive state units. Domain modules
 // take the narrow unit they need (DocumentState&, ChainState&, RenderState&,
@@ -107,8 +135,13 @@ struct App {
   ChainState chain;
   RenderState render;
   Filmstrip filmstrip;
+  UpdateCheck updates;
 
-  std::atomic<ColorSpace> outputTag{ColorSpace::sRGB};  // written on the UI thread while renders are in flight
+  // Color space the plugin chain writes, derived by walking the chain: the first
+  // plugin is told the document input space, and every later plugin is told the
+  // space the previous plugin declares. Written on the UI thread while renders
+  // are in flight, so it is atomic.
+  std::atomic<ColorSpace> chainOutputSpace{ColorSpace::sRGB};
   std::atomic<bool> quit{false};                        // app lifetime; stops both workers
 
   std::mutex statusMutex;

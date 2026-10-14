@@ -131,15 +131,18 @@ add_executable(OfxRawHost
   src/selftest/Selftest.cpp
   src/platform/Console.cpp
   src/platform/EmbeddedResource.cpp
+  src/platform/Http.cpp
   src/platform/Paths.cpp
-  src/platform/SystemFonts.cpp
+  src/platform/SystemUiFont.cpp
   src/platform/Report.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
+  src/ofx/SpektraPreset.cpp
   src/imgio/ImageLoad.cpp
   src/imgio/ImageColor.cpp
   src/imgio/ImageWrite.cpp
   src/UI.cpp
+  src/UpdateCheck.cpp
   src/NodeGraph.cpp
   src/ParamBridge.cpp
   src/ChainRenderer.cpp
@@ -159,15 +162,16 @@ add_executable(OfxRawHost
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
   src/ui/ParamEdit.cpp
-  src/ui/LeftPanel.cpp
-  src/ui/RightPanel.cpp
+  src/ui/PluginsPanel.cpp
+  src/ui/ParametersPanel.cpp
   src/ui/PreviewPanel.cpp
   src/ui/FilmstripPanel.cpp
   third_party/tinyexr/tinyexr.cc
 )
 
 if(APPLE)
-  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm)
+  # The update check uses Foundation's URL session, which needs Objective-C++.
+  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm src/platform/HttpApple.mm)
 else()
   target_sources(OfxRawHost PRIVATE src/ofx/OfxMetalStub.cpp)
 endif()
@@ -205,10 +209,12 @@ target_include_directories(OfxRawHost PRIVATE
   third_party/tinyexr
   third_party/portable-file-dialogs
   third_party/fontawesome
+  third_party/inter
 )
 
 target_compile_definitions(OfxRawHost PRIVATE
   "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
+  "OFX_UI_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf\""
   GL_SILENCE_DEPRECATION
 )
 
@@ -216,6 +222,9 @@ add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
     $<TARGET_FILE_DIR:OfxRawHost>/fa-solid-900.ttf
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
+    $<TARGET_FILE_DIR:OfxRawHost>/Inter.ttf
 )
 
 if(TARGET PkgConfig::LIBRAW)
@@ -276,15 +285,16 @@ if(WIN32 AND VCPKG_TARGET_TRIPLET MATCHES "-static$")
 endif()
 
 if(APPLE)
-  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
+  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal" "-framework CoreText")
 elseif(WIN32)
-  target_link_libraries(OfxRawHost PRIVATE opengl32)
+  # The update check reaches GitHub through the WinHTTP library of Windows.
+  target_link_libraries(OfxRawHost PRIVATE opengl32 winhttp)
 else()
   find_package(OpenGL REQUIRED)
   target_link_libraries(OfxRawHost PRIVATE OpenGL::GL)
 endif()
 
-# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform) ---
+# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform, Auto Exposure) ---
 find_package(Threads REQUIRED)
 
 # The support lib's log-indent counter is a process-global int (upstream calls it
@@ -314,15 +324,39 @@ target_include_directories(OfxSupport PUBLIC
 target_link_libraries(OfxSupport PUBLIC Threads::Threads)
 set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Bundled plugin: the Transform effect ships inside the Windows executable so
-# the release is one file, and as an OfxRawHost.ofx.bundle everywhere else.
+# Bundled plugins: the Transform and Auto Exposure effects ship inside the
+# Windows executable so the release is one file, and as an
+# OfxRawHost.ofx.bundle everywhere else.
+
+# Version shown in the About window. A dev build keeps the -dev suffix, for
+# example 0.4.2-dev. The release build passes OFX_VERSION_LABEL as the git tag;
+# a local build derives it from the nearest git tag.
+set(OFX_VERSION_LABEL "" CACHE STRING "OfxRawHost version label")
+if(OFX_VERSION_LABEL STREQUAL "")
+  execute_process(COMMAND git describe --tags --abbrev=0
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE _ofx_version_tag OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  set(OFX_VERSION_LABEL "${_ofx_version_tag}")
+endif()
+if(OFX_VERSION_LABEL MATCHES "^v(.*)$")
+  set(OFX_VERSION_LABEL "${CMAKE_MATCH_1}")
+endif()
+if(OFX_VERSION_LABEL STREQUAL "")
+  set(OFX_VERSION_LABEL "0.0.0")
+endif()
+
+# Numeric version for the Windows VERSIONINFO block.
+set(OFX_VERSION "${OFX_VERSION_LABEL}")
+if(OFX_VERSION MATCHES "^([0-9]+(\\.[0-9]+)*)")
+  set(OFX_VERSION "${CMAKE_MATCH_1}")
+else()
+  message(WARNING "version label '${OFX_VERSION_LABEL}' is not numeric; using 0.0.0")
+  set(OFX_VERSION "0.0.0")
+endif()
+target_compile_definitions(OfxRawHost PRIVATE OFXRAWHOST_VERSION="${OFX_VERSION_LABEL}")
+
 if(WIN32)
   enable_language(RC)
-  set(OFX_VERSION "0.0.0" CACHE STRING "Version stamped into the Windows executable")
-  if(NOT OFX_VERSION MATCHES "^[0-9]+(\\.[0-9]+)*$")
-    message(WARNING "OFX_VERSION '${OFX_VERSION}' is not numeric; using 0.0.0 for the file version")
-    set(OFX_VERSION "0.0.0")
-  endif()
   # VERSIONINFO takes four comma-separated numbers.
   string(REPLACE "." ";" _ofx_ver_parts "${OFX_VERSION}")
   list(LENGTH _ofx_ver_parts _ofx_ver_count)
@@ -332,9 +366,14 @@ if(WIN32)
   endwhile()
   string(REPLACE ";" "," OFX_VERSION_COMMAS "${_ofx_ver_parts}")
   set(OFX_ICON_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf")
+  set(OFX_UI_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf")
+  set(OFX_APP_ICON_PATH "${CMAKE_SOURCE_DIR}/packaging/windows/ofxrawhost.ico")
+  if(NOT EXISTS "${OFX_APP_ICON_PATH}")
+    message(FATAL_ERROR "windows icon not found: ${OFX_APP_ICON_PATH}")
+  endif()
   configure_file(packaging/windows/OfxRawHost.rc.in "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc" @ONLY)
 
-  target_sources(OfxRawHost PRIVATE plugins/Transform.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
+  target_sources(OfxRawHost PRIVATE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
   target_link_libraries(OfxRawHost PRIVATE OfxSupport)
   target_compile_definitions(OfxRawHost PRIVATE OFX_EMBEDDED_PLUGIN)
   # Release build opens no console window. The host keeps main(), so name the CRT
@@ -344,14 +383,14 @@ if(WIN32)
 else()
   # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
   # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
-  add_library(OfxRawHostTransform MODULE plugins/Transform.cpp)
-  set_target_properties(OfxRawHostTransform PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
-  target_link_libraries(OfxRawHostTransform PRIVATE OfxSupport)
+  add_library(OfxRawHostBundled MODULE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp)
+  set_target_properties(OfxRawHostBundled PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
+  target_link_libraries(OfxRawHostBundled PRIVATE OfxSupport)
   if(APPLE)
-    target_link_libraries(OfxRawHostTransform PRIVATE "-framework OpenGL")
+    target_link_libraries(OfxRawHostBundled PRIVATE "-framework OpenGL")
   else()
     find_package(OpenGL REQUIRED)
-    target_link_libraries(OfxRawHostTransform PRIVATE OpenGL::GL)
+    target_link_libraries(OfxRawHostBundled PRIVATE OpenGL::GL)
   endif()
 
   # Arch subdir must match pluginBinary() in src/ofx/OfxPlugins.cpp.
@@ -364,15 +403,15 @@ else()
   endif()
 
   set(OFX_BUNDLE "${CMAKE_BINARY_DIR}/Plugins/OfxRawHost.ofx.bundle")
-  add_custom_command(TARGET OfxRawHostTransform POST_BUILD
+  add_custom_command(TARGET OfxRawHostBundled POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}"
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostTransform>"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHostBundled>"
       "${OFX_BUNDLE}/Contents/${OFX_PLUGIN_ARCH}/OfxRawHost.ofx"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${CMAKE_SOURCE_DIR}/plugins/Info.plist" "${OFX_BUNDLE}/Contents/Info.plist"
     COMMENT "Assembling OfxRawHost.ofx.bundle"
   )
-  add_dependencies(OfxRawHost OfxRawHostTransform)
+  add_dependencies(OfxRawHost OfxRawHostBundled)
 endif()
 
 # macOS app bundle packaging (optional convenience target)
@@ -387,10 +426,13 @@ if(APPLE)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/fa-solid-900.ttf
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
+      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/Inter.ttf
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       ${OFX_BUNDLE}
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle
     COMMAND ${CMAKE_COMMAND} -E echo "Built ${CMAKE_BINARY_DIR}/OfxRawHost.app"
-    DEPENDS OfxRawHost OfxRawHostTransform
+    DEPENDS OfxRawHost OfxRawHostBundled
   )
 endif()

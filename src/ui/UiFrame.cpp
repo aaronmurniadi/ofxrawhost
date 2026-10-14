@@ -1,12 +1,18 @@
 #include "ui/UiFrame.h"
 
 #include "Actions.h"
+#include "NodeGraph.h"
+#include "ofx/OfxHost.h"
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
-#include "platform/SystemFonts.h"
+#include "platform/SystemUiFont.h"
+#include "RenderScheduler.h"
+#include "UpdateCheck.h"
 #include "ui/Themes.h"
+#include "ui/ParamEdit.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
+#include "ui/Widgets.h"
 
 #include "imgui.h"
 #include "portable-file-dialogs.h"
@@ -20,8 +26,16 @@
 #include <windows.h>
 #endif
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+
+// The build passes the release version in. Keep a fallback for builds that do
+// not, so the About window always shows a version.
+#ifndef OFXRAWHOST_VERSION
+#define OFXRAWHOST_VERSION "0.0.0"
+#endif
 #include <string>
 #include <vector>
 
@@ -53,11 +67,11 @@ static void drawMenuBar(App &app) {
         if (!r.empty()) openPath(app, r[0]);
       }
 #ifdef __APPLE__
-      if (ImGui::MenuItem("Open Workspace", "⌘+Shift+O")) {
+      if (ImGui::MenuItem("Open Directory", "⌘+Shift+O")) {
 #else
-      if (ImGui::MenuItem("Open Workspace", "Ctrl+Shift+O")) {
+      if (ImGui::MenuItem("Open Directory", "Ctrl+Shift+O")) {
 #endif
-        auto f = pfd::select_folder("Open workspace folder");
+        auto f = pfd::select_folder("Open directory");
         auto r = f.result();
         if (!r.empty()) app.gui.pendingWorkspaceDir = r;
       }
@@ -80,17 +94,17 @@ static void drawMenuBar(App &app) {
     }
     if (ImGui::BeginMenu("View")) {
 #ifdef __APPLE__
-      ImGui::MenuItem("Left panel", "⌘+[", &app.gui.showLeft);
-      ImGui::MenuItem("Right panel", "⌘+]", &app.gui.showRight);
+      ImGui::MenuItem("Plugins", "⌘+[", &app.gui.showPlugins);
+      ImGui::MenuItem("Parameters", "⌘+]", &app.gui.showParameters);
       ImGui::MenuItem("Filmstrip", "⌘+\\", &app.gui.showFilmstrip);
 #else
-      ImGui::MenuItem("Left panel", "Ctrl+[", &app.gui.showLeft);
-      ImGui::MenuItem("Right panel", "Ctrl+]", &app.gui.showRight);
+      ImGui::MenuItem("Plugins", "Ctrl+[", &app.gui.showPlugins);
+      ImGui::MenuItem("Parameters", "Ctrl+]", &app.gui.showParameters);
       ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.gui.showFilmstrip);
 #endif
       ImGui::EndMenu();
     }
-    if (ImGui::MenuItem("Settings...")) app.gui.showSettings = true;
+    if (ImGui::MenuItem("Settings")) app.gui.showSettings = true;
     if (ImGui::BeginMenu("Theme")) {
       for (int i = 0; i < themeCount(); ++i) {
         if (ImGui::MenuItem(themeName(i), nullptr, app.gui.themeIndex == i)) {
@@ -100,14 +114,11 @@ static void drawMenuBar(App &app) {
       }
       ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("Help")) {
-      if (ImGui::MenuItem("About")) {
-        app.gui.showAbout = true;
-      }
-      if (ImGui::MenuItem("Donate")) {
-        app.gui.showDonate = true;
-      }
-      ImGui::EndMenu();
+    if (ImGui::MenuItem("Donate")) {
+      app.gui.showDonate = true;
+    }
+    if (ImGui::MenuItem("About")) {
+      app.gui.showAbout = true;
     }
     ImGui::EndMainMenuBar();
   }
@@ -137,13 +148,25 @@ static void drawExportDialog(App &app) {
 
   static const char *const kFormats[kExportFormatCount] = {"PNG", "JPEG", "TIFF", "WebP", "JPEG XL"};
   int fmt = static_cast<int>(app.gui.exportFormat);
-  if (ImGui::Combo("Format", &fmt, kFormats, kExportFormatCount)) app.gui.exportFormat = static_cast<ExportFormat>(fmt);
+  if (uiChoiceCombo("Format", nullptr, kFormats, kExportFormatCount, &fmt))
+    app.gui.exportFormat = static_cast<ExportFormat>(fmt);
+
+  // The color space the exported file is written in. The chain writes the preview
+  // space, so the export converts into this one with the chosen intent.
+  static const char *const kIntents[kRenderIntentCount] = {"Perceptual", "Relative colorimetric", "Saturation",
+                                                          "Absolute colorimetric"};
+  int outSpace = static_cast<int>(app.gui.exportSpace);
+  if (uiChoiceCombo("Export colorspace", nullptr, kColorSpaces, kColorSpaceCount, &outSpace))
+    setExportSpace(app, outSpace);
+  int intent = static_cast<int>(app.gui.exportIntent);
+  if (uiChoiceCombo("Intent", nullptr, kIntents, kRenderIntentCount, &intent)) setExportIntent(app, intent);
 
   const ExportFormat format = app.gui.exportFormat;
   if (exportUsesBitDepth(format)) {
+    static const char *const kDepths[] = {"8-bit", "16-bit"};
     int depth = 0;
     if (app.gui.exportBitDepth >= 16) depth = 1;
-    if (ImGui::Combo("Bit depth", &depth, "8-bit\0" "16-bit\0")) {
+    if (uiChoiceCombo("Bit depth", nullptr, kDepths, 2, &depth)) {
       app.gui.exportBitDepth = 8;
       if (depth == 1) app.gui.exportBitDepth = 16;
     }
@@ -156,8 +179,12 @@ static void drawExportDialog(App &app) {
   }
   if (exportUsesQuality(format) && !lossless) ImGui::SliderInt("Quality", &app.gui.exportQuality, 1, 100);
 
+  ImGui::Spacing();
+  ImGui::Checkbox("Export sidecar", &app.gui.exportSidecar);
+  ImGui::TextDisabled("Records the chain that made this file, in the application state directory.");
+
   ImGui::Separator();
-  if (ImGui::Button("Export...", ImVec2(120, 0))) {
+  if (ImGui::Button("Export", ImVec2(120, 0))) {
     ImGui::CloseCurrentPopup();
     const int idx = static_cast<int>(format);
     auto sel = pfd::save_file("Export", defaultExportName(app), {kExportFilters[idx * 2], kExportFilters[idx * 2 + 1]});
@@ -171,23 +198,20 @@ static void drawExportDialog(App &app) {
 
 // One row per section of the settings sidebar. The index is the value kept in
 // GuiState::settingsSection.
-static const char *const kSettingsSections[] = {"Fonts"};
-static constexpr int kSettingsSectionCount = 1;
+static const char *const kSettingsSections[] = {"Font", "Updates"};
+static constexpr int kSettingsSectionCount = 2;
 
-// The settings modal offers whole points only, from 8 pt through 18 pt.
-static constexpr int kFontSizeMinPt = 8;
-static constexpr int kFontSizeMaxPt = 18;
-static constexpr int kFontSizeCount = kFontSizeMaxPt - kFontSizeMinPt + 1;
-static const char *const kFontSizeLabels[kFontSizeCount] = {
-    "8 pt", "9 pt", "10 pt", "11 pt", "12 pt", "13 pt",
-    "14 pt", "15 pt", "16 pt", "17 pt", "18 pt",
-};
+// The settings modal sets the size of the bundled Inter font in points. Zero,
+// which is the default, follows the operating system font size, so a new install
+// looks native; the step buttons set an explicit size instead.
 
-// The system font list comes from the disk, so it is read once and kept for the
-// life of the process.
-static const std::vector<SystemFont> &systemFonts() {
-  static const std::vector<SystemFont> fonts = listSystemFonts();
-  return fonts;
+// The system font size as a whole number of points, held inside the range the
+// step buttons offer.
+static int systemFontPt() {
+  const float pt = systemUiFontSizePt();
+  int rounded = 13;
+  if (std::isfinite(pt)) rounded = (int)std::lround(pt);
+  return std::clamp(rounded, kUiFontPtMin, kUiFontPtMax);
 }
 
 // A font change rebuilds the ImGui font atlas, which frees the font objects the
@@ -197,50 +221,152 @@ static void requestUiFont(App &app) {
   app.gui.fontApplyPending = true;
 }
 
+// Sets the interface font size and returns true when the value changed. The
+// main loop reloads the font once per frame, so a second change in the same
+// frame costs the same as the first.
+static bool setUiFontPt(App &app, int pt) {
+  if (pt < kUiFontPtMin || pt > kUiFontPtMax || pt == app.gui.uiFontPt) return false;
+  app.gui.uiFontPt = pt;
+  return true;
+}
+
 static void drawFontsSettings(App &app) {
-  const std::vector<SystemFont> &fonts = systemFonts();
-
-  int selectedFamily = 0;
-  for (int i = 0; i < (int)fonts.size(); ++i) {
-    if (fonts[i].path == app.gui.uiFontFamily) {
-      selectedFamily = i + 1;
-      break;
-    }
-  }
-  const char *familyLabel = "System default";
-  if (selectedFamily > 0) familyLabel = fonts[selectedFamily - 1].name.c_str();
-
+  // The UI font is bundled (Inter), so only its size is configurable. This
+  // keeps the interface identical on every platform.
   ImGui::TextUnformatted("Font");
   ImGui::Separator();
-  ImGui::SetNextItemWidth(300.0f);
-  if (ImGui::BeginCombo("Font family", familyLabel)) {
-    if (ImGui::Selectable("System default", selectedFamily == 0)) {
-      app.gui.uiFontFamily.clear();
-      requestUiFont(app);
-    }
-    for (int i = 0; i < (int)fonts.size(); ++i) {
-      if (ImGui::Selectable(fonts[i].name.c_str(), selectedFamily == i + 1)) {
-        app.gui.uiFontFamily = fonts[i].path;
-        requestUiFont(app);
-      }
-    }
-    ImGui::EndCombo();
-  }
-  if (fonts.empty()) ImGui::TextDisabled("No system fonts were found.");
+  ImGui::TextUnformatted("Inter");
+  ImGui::TextDisabled("The interface font is bundled and cannot be changed.");
 
-  int sizeIndex = app.gui.uiFontSizePt - kFontSizeMinPt;
-  if (sizeIndex < 0) sizeIndex = 0;
-  if (sizeIndex >= kFontSizeCount) sizeIndex = kFontSizeCount - 1;
-  ImGui::SetNextItemWidth(120.0f);
-  if (ImGui::BeginCombo("Font size", kFontSizeLabels[sizeIndex])) {
-    for (int i = 0; i < kFontSizeCount; ++i) {
-      if (ImGui::Selectable(kFontSizeLabels[i], sizeIndex == i)) {
-        app.gui.uiFontSizePt = kFontSizeMinPt + i;
-        requestUiFont(app);
-      }
-    }
-    ImGui::EndCombo();
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Font size");
+  const int systemPt = systemFontPt();
+  bool followSystem = app.gui.uiFontPt <= kUiFontPtAuto;
+  char followLabel[64];
+  std::snprintf(followLabel, sizeof(followLabel), "Follow the system font size (%d pt)", systemPt);
+  if (ImGui::Checkbox(followLabel, &followSystem)) {
+    if (followSystem) app.gui.uiFontPt = kUiFontPtAuto;
+    else app.gui.uiFontPt = systemPt;
+    requestUiFont(app);
   }
+  ImGui::TextDisabled("The system size is what the operating system uses for its own interface text.");
+
+  // The field shows the size that is in effect, which is the system size while
+  // the box above is checked. The buttons are inert in that state.
+  int shownPt = app.gui.uiFontPt;
+  if (followSystem) shownPt = systemPt;
+  if (followSystem) ImGui::BeginDisabled();
+  bool changed = false;
+  if (ImGui::Button("-", ImVec2(32.0f, 0.0f))) changed = setUiFontPt(app, shownPt - 1);
+  ImGui::SameLine();
+  ImGui::Text("%d pt", shownPt);
+  ImGui::SameLine();
+  if (ImGui::Button("+", ImVec2(32.0f, 0.0f))) changed = setUiFontPt(app, shownPt + 1);
+  if (followSystem) ImGui::EndDisabled();
+  if (changed) requestUiFont(app);
+  ImGui::TextDisabled("Points, between %d and %d. Clear the box to set a size of your own.", kUiFontPtMin,
+                      kUiFontPtMax);
+}
+
+// A version as the user reads it: the About window shows the build version
+// without the "v" of the release tag, and the update lines match it.
+static std::string displayVersion(const std::string &tag) {
+  if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) return tag.substr(1);
+  return tag;
+}
+
+// The update section: what the check does, and the answer of the last one. Every
+// line names the channel and the version, so a result that was measured against
+// the other channel is never read as the current state.
+static void drawUpdatesSettings(App &app) {
+  ImGui::TextUnformatted("Updates");
+  ImGui::Separator();
+  ImGui::Text("Version %s", hostVersion().c_str());
+  if (isDevelopmentBuild()) ImGui::TextDisabled("This is a development build, so it changes often.");
+
+  ImGui::Spacing();
+  static const char *const kChannelHints[kUpdateChannelCount] = {
+      "Only full releases. A development build may be newer than the newest release.",
+      "Pre-release builds as well, which is where development builds are published.",
+  };
+  int channel = static_cast<int>(app.gui.updateChannel);
+  if (channel < 0 || channel >= kUpdateChannelCount) channel = static_cast<int>(defaultUpdateChannel());
+  // A release build checks releases only, so it cannot pick the other entry.
+  bool channelEnabled[kUpdateChannelCount];
+  for (int i = 0; i < kUpdateChannelCount; ++i) channelEnabled[i] = channelAllowed(static_cast<UpdateChannel>(i));
+  if (uiChoiceCombo("Update Channel", nullptr, kUpdateChannelLabels, kUpdateChannelCount, &channel, channelEnabled))
+    app.gui.updateChannel = static_cast<UpdateChannel>(channel);
+  ImGui::TextDisabled("%s", kChannelHints[static_cast<int>(app.gui.updateChannel)]);
+  if (!isDevelopmentBuild()) ImGui::TextDisabled("Only a development build can follow pre-releases.");
+
+  ImGui::Spacing();
+  ImGui::Checkbox("Check for updates at startup", &app.gui.checkUpdatesAtStartup);
+  ImGui::TextDisabled("The check asks GitHub for the release list. Nothing about your images is sent.");
+
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Status");
+  const bool preReleases = app.updates.checkedChannel == UpdateChannel::Prereleases;
+  switch (app.updates.state) {
+    case UpdateCheck::State::Idle:
+      ImGui::TextDisabled("No check has run yet.");
+      break;
+    case UpdateCheck::State::Checking:
+      ImGui::TextUnformatted("Checking for updates...");
+      break;
+    case UpdateCheck::State::UpToDate:
+      if (preReleases) ImGui::TextUnformatted("You are running the newest version.");
+      else ImGui::TextUnformatted("You are running the newest release.");
+      break;
+    case UpdateCheck::State::Available:
+      ImGui::Text("Version %s is available.", displayVersion(app.updates.latestTag).c_str());
+      break;
+    case UpdateCheck::State::Failed:
+      ImGui::TextDisabled("The check did not finish: %s", app.updates.failure.c_str());
+      break;
+  }
+  // Two development builds can share one version number, and their commit hashes
+  // cannot be ordered, so the newest published tag is worth naming even when the
+  // check calls this build current.
+  if (app.updates.state == UpdateCheck::State::UpToDate && !app.updates.latestTag.empty() &&
+      !sameVersionText(app.updates.latestTag, hostVersion()))
+    ImGui::TextDisabled("Newest published: %s", displayVersion(app.updates.latestTag).c_str());
+
+  ImGui::Spacing();
+  const bool checking = app.updates.state == UpdateCheck::State::Checking;
+  if (checking) ImGui::BeginDisabled();
+  if (ImGui::Button("Check now")) app.updates.startCheck(hostVersion(), app.gui.updateChannel);
+  if (checking) ImGui::EndDisabled();
+  if (app.updates.state == UpdateCheck::State::Available && !app.updates.releaseUrl.empty()) {
+    ImGui::SameLine();
+    if (ImGui::Button("Open release page")) openUrl(app.updates.releaseUrl);
+  }
+}
+
+// One-time notice on a development build, which publishes often enough that a
+// start-up check is a choice rather than a given. The marker is recorded when the
+// window opens, so it appears once even if it is dismissed with Escape.
+static void drawDevBuildWarning(App &app) {
+  if (app.gui.showDevBuildWarning) {
+    ImGui::OpenPopup("Development build");
+    app.gui.showDevBuildWarning = false;
+    app.gui.devBuildWarningShown = true;
+    persistWorkspace(app);
+  }
+  if (!ImGui::BeginPopupModal("Development build", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  ImGui::TextWrapped(
+      "This is a development build, and it is updated often. Would you like to turn off checking for updates at "
+      "startup?");
+  ImGui::TextDisabled("You can turn it back on at any time under Settings, Updates.");
+  ImGui::Spacing();
+  if (ImGui::Button("Yes, turn it off", ImVec2(160.0f, 0.0f))) {
+    app.gui.checkUpdatesAtStartup = false;
+    persistWorkspace(app);
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("No, keep checking", ImVec2(160.0f, 0.0f))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
 }
 
 // A modal with a section sidebar on the left and the controls of the selected
@@ -255,7 +381,12 @@ static void drawSettingsModal(App &app) {
 
   // The footer holds the Close button, so both children stop above it.
   const float footer = ImGui::GetFrameHeightWithSpacing();
-  if (ImGui::BeginChild("settings_sidebar", ImVec2(170.0f, -footer), ImGuiChildFlags_Borders)) {
+  // The sidebar follows the modal width instead of a fixed 170 px, so a long
+  // section name has room and the panel uses the space when the modal grows.
+  float sidebarW = ImGui::GetContentRegionAvail().x * 0.25f;
+  if (sidebarW < 140.0f) sidebarW = 140.0f;
+  if (sidebarW > 260.0f) sidebarW = 260.0f;
+  if (ImGui::BeginChild("settings_sidebar", ImVec2(sidebarW, -footer), ImGuiChildFlags_Borders)) {
     for (int i = 0; i < kSettingsSectionCount; ++i) {
       bool selected = app.gui.settingsSection == i;
       if (ImGui::Selectable(kSettingsSections[i], selected)) app.gui.settingsSection = i;
@@ -267,10 +398,56 @@ static void drawSettingsModal(App &app) {
 
   if (ImGui::BeginChild("settings_panel", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders)) {
     if (app.gui.settingsSection == 0) drawFontsSettings(app);
+    if (app.gui.settingsSection == 1) drawUpdatesSettings(app);
   }
   ImGui::EndChild();
 
   if (ImGui::Button("Close", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
+// "Fit to preview" follows the preview panel size. Wait for the size to settle,
+// so dragging a dock splitter does not queue a rebuild on every frame.
+static void applyFitPreviewSize(App &app) {
+  if (app.gui.previewRes != PreviewRes::Fit || app.doc.full.px.empty()) return;
+  if (previewMaxEdge(app.gui) == app.render.builtPreviewMaxEdge) {
+    app.gui.previewFitSettleTime = 0.0;
+    return;
+  }
+  const double now = ImGui::GetTime();
+  if (app.gui.previewFitSettleTime == 0.0) {
+    app.gui.previewFitSettleTime = now;
+    return;
+  }
+  if (now - app.gui.previewFitSettleTime < 0.25) return;
+  app.gui.previewFitSettleTime = 0.0;
+  rebuildPreview(app);
+}
+
+// Confirms a parameter reset, because one click discards the whole edit of the
+// selected plugin.
+static void drawResetParamsConfirm(App &app) {
+  if (app.gui.showResetParamsConfirm) {
+    ImGui::OpenPopup("Reset Parameters");
+    app.gui.showResetParamsConfirm = false;
+  }
+  if (!ImGui::BeginPopupModal("Reset Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  Node *node = selectedNode(app);
+  std::string label;
+  if (node) label = gPlugins[node->pluginIndex].label;
+  ImGui::TextWrapped("Return every parameter of %s to its default value?", label.c_str());
+  ImGui::TextDisabled("This cannot be undone.");
+  ImGui::Spacing();
+  if (ImGui::Button("Reset", ImVec2(120.0f, 0.0f))) {
+    ImGui::CloseCurrentPopup();
+    if (node) {
+      const int count = resetNodeParamsToDefaults(app, *node);
+      app.setStatus("Reset " + std::to_string(count) + " parameters of " + label);
+    }
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
 }
 
@@ -282,18 +459,17 @@ void drawUiFrame(App &app) {
   if (!app.gui.pendingWorkspaceDir.empty()) {
     const std::string dir = std::move(app.gui.pendingWorkspaceDir);
     app.gui.pendingWorkspaceDir.clear();
-    if (openWorkspace(app, dir) && !ImGuiBackend_SetWorkspaceIni(app.doc.workspaceDir))
-      app.gui.layoutApplyPending = true;
+    openWorkspace(app, dir);
   }
 
   drawMenuBar(app);
 
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_LeftBracket))
-    app.gui.showLeft = !app.gui.showLeft;
+    app.gui.showPlugins = !app.gui.showPlugins;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
-    app.gui.showRight = !app.gui.showRight;
+    app.gui.showParameters = !app.gui.showParameters;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
     app.gui.showFilmstrip = !app.gui.showFilmstrip;
@@ -302,19 +478,19 @@ void drawUiFrame(App &app) {
 #else
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) {
 #endif
-    auto f = pfd::select_folder("Open workspace folder");
+    auto f = pfd::select_folder("Open directory");
     auto r = f.result();
     if (!r.empty()) app.gui.pendingWorkspaceDir = r;
   }
 
-  DockLayout::BeginMainDockSpace(app);
+  DockLayout::BeginMainDockSpace();
 
-  if (app.gui.showLeft) {
-    if (ImGui::Begin(DockLayout::kLeft, &app.gui.showLeft)) drawLeftPanel(app);
+  if (app.gui.showPlugins) {
+    if (ImGui::Begin(DockLayout::kPlugins, &app.gui.showPlugins)) drawPluginsPanel(app);
     ImGui::End();
   }
-  if (app.gui.showRight) {
-    if (ImGui::Begin(DockLayout::kParams, &app.gui.showRight)) drawRightPanel(app);
+  if (app.gui.showParameters) {
+    if (ImGui::Begin(DockLayout::kParameters, &app.gui.showParameters)) drawParametersPanel(app);
     ImGui::End();
   }
   {
@@ -336,12 +512,16 @@ void drawUiFrame(App &app) {
     ImGui::End();
   }
 
+  applyFitPreviewSize(app);
+
   if (app.gui.showAbout) {
     ImGui::OpenPopup("About");
     app.gui.showAbout = false;
   }
   if (ImGui::BeginPopupModal("About", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextUnformatted("OfxRawHost");
+    ImGui::SameLine();
+    ImGui::TextDisabled("Version " OFXRAWHOST_VERSION);
     ImGui::Separator();
     ImGui::TextWrapped("A free and open-source OFX raw image host for color grading and plugin-based processing.");
     ImGui::Spacing();
@@ -370,6 +550,8 @@ void drawUiFrame(App &app) {
     ImGui::EndPopup();
   }
 
+  drawResetParamsConfirm(app);
   drawExportDialog(app);
   drawSettingsModal(app);
+  drawDevBuildWarning(app);
 }
