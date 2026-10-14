@@ -464,7 +464,10 @@ static OfxStatus message(void *, const char *type, const char *, const char *fmt
   va_end(ap);
   type = type ? type : "";
   fprintf(stderr, "OFX %s: %s\n", type, buf);
-  if (gOnMessage && (!strcmp(type, kOfxMessageError) || !strcmp(type, kOfxMessageFatal) || !strcmp(type, kOfxMessageWarning)))
+  // The status bar shows problems and one-shot reports. Log lines stay on
+  // stderr, because a render can raise many of them.
+  if (gOnMessage && (!strcmp(type, kOfxMessageError) || !strcmp(type, kOfxMessageFatal) ||
+                     !strcmp(type, kOfxMessageWarning) || !strcmp(type, kOfxMessageMessage)))
     gOnMessage(buf[0] ? buf : "(plugin message)");
   return !strcmp(type, kOfxMessageQuestion) ? kOfxStatReplyYes : kOfxStatOK;
 }

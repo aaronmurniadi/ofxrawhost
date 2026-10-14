@@ -251,7 +251,9 @@ build/OfxRawHost --selftest
 | Packaged macOS, Linux, and single-file Windows releases                         | Done (v0.4.0)  |
 | Release pipeline: cached, release-only dependency builds                        | Done (v0.4.1)  |
 | Windows: message box on a start-up failure, legacy OpenGL fallback              | Done (v0.4.1)  |
-| spektrafilm `.spkpreset` import button on the parameter panel                   | Done (v0.4.2)  |
+| spektrafilm Load Preset opens the host `.spkpreset` file dialog                 | Done (v0.4.2)  |
+| spektrafilm Export LUT asks for a `.cube` path and moves the file there         | Done (v0.4.2)  |
+| UI: browse button on OFX string parameters marked as file or directory paths    | Done (v0.4.2)  |
 | Preview size "Fit to preview" (matches the preview panel pixels)                | Done (v0.4.2)  |
 | Bundled Transform: Crop and Zoom merge into one Zoom control                    | Done (v0.4.2)  |
 | Bundled Auto Exposure plugin (spektrafilm metering methods)                     | Done (v0.4.2)  |
