@@ -116,6 +116,13 @@ Export dialogs do not appear:
 sudo apt install zenity
 ```
 
+The AppImage carries update information, so AppImageUpdate updates it in place from the
+newest release. The release publishes the `.zsync` file that the update tool reads:
+
+```sh
+appimageupdatetool ./OfxRawHost-Linux-x86_64.AppImage
+```
+
 ---
 
 ## Installing OFX plugins
@@ -179,7 +186,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
   -DVCPKG_OVERLAY_TRIPLETS=packaging/vcpkg-triplets ^
   -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
-  -DOFX_VERSION=0.4.1
+  -DOFX_VERSION=0.4.3
 cmake --build build --config Release
 ```
 
@@ -259,6 +266,7 @@ build/OfxRawHost --selftest
 | Bundled Auto Exposure plugin (spektrafilm metering methods)                     | Done (v0.4.2)  |
 | UI: Input / Preview colorspace in the Plugins panel; Export colorspace + Intent | Done (v0.4.2)  |
 | UI: Parameter panel drops its plugin tabs (node list selects the plugin)        | Done (v0.4.2)  |
+| Linux: AppImage embeds update information and publishes its .zsync              | Done (v0.4.3)  |
 
 ---
 

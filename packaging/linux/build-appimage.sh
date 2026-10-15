@@ -4,6 +4,11 @@
 # links shared libraries from the system, ldd.
 #
 # Usage: VERSION=1.2.3 APPIMAGETOOL=/path/to/appimagetool packaging/linux/build-appimage.sh
+#
+# Set UPDATE_INFORMATION to make the AppImage updateable. appimagetool then embeds
+# the string and writes <appimage>.zsync beside the AppImage, which must be published
+# next to it. This needs the zsync package, which provides zsyncmake. See
+# https://docs.appimage.org/packaging-guide/optional/updates.html
 set -e
 cd "$(dirname "$0")/../.."
 
@@ -13,6 +18,7 @@ NAME=OfxRawHost
 APPDIR="$OUT/$NAME.AppDir"
 TOOL=${APPIMAGETOOL:-appimagetool}
 VERSION=${VERSION:-0.0.0}
+UPDATE_INFORMATION=${UPDATE_INFORMATION:-}
 
 case "$(uname -m)" in
   aarch64|arm64) APPTARGET=arm_aarch64 ;;
@@ -83,6 +89,29 @@ if command -v ldd >/dev/null 2>&1; then
     done
 fi
 
+if [ -n "$UPDATE_INFORMATION" ] && ! command -v zsyncmake >/dev/null 2>&1; then
+  echo "error: UPDATE_INFORMATION needs zsyncmake; install the zsync package" >&2
+  exit 1
+fi
+
+APPIMAGE="$OUT/$NAME-Linux-$APPTARGET.AppImage"
+
+# appimagetool embeds the update information and writes the .zsync file only when
+# it is given the string, so an empty value must not reach the argument list.
+set -- --no-appstream
+if [ -n "$UPDATE_INFORMATION" ]; then
+  set -- "$@" -u "$UPDATE_INFORMATION"
+fi
+
 ARCH="$APPTARGET" VERSION="$VERSION" NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 \
-  "$TOOL" --no-appstream "$APPDIR" "$OUT/$NAME-Linux-$APPTARGET.AppImage"
-echo "Built $(pwd)/$OUT/$NAME-Linux-$APPTARGET.AppImage"
+  "$TOOL" "$@" "$APPDIR" "$APPIMAGE"
+
+echo "Built $(pwd)/$APPIMAGE"
+if [ -n "$UPDATE_INFORMATION" ]; then
+  if [ ! -f "$APPIMAGE.zsync" ]; then
+    echo "error: appimagetool wrote no .zsync file for the update information" >&2
+    exit 1
+  fi
+  echo "Embedded update information: $UPDATE_INFORMATION"
+  echo "Built $(pwd)/$APPIMAGE.zsync"
+fi

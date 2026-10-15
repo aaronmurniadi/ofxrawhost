@@ -105,7 +105,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config git file wget xvfb \
+            build-essential cmake ninja-build pkg-config git file wget xvfb zsync \
             libraw-dev libtiff-dev liblcms2-dev libwebp-dev zlib1g-dev libpng-dev \
             libgl1-mesa-dev libgl1-mesa-dri xorg-dev
       # Ubuntu 22.04 has no libjxl package (JPEG XL arrives in 24.04), so build
@@ -155,12 +155,32 @@ jobs:
           wget -q -O /tmp/appimagetool \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
-          VERSION="${{ needs.prepare.outputs.version }}" APPIMAGETOOL=/tmp/appimagetool packaging/linux/build-appimage.sh
+          # AppImageUpdate reads this string out of the AppImage and fetches the
+          # .zsync of the newest release with the same file name. The target is
+          # latest, so a user who runs a pre-release is offered the next stable
+          # release instead of the next pre-release.
+          UPDATE_INFORMATION="gh-releases-zsync|${GITHUB_REPOSITORY%%/*}|${GITHUB_REPOSITORY#*/}|latest|OfxRawHost-Linux-x86_64.AppImage.zsync"
+          VERSION="${{ needs.prepare.outputs.version }}" APPIMAGETOOL=/tmp/appimagetool \
+            UPDATE_INFORMATION="$UPDATE_INFORMATION" packaging/linux/build-appimage.sh
           test -x build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+          test -f build/AppImage/OfxRawHost-Linux-x86_64.AppImage.zsync
       - name: Smoke-test the AppImage
         run: |
           set -e
           APP=build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+          # The update information lives in the runtime, and AppImageUpdate diffs
+          # the local file against the .zsync that the release publishes beside
+          # it. A name mismatch here would break every update, so check the whole
+          # string rather than the scheme alone.
+          EXPECTED_UPD="gh-releases-zsync|${GITHUB_REPOSITORY%%/*}|${GITHUB_REPOSITORY#*/}|latest|OfxRawHost-Linux-x86_64.AppImage.zsync"
+          if ! grep -aqF "$EXPECTED_UPD" "$APP"; then
+            echo "::error::the AppImage does not carry the update information $EXPECTED_UPD"
+            exit 1
+          fi
+          if [ ! -f "$APP.zsync" ]; then
+            echo "::error::the AppImage has no .zsync file beside it"
+            exit 1
+          fi
           # The icon and interface fonts must sit next to the binary for the
           # shipped build to resolve them outside the build tree.
           test -f build/AppImage/OfxRawHost.AppDir/usr/bin/fa-solid-900.ttf
@@ -199,7 +219,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-Linux-x86_64
-          path: build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+          path: |
+            build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+            build/AppImage/OfxRawHost-Linux-x86_64.AppImage.zsync
           if-no-files-found: error
 
   windows:
@@ -359,4 +381,6 @@ jobs:
             # A branch push has no tag yet, so point the new tag at this commit.
             gh release create "$TAG" --title "$TAG" --notes-file "$NOTES" --target "$GITHUB_SHA" "${FLAGS[@]}"
           fi
-          gh release upload "$TAG" dist/*.dmg dist/*.exe dist/*.AppImage --clobber
+          # The .zsync must sit beside the AppImage, because AppImageUpdate
+          # resolves the update information to it.
+          gh release upload "$TAG" dist/*.dmg dist/*.exe dist/*.AppImage dist/*.zsync --clobber
