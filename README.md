@@ -116,12 +116,21 @@ Export dialogs do not appear:
 sudo apt install zenity
 ```
 
-The AppImage carries update information, so AppImageUpdate updates it in place from the
-newest release. The release publishes the `.zsync` file that the update tool reads:
+The AppImage carries update information, so AppImageUpdate updates it in place. A stable
+build follows the newest stable release. A build from a `release/vX.X.X` branch follows the
+newest pre-release, which is what the in-app update check does for a development build.
+
+The release publishes the `.zsync` file that the update tool reads. Get `appimageupdatetool`
+from the AppImageUpdate releases, and pass `-O` so it replaces the file in place:
 
 ```sh
-appimageupdatetool ./OfxRawHost-Linux-x86_64.AppImage
+appimageupdatetool -O ./OfxRawHost-Linux-x86_64.AppImage
 ```
+
+An AppImage released before v0.4.3 carries no update information, so download one v0.4.3 or
+later build by hand once to start receiving in-place updates.
+
+Nothing is signature-verified, so an in-place update trusts the GitHub release channel.
 
 ---
 
@@ -178,7 +187,7 @@ cd ofxrawhost
 ./build.sh
 ```
 
-On Windows, configure CMake with the vcpkg toolchain. `OFX_VERSION` is stamped into
+On Windows, configure CMake with the vcpkg toolchain. `OFX_VERSION_LABEL` is stamped into
 the file properties of the executable:
 
 ```cmd
@@ -186,7 +195,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
   -DVCPKG_OVERLAY_TRIPLETS=packaging/vcpkg-triplets ^
   -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
-  -DOFX_VERSION=0.4.3
+  -DOFX_VERSION_LABEL=0.4.3
 cmake --build build --config Release
 ```
 

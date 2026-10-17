@@ -7,7 +7,8 @@
 #
 # Set UPDATE_INFORMATION to make the AppImage updateable. appimagetool then embeds
 # the string and writes <appimage>.zsync beside the AppImage, which must be published
-# next to it. This needs the zsync package, which provides zsyncmake. See
+# next to it. appimagetool needs zsyncmake for that, and finds it on PATH or uses the
+# copy bundled in the appimagetool AppImage. See
 # https://docs.appimage.org/packaging-guide/optional/updates.html
 set -e
 cd "$(dirname "$0")/../.."
@@ -89,11 +90,6 @@ if command -v ldd >/dev/null 2>&1; then
     done
 fi
 
-if [ -n "$UPDATE_INFORMATION" ] && ! command -v zsyncmake >/dev/null 2>&1; then
-  echo "error: UPDATE_INFORMATION needs zsyncmake; install the zsync package" >&2
-  exit 1
-fi
-
 APPIMAGE="$OUT/$NAME-Linux-$APPTARGET.AppImage"
 
 # appimagetool embeds the update information and writes the .zsync file only when
@@ -110,6 +106,7 @@ echo "Built $(pwd)/$APPIMAGE"
 if [ -n "$UPDATE_INFORMATION" ]; then
   if [ ! -f "$APPIMAGE.zsync" ]; then
     echo "error: appimagetool wrote no .zsync file for the update information" >&2
+    echo "error: install the zsync package, or use the appimagetool AppImage that bundles zsyncmake" >&2
     exit 1
   fi
   echo "Embedded update information: $UPDATE_INFORMATION"
