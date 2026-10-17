@@ -91,12 +91,20 @@ if command -v ldd >/dev/null 2>&1; then
 fi
 
 APPIMAGE="$OUT/$NAME-Linux-$APPTARGET.AppImage"
+# zsyncmake names its output after the base name of the AppImage and writes it to
+# the directory it runs in, and appimagetool hands it the AppImage without asking
+# for another output path. The file therefore lands in this directory and not
+# beside the AppImage, which the release and the checks below expect.
+ZSYNC_IN_CWD="$(basename "$APPIMAGE").zsync"
 
 # appimagetool embeds the update information and writes the .zsync file only when
 # it is given the string, so an empty value must not reach the argument list.
 set -- --no-appstream
 if [ -n "$UPDATE_INFORMATION" ]; then
   set -- "$@" -u "$UPDATE_INFORMATION"
+  # Drop the copy a previous build left here, so a failed run cannot be read as
+  # this one's output.
+  rm -f "$ZSYNC_IN_CWD"
 fi
 
 ARCH="$APPTARGET" VERSION="$VERSION" NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 \
@@ -104,6 +112,9 @@ ARCH="$APPTARGET" VERSION="$VERSION" NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 \
 
 echo "Built $(pwd)/$APPIMAGE"
 if [ -n "$UPDATE_INFORMATION" ]; then
+  if [ ! -f "$APPIMAGE.zsync" ] && [ -f "$ZSYNC_IN_CWD" ]; then
+    mv "$ZSYNC_IN_CWD" "$APPIMAGE.zsync"
+  fi
   if [ ! -f "$APPIMAGE.zsync" ]; then
     echo "error: appimagetool wrote no .zsync file for the update information" >&2
     echo "error: install the zsync package, or use the appimagetool AppImage that bundles zsyncmake" >&2
