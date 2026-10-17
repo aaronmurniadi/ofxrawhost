@@ -7,6 +7,8 @@
 #include "NodeGraph.h"
 #include "RenderScheduler.h"
 #include "imgio/ImageIO.h"
+#include "imgio/NoiseProfiles.h"
+#include "ofxParam.h"
 #include "ParamBridge.h"
 #include "ofx/OfxHost.h"
 #include "persist/ChainIO.h"
@@ -25,6 +27,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -595,6 +598,203 @@ static Image makeTestImage() {
   return src;
 }
 
+// The bundled sensor noise profile table: it has to ship, and the lookup has to
+// match the camera and interpolate an ISO the database has no shot for.
+static int testNoiseProfiles() {
+  const std::vector<NoiseCamera> &table = noiseProfileTable();
+  if (table.size() < 300) return fail("noise profiles: the bundled table did not load");
+  size_t entries = 0;
+  for (const NoiseCamera &camera : table) entries += camera.profiles.size();
+  if (entries < 5000) return fail("noise profiles: the table is missing entries");
+
+  NoiseProfile profile;
+  if (!noiseProfileLookup("Fujifilm", "X-M1", 6400, profile)) return fail("noise profiles: X-M1 not found");
+  if (std::abs(profile.a - 2.36110268483642e-05) > 1e-9) return fail("noise profiles: X-M1 a is wrong");
+  if (std::abs(profile.b - 1.17390034010813e-07) > 1e-11) return fail("noise profiles: X-M1 b is wrong");
+
+  // An ISO between two shots of the camera is interpolated between them.
+  if (!noiseProfileLookup("Sony", "NEX-5T", 1000, profile)) return fail("noise profiles: NEX-5T not found");
+  if (std::abs(profile.a - 1.901766432577205e-05) > 1e-9) return fail("noise profiles: interpolated a is wrong");
+  if (std::abs(profile.b - 2.65520658609566e-08) > 1e-11) return fail("noise profiles: interpolated b is wrong");
+
+  // Capitalisation the database does not use, and a model the reported string
+  // carries a prefix for, both still have to match.
+  if (!noiseProfileLookup("FUJIFILM", "X-M1", 6400, profile)) return fail("noise profiles: maker case hurts");
+  if (!noiseProfileLookup("Canon", "Canon EOS 5D", 400, profile)) return fail("noise profiles: prefixed model hurts");
+
+  // An ISO outside the table clamps to the closest shot the camera has.
+  if (!noiseProfileLookup("Sony", "NEX-5T", 400000, profile)) return fail("noise profiles: high ISO not clamped");
+  if (std::abs(profile.a - 6.62354296188816e-04) > 1e-9) return fail("noise profiles: clamped a is wrong");
+
+  if (noiseProfileLookup("Nonesuch", "X-M1", 400, profile)) return fail("noise profiles: unknown maker matched");
+  if (noiseProfileLookup("Fujifilm", "X-M9", 400, profile)) return fail("noise profiles: unknown model matched");
+  printf("ok  noise profiles (%zu cameras, %zu profiles)\n", table.size(), entries);
+  return 0;
+}
+
+// Adding a Denoise node to an image whose camera the host recognized must seed
+// the noise model from that camera's profile, and must leave the defaults in
+// place for an image that carries no camera data.
+static int testDenoiseSeeding() {
+  auto it =
+      std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Denoise (profiled)"; });
+  if (it == gPlugins.end()) return fail("seeding: bundled Denoise plugin not found");
+  const int index = (int)(it - gPlugins.begin());
+
+  App app;
+  app.doc.meta.hasCamera = true;
+  app.doc.meta.cameraMaker = "Fujifilm";
+  app.doc.meta.cameraModel = "X-M1";
+  app.doc.meta.iso = 6400;
+  if (!addNode(app, index)) return fail("seeding: addNode");
+  Param *slope = findParam(app.chain.nodes.back().instance.get(), "noiseSlope");
+  Param *offset = findParam(app.chain.nodes.back().instance.get(), "noiseOffset");
+  if (!slope || slope->v.empty() || !offset || offset->v.empty()) return fail("seeding: params missing");
+  if (std::abs(slope->v[0] - 2.36110268483642e-05) > 1e-9) return fail("seeding: noiseSlope not seeded");
+  if (std::abs(offset->v[0] - 1.17390034010813e-07) > 1e-11) return fail("seeding: noiseOffset not seeded");
+  clearNodes(app);
+
+  // A file with no camera data keeps the parameters the plugin declares.
+  App plain;
+  if (!addNode(plain, index)) return fail("seeding: addNode (no camera)");
+  slope = findParam(plain.chain.nodes.back().instance.get(), "noiseSlope");
+  offset = findParam(plain.chain.nodes.back().instance.get(), "noiseOffset");
+  if (!slope || !offset) return fail("seeding: params missing (no camera)");
+  if (slope->v[0] != dprop(slope->props, kOfxParamPropDefault, 0, 0)) return fail("seeding: seeded without a camera");
+  if (offset->v[0] != dprop(offset->props, kOfxParamPropDefault, 0, 0)) return fail("seeding: seeded without a camera");
+  clearNodes(plain);
+  printf("ok  Denoise profile seeding\n");
+  return 0;
+}
+
+// Bundled Denoise (profiled) plugin: a flat frame carrying the noise the model
+// describes must come back cleaner without a level shift, a clean frame must
+// survive untouched, and a frame the host renders at a proxy scale must be
+// denoised as thoroughly as a full sized one.
+static float testNoise(size_t index) {
+  // Deterministic zero-mean unit-variance noise, so the case does not depend on
+  // a random engine's library implementation.
+  uint32_t x = (uint32_t)(index * 2654435761u) ^ 0x9e3779b9u;
+  x ^= x >> 15;
+  x *= 2246822519u;
+  x ^= x >> 13;
+  const float uniform = (float)((double)x / 2147483648.0 - 1.0);  // [-1, 1)
+  return uniform * 1.7320508f;                                    // stddev 1
+}
+
+static void frameStats(const Image &img, double &mean, double &stddev) {
+  const size_t count = (size_t)img.w * img.h;
+  double sum = 0.0;
+  for (size_t i = 0; i < count; ++i) sum += img.px[4 * i];
+  mean = sum / (double)count;
+  double variance = 0.0;
+  for (size_t i = 0; i < count; ++i) {
+    const double d = img.px[4 * i] - mean;
+    variance += d * d;
+  }
+  stddev = std::sqrt(variance / (double)count);
+}
+
+// Amplitude a frame still carries at the texture frequency. The noise is
+// uncorrelated with the texture, so it averages out of this projection and the
+// number reports how much detail came through the denoiser.
+static double textureAmplitude(const Image &img, float level, double period) {
+  double sum = 0.0;
+  for (int y = 0; y < img.h; ++y)
+    for (int x = 0; x < img.w; ++x)
+      sum += ((double)img.px[4 * ((size_t)y * img.w + x)] - level) * std::sin(2.0 * M_PI * x / period);
+  return 2.0 * sum / (double)((size_t)img.w * img.h);
+}
+
+static int testDenoisePlugin() {
+  auto it =
+      std::find_if(gPlugins.begin(), gPlugins.end(), [](const PluginEntry &pe) { return pe.label == "Denoise (profiled)"; });
+  if (it == gPlugins.end()) return fail("bundled Denoise plugin not found");
+  auto e = createInstance(*it);
+  if (!e) return fail("createInstance: Denoise");
+
+  Param *space = findParam(e.get(), "inputSpace");
+  Param *slope = findParam(e.get(), "noiseSlope");
+  Param *offset = findParam(e.get(), "noiseOffset");
+  Param *strength = findParam(e.get(), "strength");
+  Param *mode = findParam(e.get(), "colorMode");
+  if (!space || space->v.empty()) return fail("denoise: inputSpace missing");
+  if (!slope || slope->v.empty()) return fail("denoise: noiseSlope missing");
+  if (!offset || offset->v.empty()) return fail("denoise: noiseOffset missing");
+  if (!strength || strength->v.empty()) return fail("denoise: strength missing");
+  if (!mode || mode->v.empty()) return fail("denoise: colorMode missing");
+
+  space->v[0] = 2;  // Linear Rec.709, so the noise model is read on the samples as they are
+  mode->v[0] = 0;   // RGB, the mode that smooths a flat frame hardest
+  strength->v[0] = 1.0;
+  const float noiseA = 3.55e-5f, noiseB = 1.07e-7f;
+  slope->v[0] = noiseA;
+  offset->v[0] = noiseB;
+
+  const int w = 64, h = 48;
+  const float level = 0.2f;
+  const float sigma = std::sqrt(noiseA * level + noiseB);
+  // A texture eight pixels wide lands in the finest wavelet bands, which is where
+  // a noise level that does not match the frame shows up first.
+  const float texture = 0.03f;
+  const double period = 8.0;
+  auto render = [&](float textureAmount, float noiseAmount, double renderScale, Image &out) {
+    Image in;
+    in.w = w;
+    in.h = h;
+    in.px.assign((size_t)w * h * 4, 1.0f);
+    for (int y = 0; y < h; ++y)
+      for (int x = 0; x < w; ++x) {
+        const size_t i = (size_t)y * w + x;
+        const double clean = level + textureAmount * std::sin(2.0 * M_PI * x / period);
+        for (size_t c = 0; c < 3; ++c)
+          in.px[4 * i + c] = (float)clean + sigma * noiseAmount * testNoise(4 * i + c);
+      }
+    out.w = w;
+    out.h = h;
+    out.px.assign((size_t)w * h * 4, -1.0f);
+    return renderEffect(it->plugin, e.get(), in.px.data(), out.px.data(), w, h, w, h, 0, nullptr, nullptr, false,
+                        renderScale);
+  };
+
+  Image out;
+  double mean = 0.0, stddev = 0.0;
+  if (render(0.0f, 1.0f, 1.0, out) != kOfxStatOK) return fail("render: Denoise (noisy)");
+  frameStats(out, mean, stddev);
+  if (stddev > 0.2 * sigma) return fail("denoise left the modelled noise in place");
+  if (std::abs(mean - level) > 2e-3) return fail("denoise shifted the frame level");
+  const double flatFull = stddev;
+
+  // A frame without noise has nothing to shrink, and must come back flat.
+  if (render(0.0f, 0.0f, 1.0, out) != kOfxStatOK) return fail("render: Denoise (clean)");
+  frameStats(out, mean, stddev);
+  if (stddev > 0.05 * sigma) return fail("denoise added structure to a flat frame");
+  if (std::abs(mean - level) > 2e-3) return fail("denoise shifted a clean frame level");
+
+  // A proxy frame is an average of several sensor pixels per output pixel, so it
+  // carries proportionally less noise. The robustness of the plugin to the render
+  // scale is what makes a preview show what the export will write: the leftover
+  // noise must shrink by the same factor the noise did.
+  if (render(0.0f, 0.5f, 0.5, out) != kOfxStatOK) return fail("render: Denoise (proxy scale)");
+  frameStats(out, mean, stddev);
+  if (std::abs(stddev - 0.5 * flatFull) > 0.25 * flatFull) return fail("denoise did not follow the render scale");
+
+  // The denoiser must keep the detail a noisy frame still carries, rather than
+  // smoothing everything the way a plain blur would.
+  if (render(texture, 1.0f, 1.0, out) != kOfxStatOK) return fail("render: Denoise (texture)");
+  const double keptFull = textureAmplitude(out, level, period);
+  if (keptFull < 0.5 * texture) return fail("denoise smoothed the texture away");
+
+  // More strength must smooth more.
+  strength->v[0] = 8.0;
+  if (render(texture, 1.0f, 1.0, out) != kOfxStatOK) return fail("render: Denoise (strength)");
+  if (textureAmplitude(out, level, period) >= keptFull) return fail("denoise strength did not smooth further");
+
+  callAction(it->plugin, kOfxActionDestroyInstance, e.get());
+  printf("ok  Denoise (profiled)\n");
+  return 0;
+}
+
 // Bundled Transform plugin: defaults must be an identity pass-through with a
 // full-size RoD; the zoom slider must shrink the RoD and change the rendered
 // output. Checked first so a flaky third-party plugin later in the list
@@ -1059,7 +1259,10 @@ int runSelfTest() {
   if (const int rc = testChainColorSpaceFlow()) return rc;
   if (const int rc = testTransformPlugin(src)) return rc;
   if (const int rc = testTransformLegacyMigration()) return rc;
+  if (const int rc = testNoiseProfiles()) return rc;
   if (const int rc = testAutoExposurePlugin()) return rc;
+  if (const int rc = testDenoisePlugin()) return rc;
+  if (const int rc = testDenoiseSeeding()) return rc;
   if (const int rc = testEveryPlugin(src)) return rc;
   if (const int rc = testConcurrency(src)) return rc;
   return 0;

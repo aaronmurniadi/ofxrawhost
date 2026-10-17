@@ -52,6 +52,16 @@ enum class RenderIntent { Perceptual = 0, RelativeColorimetric, Saturation, Abso
 inline constexpr int kRenderIntentCount = 4;
 const char *renderIntentName(RenderIntent intent);
 
+// Camera metadata of a decoded file, filled by the RAW decoders only. A file that
+// carries none (a JPEG, a TIFF, or a RAW whose maker LibRaw does not report)
+// leaves `hasCamera` false.
+struct ImageMeta {
+  bool hasCamera = false;
+  std::string cameraMaker;
+  std::string cameraModel;
+  int iso = 0;
+};
+
 // Loads RAW via LibRaw (linear, camera WB), TIFF via libtiff, or PNG/JPEG/EXR via stb/tinyexr.
 // detected: inferred Input Color Space (RAW / untagged float → Linear Rec.2020; untagged LDR → sRGB;
 // embedded ICC → nearest of the four tags). Does not convert pixels.
@@ -60,7 +70,9 @@ const char *renderIntentName(RenderIntent intent);
 // of detected when the decoder removed the transfer curve (RAW, PNG/JPEG).
 // The preview display and the plugin Input Color Space read working, while
 // detected describes the file and travels in the sidecar and the export metadata.
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace &working);
+// meta, when given, receives the camera and ISO the decoder found.
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace &working,
+               ImageMeta *meta = nullptr);
 // Lowercase file extension with the leading dot (for example ".cr2"). Empty when there is none.
 std::string lowerFileExtension(const std::string &path);
 // One table in ImageLoad.cpp lists the supported extensions. extLower includes the

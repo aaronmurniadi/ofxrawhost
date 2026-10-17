@@ -19,4 +19,7 @@ struct DocumentState {
   // Space handed to the first plugin in the chain. It starts at workingSpace,
   // and the Input colorspace control can override it for this image.
   ColorSpace inputSpace = ColorSpace::LinearRec709;
+  // Camera and ISO of the open frame, when the decoder found them (RAW only).
+  // The Denoise plugin turns them into a sensor noise model.
+  ImageMeta meta;
 };

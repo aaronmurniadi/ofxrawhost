@@ -24,6 +24,7 @@ struct ChainRenderer {
 
   // src: bottom-up float RGBA. out receives the last node's output.
   // gen is the abort generation; draft requests reduced-quality interactive passes.
+  // renderScale is the proxy scale of the pass, passed on to every node.
   OfxStatus render(const ChainState &chain, const std::vector<PluginEntry> &plugins, const Image &src, Image &out,
-                   int gen, bool draft = false);
+                   int gen, bool draft = false, double renderScale = 1.0);
 };

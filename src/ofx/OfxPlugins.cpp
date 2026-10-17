@@ -295,7 +295,7 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
 bool effectUsesMetal(const Effect *e) { return e && e->gpu && e->gpu->metalCapable && ofxMetalAvailable(); }
 
 OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen,
-                       void *srcMtl, void *dstMtl, bool draft) {
+                       void *srcMtl, void *dstMtl, bool draft, double renderScale) {
   e->src = src;
   e->dst = dst;
   {
@@ -310,7 +310,10 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   PropSet in;
   OfxPropertySetHandle a = H(&in);
   const int window[4] = {0, 0, outW, outH};
-  const double scale[2] = {1, 1};
+  // The proxy scale of this pass. A preview or a draft is rendered smaller than
+  // the project, so plugins that size something in project pixels (a denoiser's
+  // noise model, a blur radius) can follow the frame they are handed.
+  const double scale[2] = {renderScale, renderScale};
   propSetDouble(a, kOfxPropTime, 0, 0);
   propSetString(a, kOfxImageEffectPropFieldToRender, 0, kOfxImageFieldNone);
   propSetN<int, propSetInt>(a, kOfxImageEffectPropRenderWindow, 4, window);

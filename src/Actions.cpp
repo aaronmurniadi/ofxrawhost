@@ -55,7 +55,8 @@ void openPath(App &app, const std::string &path) {
   Image img;
   ColorSpace detected = ColorSpace::LinearRec2020;
   ColorSpace working = ColorSpace::LinearRec709;
-  if (!loadImage(path, img, detected, working)) {
+  ImageMeta meta;
+  if (!loadImage(path, img, detected, working, &meta)) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
@@ -65,16 +66,26 @@ void openPath(App &app, const std::string &path) {
   app.doc.fileSpace = detected;
   app.doc.workingSpace = working;
   app.doc.inputSpace = working;
+  app.doc.meta = meta;
   app.gui.previewZoom = 1.0f;
   app.gui.previewPanX = 0.0f;
   app.gui.previewPanY = 0.0f;
   app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
   app.filmstrip.index = filmstripIndexForPath(app.filmstrip, path);
   PersistSidecar sc;
-  if (loadInputSidecar(path, sc)) {
+  const bool restoredChain = loadInputSidecar(path, sc);
+  if (restoredChain) {
     // A sidecar that recorded a chain input space restores that choice.
     app.doc.inputSpace = colorSpaceFromName(sc.chainInputColorSpace, app.doc.workingSpace);
     applyChain(app, sc.chain);
+  } else {
+    // Without a sidecar the chain of the previous image stays in place, and its
+    // noise model belonged to that camera, so seed it for the camera now open.
+    const int seeded = seedNoiseModelParams(app);
+    if (seeded > 0) {
+      app.setStatus("Denoise (profiled): " + meta.cameraMaker + " " + meta.cameraModel + " ISO " +
+                    std::to_string(meta.iso) + " profile applied");
+    }
   }
   rebuildPreview(app);
   // The chain carries the document input space into its first plugin, and no

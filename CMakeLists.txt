@@ -141,6 +141,7 @@ add_executable(OfxRawHost
   src/imgio/ImageLoad.cpp
   src/imgio/ImageColor.cpp
   src/imgio/ImageWrite.cpp
+  src/imgio/NoiseProfiles.cpp
   src/UI.cpp
   src/UpdateCheck.cpp
   src/NodeGraph.cpp
@@ -215,6 +216,7 @@ target_include_directories(OfxRawHost PRIVATE
 target_compile_definitions(OfxRawHost PRIVATE
   "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
   "OFX_UI_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf\""
+  "OFX_NOISE_PROFILE_PATH=\"${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json\""
   GL_SILENCE_DEPRECATION
 )
 
@@ -225,6 +227,10 @@ add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
     $<TARGET_FILE_DIR:OfxRawHost>/Inter.ttf
+  # The sensor noise profiles sit beside the binary, like the fonts.
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json
+    $<TARGET_FILE_DIR:OfxRawHost>/noiseprofiles.json
 )
 
 if(TARGET PkgConfig::LIBRAW)
@@ -294,7 +300,7 @@ else()
   target_link_libraries(OfxRawHost PRIVATE OpenGL::GL)
 endif()
 
-# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform, Auto Exposure) ---
+# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform, Auto Exposure, Denoise) ---
 find_package(Threads REQUIRED)
 
 # The support lib's log-indent counter is a process-global int (upstream calls it
@@ -324,9 +330,15 @@ target_include_directories(OfxSupport PUBLIC
 target_link_libraries(OfxSupport PUBLIC Threads::Threads)
 set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Bundled plugins: the Transform and Auto Exposure effects ship inside the
-# Windows executable so the release is one file, and as an
+# Bundled plugins: the Transform, Auto Exposure, and Denoise (profiled) effects
+# ship inside the Windows executable so the release is one file, and as an
 # OfxRawHost.ofx.bundle everywhere else.
+set(OFX_BUNDLED_PLUGIN_SOURCES
+  plugins/Transform.cpp
+  plugins/AutoExposure.cpp
+  plugins/Denoise.cpp
+  plugins/BundledPlugins.cpp
+)
 
 # Version shown in the About window. A dev build keeps the -dev suffix, for
 # example 0.4.2-dev. The release build passes OFX_VERSION_LABEL as the git tag;
@@ -367,13 +379,14 @@ if(WIN32)
   string(REPLACE ";" "," OFX_VERSION_COMMAS "${_ofx_ver_parts}")
   set(OFX_ICON_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf")
   set(OFX_UI_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf")
+  set(OFX_NOISE_PROFILE_PATH "${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json")
   set(OFX_APP_ICON_PATH "${CMAKE_SOURCE_DIR}/packaging/windows/ofxrawhost.ico")
   if(NOT EXISTS "${OFX_APP_ICON_PATH}")
     message(FATAL_ERROR "windows icon not found: ${OFX_APP_ICON_PATH}")
   endif()
   configure_file(packaging/windows/OfxRawHost.rc.in "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc" @ONLY)
 
-  target_sources(OfxRawHost PRIVATE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
+  target_sources(OfxRawHost PRIVATE ${OFX_BUNDLED_PLUGIN_SOURCES} "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
   target_link_libraries(OfxRawHost PRIVATE OfxSupport)
   target_compile_definitions(OfxRawHost PRIVATE OFX_EMBEDDED_PLUGIN)
   # Release build opens no console window. The host keeps main(), so name the CRT
@@ -383,7 +396,7 @@ if(WIN32)
 else()
   # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
   # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
-  add_library(OfxRawHostBundled MODULE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp)
+  add_library(OfxRawHostBundled MODULE ${OFX_BUNDLED_PLUGIN_SOURCES})
   set_target_properties(OfxRawHostBundled PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
   target_link_libraries(OfxRawHostBundled PRIVATE OfxSupport)
   if(APPLE)
@@ -429,6 +442,9 @@ if(APPLE)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/Inter.ttf
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json
+      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/noiseprofiles.json
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       ${OFX_BUNDLE}
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle

@@ -109,11 +109,27 @@ bool fromRGBAFloatTopDown(float *src, int w, int h, Image &out) {
   return true;
 }
 
-static bool loadRaw(const std::string &path, Image &out) {
+// Trailing spaces are common in the EXIF strings LibRaw hands back.
+static std::string trimmed(const char *text) {
+  std::string value;
+  if (text) value = text;
+  while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) value.pop_back();
+  size_t first = 0;
+  while (first < value.size() && (value[first] == ' ' || value[first] == '\t')) ++first;
+  return value.substr(first);
+}
+
+static bool loadRaw(const std::string &path, Image &out, ImageMeta &meta) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
   if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
   if (raw.unpack() != LIBRAW_SUCCESS) return false;
+  // LibRaw rewrites the maker and model into its own camera table spelling, which
+  // is the spelling the noise profile database uses.
+  meta.cameraMaker = trimmed(raw.imgdata.idata.make);
+  meta.cameraModel = trimmed(raw.imgdata.idata.model);
+  meta.iso = (int)(raw.imgdata.other.iso_speed + 0.5f);
+  meta.hasCamera = !meta.cameraMaker.empty() && !meta.cameraModel.empty();
   raw.imgdata.params.output_bps = 16;
   raw.imgdata.params.gamm[0] = 1.0;
   raw.imgdata.params.gamm[1] = 1.0;
@@ -458,11 +474,13 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace &working) {
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace &working, ImageMeta *meta) {
   PerfScope _ps("loadImage");
   out = {};
   detected = ColorSpace::sRGB;
   working = ColorSpace::sRGB;
+  ImageMeta found;
+  if (meta) *meta = ImageMeta();
   const std::string e = lowerFileExtension(path);
   const ImageFormatRow *format = imageFormatFor(e);
 
@@ -470,7 +488,8 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorS
   // working space is the linear counterpart of the tag it detected.
   const bool raw = format && format->codec == ImageCodec::Raw;
   if (raw) {
-    if (!loadRaw(path, out)) return false;
+    if (!loadRaw(path, out, found)) return false;
+    if (meta) *meta = found;
     detected = ColorSpace::LinearRec709;
     working = detected;
     return true;
@@ -504,7 +523,8 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorS
     return true;
   }
   // A RAW file whose extension the table does not list.
-  if (loadRaw(path, out)) {
+  if (loadRaw(path, out, found)) {
+    if (meta) *meta = found;
     detected = ColorSpace::LinearRec709;
     working = detected;
     return true;

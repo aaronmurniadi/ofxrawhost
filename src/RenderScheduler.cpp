@@ -60,6 +60,18 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
   app.tex.upload(rgba, w, h);
 }
 
+// Proxy scale of a pass: how much smaller than the project the frame being
+// rendered is. Plugins that size something in project pixels (the denoiser's
+// noise model, for one) read it from the render arguments, so a preview tells
+// them the same story an export does.
+static double passRenderScale(const App &app, const Image &rendered) {
+  const int projectEdge = std::max(app.doc.full.w, app.doc.full.h);
+  const int edge = std::max(rendered.w, rendered.h);
+  if (projectEdge <= 0 || edge <= 0) return 1.0;
+  if (edge >= projectEdge) return 1.0;
+  return (double)edge / (double)projectEdge;
+}
+
 void scheduleDisplayRecolor(App &app) {
   ++gLatestGen;
   std::lock_guard<std::mutex> lock(app.render.schedule.mutex);
@@ -116,14 +128,16 @@ void renderWorker(App *app) {
     if (longEdge > kDraftMaxEdge) {
       Image draftInput;
       if (makePreview(app->doc.preview, kDraftMaxEdge, draftInput)) {
-        const OfxStatus draftSt = renderer.render(app->chain, gPlugins, draftInput, out, gen, true);
+        const OfxStatus draftSt = renderer.render(app->chain, gPlugins, draftInput, out, gen, true,
+                                                  passRenderScale(*app, draftInput));
         if (gen != gLatestGen) continue;
         if (draftSt == kOfxStatOK)
           publishDisplay(app->render, std::move(out), app->chainOutputSpace, app->gui.previewSpace);
       }
     }
     if (gen != gLatestGen) continue;
-    const OfxStatus st = renderer.render(app->chain, gPlugins, app->doc.preview, out, gen, false);
+    const OfxStatus st = renderer.render(app->chain, gPlugins, app->doc.preview, out, gen, false,
+                                         passRenderScale(*app, app->doc.preview));
     if (gen != gLatestGen) continue;
     if (st == kOfxStatOK) {
       const int ow = out.w, oh = out.h;

@@ -58,6 +58,9 @@ bool addNode(App &app, int pluginIndex) {
   app.chain.nodes.push_back(std::move(node));
   app.chain.selectedNode = (int)app.chain.nodes.size() - 1;
   app.gui.paramFilter[0] = '\0';
+  // A new node takes the noise model of the camera the image came from, unless
+  // the plugin is added for another reason and has no such parameters.
+  seedNoiseModelParams(app, app.chain.nodes.back());
   // Walk after the push, so the new node receives the space the chain carries.
   syncChainColorSpaces(app);
   scheduleRender(app);

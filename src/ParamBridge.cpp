@@ -1,6 +1,7 @@
 #include "ParamBridge.h"
 
 #include "imgio/ImageIO.h"
+#include "imgio/NoiseProfiles.h"
 #include "ofx/OfxHost.h"
 #include "ofxImageEffect.h"
 #include "ofxParam.h"
@@ -93,6 +94,46 @@ void syncChainColorSpaces(App &app) {
     app.chainOutputSpace = carried;
   }
   for (size_t i = 0; i < changedParams.size(); ++i) notifyChanged(*changedNodes[i], changedParams[i]);
+}
+
+// Writes value into the node parameter that carries the given label, when it is
+// a double parameter and the value is not already there. Returns the parameter it
+// changed.
+static Param *writeNodeDoubleParam(Node &node, const char *label, double value) {
+  if (!node.instance) return nullptr;
+  for (auto &up : node.instance->params) {
+    Param *p = up.get();
+    if (p->kind != ParamType::Double) continue;
+    if (sprop(p->props, kOfxPropLabel) != label) continue;
+    if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
+    if (p->v.empty()) return nullptr;
+    if (p->v[0] == value) return nullptr;  // already there, nothing to notify
+    p->v[0] = value;
+    return p;
+  }
+  return nullptr;
+}
+
+int seedNoiseModelParams(App &app, Node &node) {
+  if (!node.instance || !app.doc.meta.hasCamera || app.doc.meta.iso <= 0) return 0;
+  NoiseProfile profile;
+  if (!noiseProfileLookup(app.doc.meta.cameraMaker, app.doc.meta.cameraModel, app.doc.meta.iso, profile)) return 0;
+
+  std::vector<Param *> changed;
+  {
+    std::lock_guard<std::mutex> lock(gValueMutex);  // p->v may be read by an in-flight render
+    if (Param *p = writeNodeDoubleParam(node, kNoiseSlopeLabel, profile.a)) changed.push_back(p);
+    if (Param *p = writeNodeDoubleParam(node, kNoiseOffsetLabel, profile.b)) changed.push_back(p);
+  }
+  for (Param *p : changed) notifyChanged(node, p);
+  return (int)changed.size();
+}
+
+int seedNoiseModelParams(App &app) {
+  int seeded = 0;
+  for (Node &node : app.chain.nodes)
+    if (seedNoiseModelParams(app, node) > 0) ++seeded;
+  return seeded;
 }
 
 // Maps a plug-in output color space option to the host color space that can

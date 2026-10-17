@@ -29,7 +29,7 @@ ChainRenderer::~ChainRenderer() {
 }
 
 OfxStatus ChainRenderer::render(const ChainState &chain, const std::vector<PluginEntry> &plugins, const Image &src,
-                                Image &out, int gen, bool draft) {
+                                Image &out, int gen, bool draft, double renderScale) {
   if (!anyEnabledNode(chain)) {
     out = src;
     return kOfxStatOK;
@@ -63,7 +63,7 @@ OfxStatus ChainRenderer::render(const ChainState &chain, const std::vector<Plugi
       if (!dstBuf) return kOfxStatErrMemory;
       float *srcCpu = cpuIn;
       if (gpuIn) srcCpu = nullptr;
-      st = renderEffect(plugin, n.instance.get(), srcCpu, nullptr, cw, ch, ow, oh, gen, gpuIn, dstBuf, draft);
+      st = renderEffect(plugin, n.instance.get(), srcCpu, nullptr, cw, ch, ow, oh, gen, gpuIn, dstBuf, draft, renderScale);
       if (st != kOfxStatOK) break;
       gpuIn = dstBuf;
       cpuIn = nullptr;
@@ -87,7 +87,8 @@ OfxStatus ChainRenderer::render(const ChainState &chain, const std::vector<Plugi
       next.h = oh;
       const size_t need = (size_t)ow * oh * 4;
       if (next.px.size() < need) next.px.resize(need);
-      st = renderEffect(plugin, n.instance.get(), cpuIn, next.px.data(), cw, ch, ow, oh, gen, nullptr, nullptr, draft);
+      st = renderEffect(plugin, n.instance.get(), cpuIn, next.px.data(), cw, ch, ow, oh, gen, nullptr, nullptr, draft,
+                        renderScale);
       if (st != kOfxStatOK) break;
       cur.swap(next);
       cpuIn = cur.px.data();

@@ -52,6 +52,12 @@ struct Param {
 // must leave them alone, so the host and the plugin keep the same color spaces.
 inline constexpr char kInputColorSpaceLabel[] = "Input Color Space";
 inline constexpr char kOutputColorSpaceLabel[] = "Output Color Space";
+
+// Labels of the sensor noise model parameters. The host seeds these from the
+// noise profile that matches the camera and ISO of the open frame, and the user
+// stays free to edit them afterwards.
+inline constexpr char kNoiseSlopeLabel[] = "Noise Slope (a)";
+inline constexpr char kNoiseOffsetLabel[] = "Noise Offset (b)";
 struct Effect;
 struct Clip {
   std::string name;
