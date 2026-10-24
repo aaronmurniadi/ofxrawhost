@@ -294,6 +294,16 @@ build/OfxRawHostTests
 build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 ```
 
+`build.sh` and the CI quality job also run `scripts/check-ternaries.py`, which
+enforces the "no conditional operator, use if/else" rule from `AGENTS.md`.
+`.clang-tidy` holds the rest of the check set; run it against the compilation
+database:
+
+```sh
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+clang-tidy -p build src/services/ChainIO.cpp
+```
+
 ---
 
 ## Development Roadmap
@@ -369,6 +379,7 @@ build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 | Refactor: parameter values are `JsonValue`; one JSON parser, no hand-rolled text | Done (v0.4.4)  |
 | Refactor: plugin preset/LUT policy out of the widgets; `drawParam` split        | Done (v0.4.4)  |
 | Refactor: OFX suites split per suite file; self-test is its own binary and gates CI | Done (v0.4.4) |
+| Style: `.clang-tidy` plus a CI gate; no conditional operators left in the tree  | Done (v0.4.4)  |
 
 ---
 

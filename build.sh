@@ -5,6 +5,11 @@
 set -e
 cd "$(dirname "$0")"
 BUILD=build
+# The style rule that a script can check, before the build that would show it
+# much later. Skipped when python3 is unavailable, so a build never depends on it.
+if command -v python3 >/dev/null 2>&1; then
+  python3 scripts/check-ternaries.py
+fi
 # The release workflow passes VERSION_LABEL (the git tag) and VERSION. A local
 # build takes the nearest git tag for both.
 if [ -z "${VERSION_LABEL:-}" ]; then

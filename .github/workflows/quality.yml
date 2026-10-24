@@ -1,0 +1,23 @@
+name: quality
+
+# The style rules from AGENTS.md that a script can check. The release workflow
+# builds and smoke-tests the artefacts; this one fails fast on a source-only rule
+# so a release build is not the first place a violation shows up.
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ternaries:
+    name: no conditional operators
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned the same way as in release.yml.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check for ?: in C++ sources
+        run: python3 scripts/check-ternaries.py
