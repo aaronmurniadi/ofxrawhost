@@ -6,6 +6,7 @@
 #include "ofx/OfxRegistry.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 // Long-edge cap for the fast interactive draft pass. The full pass runs at the

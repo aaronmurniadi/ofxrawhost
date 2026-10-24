@@ -6,6 +6,7 @@
 #include "persist/ProjectPersist.h"
 
 #include <filesystem>
+#include <string>
 #include <utility>
 
 namespace fs = std::filesystem;

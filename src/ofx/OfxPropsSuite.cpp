@@ -8,6 +8,8 @@
 #include "ofx/OfxProps.h"
 
 #include <algorithm>
+#include <climits>
+#include <cmath>
 #include <string>
 #include <vector>
 

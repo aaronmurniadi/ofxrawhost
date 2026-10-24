@@ -121,6 +121,10 @@ static void frameStats(const Image &img, double &mean, double &stddev) {
   stddev = std::sqrt(variance / (double)count);
 }
 
+// M_PI is not in MSVC's <cmath> unless _USE_MATH_DEFINES precedes every include,
+// so the tests carry their own constant instead of depending on a build flag.
+constexpr double kPi = 3.14159265358979323846;
+
 // Amplitude a frame still carries at the texture frequency. The noise is
 // uncorrelated with the texture, so it averages out of this projection and the
 // number reports how much detail came through the denoiser.
@@ -128,7 +132,7 @@ static double textureAmplitude(const Image &img, float level, double period) {
   double sum = 0.0;
   for (int y = 0; y < img.h; ++y)
     for (int x = 0; x < img.w; ++x)
-      sum += ((double)img.px[4 * ((size_t)y * img.w + x)] - level) * std::sin(2.0 * M_PI * x / period);
+      sum += ((double)img.px[4 * ((size_t)y * img.w + x)] - level) * std::sin(2.0 * kPi * x / period);
   return 2.0 * sum / (double)((size_t)img.w * img.h);
 }
 
@@ -172,7 +176,7 @@ int testDenoisePlugin() {
     for (int y = 0; y < h; ++y)
       for (int x = 0; x < w; ++x) {
         const size_t i = (size_t)y * w + x;
-        const double clean = level + textureAmount * std::sin(2.0 * M_PI * x / period);
+        const double clean = level + textureAmount * std::sin(2.0 * kPi * x / period);
         for (size_t c = 0; c < 3; ++c)
           in.px[4 * i + c] = (float)clean + sigma * noiseAmount * testNoise(4 * i + c);
       }

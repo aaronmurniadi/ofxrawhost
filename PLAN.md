@@ -380,3 +380,21 @@ packaging path:
 - **`AppRun`** already forwards `"$@"`, so the AppImage smoke test is unchanged.
 - **`docs/workspace-format.md`** was already correct: the directory entry holds
   only `activeImage`, and the chain lives in the per-image sidecar.
+
+## Post-push fix: the split-out suites must include their own headers
+
+The first pre-release build after the refactor failed on Linux and Windows, both
+on the same class of mistake: a suite file inherited its includes from the single
+large `OfxSuites.cpp` and never needed them itself on macOS.
+
+- Linux: `src/ofx/OfxPropsSuite.cpp` used `std::isfinite` and `std::lround`
+  without `<cmath>`, and `INT_MIN`/`INT_MAX` without `<climits>`. libc++ on macOS
+  pulls them in transitively; libstdc++ on the runner does not.
+- Windows: `src/selftest/TestPlugins.cpp` used `M_PI`, which MSVC's `<cmath>` only
+  defines behind `_USE_MATH_DEFINES`. A file-local `constexpr double kPi` replaces
+  it, so no build flag has to precede every include.
+
+Verified locally by compiling the 38 non-Apple translation units with GCC 16
+against the same flags; the check reproduces the runner error when the includes
+are removed and passes when they are present. The UI and Apple-only units are
+skipped there, because their headers need clang.
