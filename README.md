@@ -294,10 +294,10 @@ build/OfxRawHostTests
 build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 ```
 
-`build.sh` and the CI quality job also run `scripts/check-ternaries.py`, which
-enforces the "no conditional operator, use if/else" rule from `AGENTS.md`.
-`.clang-tidy` holds the rest of the check set; run it against the compilation
-database:
+`.clang-tidy` holds the check set; run it against the compilation database. Its
+`readability-avoid-nested-conditional-operator` is the one machine check behind
+the "no conditional operator, use if/else" rule in `AGENTS.md`, so a plain `?:`
+stays a review rule:
 
 ```sh
 cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON

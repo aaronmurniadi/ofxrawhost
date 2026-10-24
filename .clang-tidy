@@ -11,8 +11,7 @@
 # The big rule in AGENTS.md, "never use a ternary when if/else will do", is only
 # partly expressible here: clang-tidy ships
 # readability-avoid-nested-conditional-operator for nested ternaries, and no
-# check at all for the plain operator. scripts/check-ternaries.py covers the rest
-# and runs in CI, so a single-ternary change still fails.
+# check at all for the plain operator, which stays a review rule.
 ---
 Checks: >
   -*,

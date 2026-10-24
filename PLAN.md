@@ -292,15 +292,13 @@ as `if`/`else`, with the behavior unchanged (the self-test covers the plugins,
 the decoders, the suites and the state files). Three of them were in
 `plugins/Transform.cpp`, which the `src/`-only scan missed at first.
 
-The rule is enforced in three places now:
+The rule is enforced in two places now:
 
 - `.clang-tidy`: a small, currently-clean check set, with
   `readability-avoid-nested-conditional-operator` as an error.
-- `scripts/check-ternaries.py`: the plain `?:` operator, which clang-tidy has no
-  check for. It blanks comments and literals before scanning, so a `?` in text is
-  not a hit.
-- `.github/workflows/quality.yml`: runs the script on every push and pull
-  request, and `build.sh` runs it before a local build.
+- Review: clang-tidy has no check for the plain `?:`, so that operator stays a
+  rule a reviewer applies. The script that scanned for it, and the quality
+  workflow that ran the script, were both removed as not worth the upkeep.
 - `Workspace` is a single aggregate rather than five narrow parameters per
   command. It is narrower than `App` (no window, no GL, no status-only surface)
   and the call sites stayed put, which is what made the step affordable.
