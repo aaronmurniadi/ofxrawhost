@@ -1,6 +1,6 @@
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
-#include "perf.h"
+#include "core/perf.h"
 
 #include <libraw/libraw.h>
 #include <tiffio.h>
@@ -240,9 +240,14 @@ static bool loadTiffScanline(TIFF *tif, uint32_t w, uint32_t h, uint16_t bps, ui
       const float s = 1.0f / 255.0f;
       for (uint32_t x = 0; x < w; ++x) {
         dst[0] = src[0] * s;
-        dst[1] = (spp > 1 ? src[1] : src[0]) * s;
-        dst[2] = (spp > 2 ? src[2] : src[0]) * s;
-        dst[3] = spp > 3 ? src[3] * s : 1.0f;
+        // A grey or RGB file repeats the channel it has into the ones it lacks,
+        // and a file without alpha is opaque.
+        if (spp > 1) dst[1] = src[1] * s;
+        else dst[1] = src[0] * s;
+        if (spp > 2) dst[2] = src[2] * s;
+        else dst[2] = src[0] * s;
+        if (spp > 3) dst[3] = src[3] * s;
+        else dst[3] = 1.0f;
         src += spp;
         dst += 4;
       }
@@ -251,9 +256,14 @@ static bool loadTiffScanline(TIFF *tif, uint32_t w, uint32_t h, uint16_t bps, ui
       const float s = 1.0f / 65535.0f;
       for (uint32_t x = 0; x < w; ++x) {
         dst[0] = src[0] * s;
-        dst[1] = (spp > 1 ? src[1] : src[0]) * s;
-        dst[2] = (spp > 2 ? src[2] : src[0]) * s;
-        dst[3] = spp > 3 ? src[3] * s : 1.0f;
+        // A grey or RGB file repeats the channel it has into the ones it lacks,
+        // and a file without alpha is opaque.
+        if (spp > 1) dst[1] = src[1] * s;
+        else dst[1] = src[0] * s;
+        if (spp > 2) dst[2] = src[2] * s;
+        else dst[2] = src[0] * s;
+        if (spp > 3) dst[3] = src[3] * s;
+        else dst[3] = 1.0f;
         src += spp;
         dst += 4;
       }
@@ -261,9 +271,12 @@ static bool loadTiffScanline(TIFF *tif, uint32_t w, uint32_t h, uint16_t bps, ui
       const uint16_t *src = reinterpret_cast<const uint16_t *>(row.data());
       for (uint32_t x = 0; x < w; ++x) {
         dst[0] = halfToFloat(src[0]);
-        dst[1] = halfToFloat(spp > 1 ? src[1] : src[0]);
-        dst[2] = halfToFloat(spp > 2 ? src[2] : src[0]);
-        dst[3] = spp > 3 ? halfToFloat(src[3]) : 1.0f;
+        if (spp > 1) dst[1] = halfToFloat(src[1]);
+        else dst[1] = halfToFloat(src[0]);
+        if (spp > 2) dst[2] = halfToFloat(src[2]);
+        else dst[2] = halfToFloat(src[0]);
+        if (spp > 3) dst[3] = halfToFloat(src[3]);
+        else dst[3] = 1.0f;
         src += spp;
         dst += 4;
       }
@@ -271,9 +284,12 @@ static bool loadTiffScanline(TIFF *tif, uint32_t w, uint32_t h, uint16_t bps, ui
       const float *src = reinterpret_cast<const float *>(row.data());
       for (uint32_t x = 0; x < w; ++x) {
         dst[0] = src[0];
-        dst[1] = spp > 1 ? src[1] : src[0];
-        dst[2] = spp > 2 ? src[2] : src[0];
-        dst[3] = spp > 3 ? src[3] : 1.0f;
+        if (spp > 1) dst[1] = src[1];
+        else dst[1] = src[0];
+        if (spp > 2) dst[2] = src[2];
+        else dst[2] = src[0];
+        if (spp > 3) dst[3] = src[3];
+        else dst[3] = 1.0f;
         src += spp;
         dst += 4;
       }
@@ -402,7 +418,8 @@ static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::
   } else if (t.tformat == LIBRAW_THUMBNAIL_BITMAP) {
     tw = t.twidth;
     th = t.theight;
-    const int tc = t.tcolors >= 3 ? t.tcolors : 3;
+    int tc = t.tcolors;
+    if (tc < 3) tc = 3;
     if (tw <= 0 || th <= 0 || tc > 4) return false;
     if ((size_t)t.tlength < (size_t)tw * th * (size_t)tc) return false;
     decoded.resize((size_t)tw * th * 4);
@@ -414,13 +431,15 @@ static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::
         decoded[(size_t)di] = src[si];
         decoded[(size_t)di + 1] = src[si + 1];
         decoded[(size_t)di + 2] = src[si + 2];
-        decoded[(size_t)di + 3] = tc >= 4 ? src[si + 3] : 255;
+        if (tc >= 4) decoded[(size_t)di + 3] = src[si + 3];
+        else decoded[(size_t)di + 3] = 255;
       }
     }
   } else if (t.tformat == LIBRAW_THUMBNAIL_BITMAP16) {
     tw = t.twidth;
     th = t.theight;
-    const int tc = t.tcolors >= 3 ? t.tcolors : 3;
+    int tc = t.tcolors;
+    if (tc < 3) tc = 3;
     if (tw <= 0 || th <= 0 || tc > 4) return false;
     if ((size_t)t.tlength < (size_t)tw * th * (size_t)tc * 2) return false;
     decoded.resize((size_t)tw * th * 4);
@@ -430,7 +449,8 @@ static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::
         const int si = (y * tw + x) * tc;
         const int di = (y * tw + x) * 4;
         for (int c = 0; c < 3; ++c) decoded[(size_t)di + c] = (unsigned char)(src[si + c] >> 8);
-        decoded[(size_t)di + 3] = tc >= 4 ? (unsigned char)(src[si + 3] >> 8) : 255;
+        if (tc >= 4) decoded[(size_t)di + 3] = (unsigned char)(src[si + 3] >> 8);
+        else decoded[(size_t)di + 3] = 255;
       }
     }
   } else {
@@ -504,7 +524,13 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorS
     std::vector<uint8_t> icc;
     bool isFloat = false;
     if (!loadTiff(path, out, icc, isFloat)) return false;
-    detected = !icc.empty() ? classifyIcc(icc) : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
+    if (!icc.empty()) {
+      detected = classifyIcc(icc);
+    } else if (isFloat) {
+      detected = ColorSpace::LinearRec2020;
+    } else {
+      detected = ColorSpace::sRGB;
+    }
     // Integer TIFF keeps the stored samples, so the working space is the tag; a
     // float TIFF stores linear samples that its tag already describes.
     working = detected;
@@ -515,7 +541,8 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorS
   std::vector<uint8_t> icc;
   if (format && format->readIcc) format->readIcc(path, icc);
   if (loadStb(path, out)) {
-    detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
+    if (!icc.empty()) detected = classifyIcc(icc);
+    else detected = ColorSpace::sRGB;
     // stb applies the transfer curve while it converts to float, so the buffer
     // holds linear values. It ignores the ICC, so the buffer describes sRGB
     // primaries even for a wide-gamut file.

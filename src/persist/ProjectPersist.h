@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/Json.h"
+
 #include <map>
 #include <string>
 #include <vector>
@@ -45,8 +47,8 @@ struct PersistNode {
   std::string pluginLabel;
   bool enabled = true;
   std::map<std::string, bool> groupOpen;
-  // Raw JSON fragment per param value (number, bool, string, or array).
-  std::map<std::string, std::string> paramsJson;
+  // One JSON value per parameter (number, bool, string, or array).
+  std::map<std::string, JsonValue> params;
 };
 
 struct PersistChain {

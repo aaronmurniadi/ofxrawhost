@@ -6,8 +6,6 @@
 #include "ofx/OfxProps.h"
 #include "ofxCore.h"
 
-#include <atomic>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -87,12 +85,6 @@ struct Effect {
   // Releases the Metal scratch buffers, if any.
   ~Effect();
 };
-
-// Bumping gLatestGen aborts in-flight interactive renders. gValueMutex guards Param values.
-extern std::atomic<int> gLatestGen;
-extern std::mutex gValueMutex;
-// Called with plugin warnings/errors, on the thread that raised them.
-extern std::function<void(const std::string &)> gOnMessage;
 
 int dims(const std::string &type);
 bool isIntType(const std::string &type);

@@ -1,7 +1,7 @@
 #include "ui/UiFrame.h"
 
-#include "Actions.h"
-#include "Filmstrip.h"
+#include "services/Actions.h"
+#include "model/Filmstrip.h"
 
 #include "imgui.h"
 
@@ -21,7 +21,7 @@ static const FilmstripTabItem kFilmstripTabs[] = {
     {FilmstripTab::Compressed, "Compressed"},
 };
 
-void drawFilmstripPanel(App &app) {
+void drawFilmstripPanel(Workspace &app) {
   if (app.doc.workspaceDir.empty() || app.filmstrip.entries.empty()) {
     ImGui::TextDisabled("Open a directory to browse images.");
     return;
@@ -58,7 +58,10 @@ void drawFilmstripPanel(App &app) {
     FilmstripEntry &e = app.filmstrip.entries[i];
     if (app.filmstrip.tab == FilmstripTab::RAW && !e.isRaw) continue;
     if (app.filmstrip.tab == FilmstripTab::Compressed && e.isRaw) continue;
-    const float w = thumbH * ((e.tex.h && e.tex.w) ? (float)e.tex.w / (float)e.tex.h : 1.0f);
+    // A square placeholder keeps the row from jumping before the thumbnail lands.
+    float aspect = 1.0f;
+    if (e.tex.h && e.tex.w) aspect = (float)e.tex.w / (float)e.tex.h;
+    const float w = thumbH * aspect;
     if (x + w >= viewLeft && x <= viewRight) {
       if (!anyDrawn) ImGui::SetCursorPosX(x);
       else ImGui::SameLine(x, 0.0f);

@@ -29,9 +29,10 @@ bool iconBtn(const char *id, const char *icon) {
   ImGui::PushID(id);
   const ImVec2 p = ImGui::GetCursorScreenPos();
   const bool pressed = ImGui::InvisibleButton("##", ImVec2(h, h));
-  const ImU32 bg = ImGui::GetColorU32(ImGui::IsItemActive()   ? ImGuiCol_ButtonActive
-                                      : ImGui::IsItemHovered() ? ImGuiCol_ButtonHovered
-                                                               : ImGuiCol_Button);
+  ImGuiCol buttonCol = ImGuiCol_Button;
+  if (ImGui::IsItemHovered()) buttonCol = ImGuiCol_ButtonHovered;
+  if (ImGui::IsItemActive()) buttonCol = ImGuiCol_ButtonActive;
+  const ImU32 bg = ImGui::GetColorU32(buttonCol);
   ImDrawList *dl = ImGui::GetWindowDrawList();
   dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h), bg, ImGui::GetStyle().FrameRounding);
   ImFont *font = ImGui::GetFont();

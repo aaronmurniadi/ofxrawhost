@@ -1,6 +1,6 @@
 #include "imgio/NoiseProfiles.h"
 
-#include "persist/Json.h"
+#include "core/Json.h"
 #include "platform/EmbeddedResource.h"
 #include "platform/Paths.h"
 

@@ -1,15 +1,16 @@
 #include "ui/UiFrame.h"
 
-#include "Actions.h"
-#include "NodeGraph.h"
+#include "services/Export.h"
+#include "services/Actions.h"
+#include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
-#include "persist/DocumentActions.h"
+#include "services/Session.h"
 #include "persist/ProjectPersist.h"
 #include "platform/SystemUiFont.h"
-#include "RenderScheduler.h"
-#include "UpdateCheck.h"
+#include "engine/RenderWorker.h"
+#include "services/UpdateCheck.h"
 #include "ui/Themes.h"
-#include "ui/ParamEdit.h"
+#include "services/ParamEdit.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
 #include "ui/Widgets.h"
@@ -76,8 +77,8 @@ static void drawMenuBar(App &app) {
         if (!r.empty()) app.gui.pendingWorkspaceDir = r;
       }
       if (ImGui::MenuItem("Save Project")) {
-        saveCurrentInputSidecar(app);
-        persistWorkspace(app);
+        saveCurrentInputSidecar(app.doc, app.chain);
+        persistWorkspace(app.doc, app.gui);
         app.setStatus("Saved project and sidecar");
       }
 #ifdef __APPLE__
@@ -134,12 +135,12 @@ static const char *const kExportFilters[] = {
 };
 
 // Opens the export dialog; the destination is chosen from inside it.
-void exportImage(App &app) {
+void exportImage(Workspace &app) {
   if (!canExport(app)) return;
   app.gui.showExportDialog = true;
 }
 
-static void drawExportDialog(App &app) {
+static void drawExportDialog(Workspace &app) {
   if (app.gui.showExportDialog) {
     ImGui::OpenPopup("Export");
     app.gui.showExportDialog = false;
@@ -350,7 +351,7 @@ static void drawDevBuildWarning(App &app) {
     ImGui::OpenPopup("Development build");
     app.gui.showDevBuildWarning = false;
     app.gui.devBuildWarningShown = true;
-    persistWorkspace(app);
+    persistWorkspace(app.doc, app.gui);
   }
   if (!ImGui::BeginPopupModal("Development build", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
@@ -361,7 +362,7 @@ static void drawDevBuildWarning(App &app) {
   ImGui::Spacing();
   if (ImGui::Button("Yes, turn it off", ImVec2(160.0f, 0.0f))) {
     app.gui.checkUpdatesAtStartup = false;
-    persistWorkspace(app);
+    persistWorkspace(app.doc, app.gui);
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();
@@ -410,7 +411,7 @@ static void drawSettingsModal(App &app) {
 // so dragging a dock splitter does not queue a rebuild on every frame.
 static void applyFitPreviewSize(App &app) {
   if (app.gui.previewRes != PreviewRes::Fit || app.doc.full.px.empty()) return;
-  if (previewMaxEdge(app.gui) == app.render.builtPreviewMaxEdge) {
+  if (previewMaxEdge(app.gui) == app.render.builtPreviewMaxEdge()) {
     app.gui.previewFitSettleTime = 0.0;
     return;
   }
@@ -421,7 +422,7 @@ static void applyFitPreviewSize(App &app) {
   }
   if (now - app.gui.previewFitSettleTime < 0.25) return;
   app.gui.previewFitSettleTime = 0.0;
-  rebuildPreview(app);
+  app.render.rebuildPreview();
 }
 
 // Confirms a parameter reset, because one click discards the whole edit of the
@@ -435,7 +436,7 @@ static void drawResetParamsConfirm(App &app) {
 
   Node *node = selectedNode(app);
   std::string label;
-  if (node) label = gPlugins[node->pluginIndex].label;
+  if (node) label = plugins()[node->pluginIndex].label;
   ImGui::TextWrapped("Return every parameter of %s to its default value?", label.c_str());
   ImGui::TextDisabled("This cannot be undone.");
   ImGui::Spacing();

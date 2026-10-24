@@ -1,6 +1,6 @@
 #include "ui/UiFrame.h"
 
-#include "NodeGraph.h"
+#include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
 #include "ui/ParamWidgets.h"
 #include "ui/Widgets.h"
@@ -12,7 +12,7 @@
 // OFX default. The reset opens a confirmation modal, because one click would
 // discard the whole edit. Preset loading lives on the plugin's own Load Preset
 // button, which the host wires to its file dialog (see ParamWidgets.cpp).
-static void drawParamActions(App &app, Node &node) {
+static void drawParamActions(Workspace &app, Node &node) {
   if (!node.instance) return;
   if (ImGui::Button("Reset Parameters", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
     app.gui.showResetParamsConfirm = true;
@@ -20,12 +20,17 @@ static void drawParamActions(App &app, Node &node) {
     ImGui::SetTooltip("Return every parameter of this plugin to its default value.");
 }
 
-static void drawParamSearch(App &app) {
+static void drawParamSearch(Workspace &app) {
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
     ImGui::SetKeyboardFocusHere();
   const bool hasFilter = app.gui.paramFilter[0] != '\0';
-  const float clearW = hasFilter ? ImGui::GetFrameHeight() : 0.0f;
-  const float clearGap = hasFilter ? ImGui::GetStyle().ItemSpacing.x : 0.0f;
+  // The clear button and the gap before it only take room while a filter is set.
+  float clearW = 0.0f;
+  float clearGap = 0.0f;
+  if (hasFilter) {
+    clearW = ImGui::GetFrameHeight();
+    clearGap = ImGui::GetStyle().ItemSpacing.x;
+  }
   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - clearW - clearGap);
   ImGui::InputTextWithHint("##paramFilter", "Search parameters...", app.gui.paramFilter, sizeof app.gui.paramFilter);
   if (hasFilter) {
@@ -34,7 +39,7 @@ static void drawParamSearch(App &app) {
   }
 }
 
-void drawParametersPanel(App &app) {
+void drawParametersPanel(Workspace &app) {
   if (app.chain.nodes.empty()) {
     ImGui::TextDisabled("Add a plugin to edit parameters.");
     return;
@@ -48,7 +53,7 @@ void drawParametersPanel(App &app) {
   // The node list in the Plugins panel selects which plugin to edit, so this
   // panel only names the plugin whose parameters it shows.
   Node *node = selectedNode(app);
-  if (node) ImGui::SeparatorText(gPlugins[node->pluginIndex].label.c_str());
+  if (node) ImGui::SeparatorText(plugins()[node->pluginIndex].label.c_str());
   if (node) {
     drawParamActions(app, *node);
     ImGui::Separator();

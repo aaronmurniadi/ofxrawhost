@@ -1,6 +1,6 @@
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
-#include "perf.h"
+#include "core/perf.h"
 
 #include <lcms2.h>
 #include <zlib.h>
@@ -15,36 +15,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-const char *colorSpaceName(ColorSpace cs) {
-  switch (cs) {
-    case ColorSpace::sRGB: return "sRGB";
-    case ColorSpace::DisplayP3: return "Display P3";
-    case ColorSpace::LinearRec709: return "Linear Rec.709";
-    case ColorSpace::LinearRec2020: return "Linear Rec.2020";
-  }
-  return "sRGB";
-}
-
-ColorSpace colorSpaceFromName(const std::string &name, ColorSpace fallback) {
-  for (int i = 0; i < 4; ++i) {
-    const ColorSpace cs = static_cast<ColorSpace>(i);
-    if (name == colorSpaceName(cs)) return cs;
-  }
-  return fallback;
-}
-
-// The order matches the lcms2 INTENT_ constants, so a value passes straight
-// through as the intent argument.
-const char *renderIntentName(RenderIntent intent) {
-  switch (intent) {
-    case RenderIntent::Perceptual: return "Perceptual";
-    case RenderIntent::RelativeColorimetric: return "Relative colorimetric";
-    case RenderIntent::Saturation: return "Saturation";
-    case RenderIntent::AbsoluteColorimetric: return "Absolute colorimetric";
-  }
-  return "Perceptual";
-}
 
 static cmsToneCurve *srgbCurve() {
   // Same parametric curve cmsCreate_sRGBProfile uses.
@@ -313,7 +283,8 @@ ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
   } else if (d.find("rec709") != std::string::npos || d.find("rec-709") != std::string::npos ||
              d.find("rec.709") != std::string::npos || d.find("bt.709") != std::string::npos ||
              d.find("bt709") != std::string::npos) {
-    fromDesc = profileLooksLinear(p) ? ColorSpace::LinearRec709 : ColorSpace::sRGB;
+    if (profileLooksLinear(p)) fromDesc = ColorSpace::LinearRec709;
+    else fromDesc = ColorSpace::sRGB;
     haveDesc = true;
   } else if (d.find("srgb") != std::string::npos) {
     fromDesc = ColorSpace::sRGB;

@@ -46,6 +46,11 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" \
          "$APPDIR/usr/share/metainfo"
 
 cp "$BIN" "$APPDIR/usr/bin/$NAME"
+# --selftest forwards to the test binary, which the smoke test calls through the
+# app binary with the AppImage mounted.
+if [ -x "$BUILD/OfxRawHostTests" ]; then
+  cp "$BUILD/OfxRawHostTests" "$APPDIR/usr/bin/OfxRawHostTests"
+fi
 # The host reads the interface and icon fonts next to its own binary.
 cp "$BUILD/fa-solid-900.ttf" "$APPDIR/usr/bin/"
 cp "$BUILD/Inter.ttf" "$APPDIR/usr/bin/"

@@ -283,11 +283,15 @@ On macOS this produces `build/OfxRawHost.app`. On Linux, `build/OfxRawHost` plus
 # Enable native CPU instructions (AVX, F16C, etc.) for extra speed
 OFX_NATIVE_ARCH=1 ./build.sh
 
-# macOS self-test
-build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+# Build and run the self-test in one step (macOS, Linux, and the Windows exe)
+TEST=1 ./build.sh
 
-# Linux / Windows
-build/OfxRawHost --selftest
+# The self-test is its own binary: it links the libraries, so it needs no window
+build/OfxRawHostTests
+
+# --selftest on the app forwards to it, and the macOS bundle and the AppImage
+# ship it, so the shipped artefact can check itself
+build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 ```
 
 ---
@@ -355,6 +359,16 @@ build/OfxRawHost --selftest
 | UI: Input / Preview colorspace in the Plugins panel; Export colorspace + Intent | Done (v0.4.2)  |
 | UI: Parameter panel drops its plugin tabs (node list selects the plugin)        | Done (v0.4.2)  |
 | Linux: AppImage embeds update information and publishes its .zsync              | Done (v0.4.3)  |
+| Refactor: `persist` is storage only; session / chain / export services own App   | Done (v0.4.3)  |
+| Refactor: self-test cases split into `src/selftest/Test*.cpp` modules            | Done (v0.4.3)  |
+| Refactor: one CMake target per layer; a wrong-direction include does not compile | Done (v0.4.4)  |
+| Refactor: shared value types in `core/`; `imgio` and `persist` no longer cycle   | Done (v0.4.4)  |
+| Refactor: `RenderWorker` / `ExportWorker` replace the render free functions      | Done (v0.4.4)  |
+| Refactor: no mutable render globals; `RenderContext` and `OfxRegistry` own state | Done (v0.4.4)  |
+| Refactor: commands take `Workspace`, not `App`; UI owns the window and texture   | Done (v0.4.4)  |
+| Refactor: parameter values are `JsonValue`; one JSON parser, no hand-rolled text | Done (v0.4.4)  |
+| Refactor: plugin preset/LUT policy out of the widgets; `drawParam` split        | Done (v0.4.4)  |
+| Refactor: OFX suites split per suite file; self-test is its own binary and gates CI | Done (v0.4.4) |
 
 ---
 

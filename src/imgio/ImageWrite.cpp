@@ -70,7 +70,10 @@ static uint32_t crc32_png(const uint8_t *data, size_t n) {
   if (!init) {
     for (uint32_t i = 0; i < 256; ++i) {
       uint32_t c = i;
-      for (int k = 0; k < 8; ++k) c = (c & 1) ? (0xedb88320u ^ (c >> 1)) : (c >> 1);
+      for (int k = 0; k < 8; ++k) {
+        if (c & 1) c = 0xedb88320u ^ (c >> 1);
+        else c = c >> 1;
+      }
       table[i] = c;
     }
     init = true;

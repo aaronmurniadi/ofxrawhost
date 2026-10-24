@@ -1,12 +1,11 @@
+#include "core/RenderContext.h"
 #include "ofx/OfxHost.h"
+#include "ofx/OfxSuitesPriv.h"
 #include "ofx/OfxHostPriv.h"
 #include "ofx/OfxEffectGpu.h"
 #include "ofx/OfxMetal.h"
 
 #include "ofxGPURender.h"
-#include "ofxMemory.h"
-#include "ofxMessage.h"
-#include "ofxMultiThread.h"
 #include "ofxParam.h"
 #include "ofxParametricParam.h"
 
@@ -16,102 +15,11 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
-#include <atomic>
-#include <condition_variable>
 #include <mutex>
-#include <thread>
 #include <vector>
 
-// ------------------------------------------------------------------ properties
-
-#define CHECK_SET(h, i)                  \
-  if (!(h)) return kOfxStatErrBadHandle; \
-  if ((i) < 0) return kOfxStatErrBadIndex;
-
-static Val *slot(OfxPropertySetHandle h, const char *k, int i) {
-  auto &v = P(h)->m[k];
-  if ((int)v.size() <= i) v.resize(i + 1);
-  return &v[i];
-}
-OfxStatus propSetPointer(OfxPropertySetHandle h, const char *k, int i, void *v) {
-  CHECK_SET(h, i);
-  slot(h, k, i)->p = v;
-  return kOfxStatOK;
-}
-OfxStatus propSetString(OfxPropertySetHandle h, const char *k, int i, const char *v) {
-  CHECK_SET(h, i);
-  slot(h, k, i)->s = v ? v : "";
-  return kOfxStatOK;
-}
-OfxStatus propSetDouble(OfxPropertySetHandle h, const char *k, int i, double v) {
-  CHECK_SET(h, i);
-  Val *s = slot(h, k, i);
-  s->d = v;
-  s->i = std::isfinite(v) ? (int)std::lround(std::clamp(v, (double)INT_MIN, (double)INT_MAX)) : 0;
-  return kOfxStatOK;
-}
-OfxStatus propSetInt(OfxPropertySetHandle h, const char *k, int i, int v) {
-  CHECK_SET(h, i);
-  Val *s = slot(h, k, i);
-  s->i = v;
-  s->d = v;
-  return kOfxStatOK;
-}
-
-static const Val *findVal(OfxPropertySetHandle h, const char *k, int i, OfxStatus &st) {
-  st = kOfxStatErrBadHandle;
-  if (!h) return nullptr;
-  auto it = P(h)->m.find(k);
-  st = kOfxStatErrUnknown;
-  if (it == P(h)->m.end()) return nullptr;
-  st = kOfxStatErrBadIndex;
-  if (i < 0 || i >= (int)it->second.size()) return nullptr;
-  st = kOfxStatOK;
-  return &it->second[i];
-}
-#define PROP_GETTER(name, T, expr)                                                \
-  static OfxStatus name(OfxPropertySetHandle h, const char *k, int i, T *out) {   \
-    OfxStatus st;                                                                 \
-    if (const Val *v = findVal(h, k, i, st)) *out = expr;                         \
-    return st;                                                                    \
-  }
-PROP_GETTER(propGetPointer, void *, v->p)
-PROP_GETTER(propGetString, char *, const_cast<char *>(v->s.c_str()))
-PROP_GETTER(propGetDouble, double, v->d)
-PROP_GETTER(propGetInt, int, v->i)
-
-template <class T, OfxStatus (*F)(OfxPropertySetHandle, const char *, int, T *)>
-static OfxStatus propGetN(OfxPropertySetHandle h, const char *k, int n, T *out) {
-  for (int i = 0; i < n; ++i)
-    if (OfxStatus st = F(h, k, i, out + i)) return st;
-  return kOfxStatOK;
-}
-static OfxStatus propReset(OfxPropertySetHandle h, const char *k) {
-  if (!h) return kOfxStatErrBadHandle;
-  P(h)->m.erase(k);
-  return kOfxStatOK;
-}
-static OfxStatus propGetDimension(OfxPropertySetHandle h, const char *k, int *count) {
-  if (!h || !count) return kOfxStatErrBadHandle;
-  auto it = P(h)->m.find(k);
-  // Missing property => dimension 0 (OFX Support addSupportedBitDepth reads this first).
-  *count = it == P(h)->m.end() ? 0 : (int)it->second.size();
-  return kOfxStatOK;
-}
-
-std::string sprop(const PropSet &ps, const char *k, int i) {
-  auto it = ps.m.find(k);
-  return it != ps.m.end() && i < (int)it->second.size() ? it->second[i].s : "";
-}
-double dprop(const PropSet &ps, const char *k, int i, double fallback) {
-  auto it = ps.m.find(k);
-  return it != ps.m.end() && i < (int)it->second.size() ? it->second[i].d : fallback;
-}
 
 // ------------------------------------------------------ effects, params, clips
-
-std::atomic<int> gLatestGen{0};
-std::mutex gValueMutex;
 
 static Effect *E(OfxImageEffectHandle h) { return reinterpret_cast<Effect *>(h); }
 static Effect *E(OfxParamSetHandle h) { return reinterpret_cast<Effect *>(h); }
@@ -192,13 +100,15 @@ void refreshParamUiCache(Effect *e) {
     ui.label = sprop(p->props, kOfxPropLabel);
     ui.hint = sprop(p->props, kOfxParamPropHint);
     ui.parent = sprop(p->props, kOfxParamPropParent);
-    const std::string base = ui.label.empty() ? std::string("param") : ui.label;
+    std::string base = ui.label;
+    if (base.empty()) base = "param";
     ui.idLabel = base + "##" + p->name;
     ui.enabled = dprop(p->props, kOfxParamPropEnabled, 0, 1) != 0;
     ui.secret = dprop(p->props, kOfxParamPropSecret, 0, 0) != 0;
     ui.stringIsLabel = sprop(p->props, kOfxParamPropStringMode) == kOfxParamStringIsLabel;
     const int dim = paramDimension(p->kind);
-    ui.defaults.resize(dim > 0 ? (size_t)dim : 0);
+    if (dim > 0) ui.defaults.resize((size_t)dim);
+    else ui.defaults.clear();
     for (int i = 0; i < dim; ++i) ui.defaults[i] = dprop(p->props, kOfxParamPropDefault, i, 0);
     if (paramIsString(p->kind)) ui.defaultString = sprop(p->props, kOfxParamPropDefault);
     ui.choiceLabels.clear();
@@ -212,10 +122,13 @@ void refreshParamUiCache(Effect *e) {
     }
     if (p->kind == ParamType::Double || p->kind == ParamType::Integer) {
       double lo = dprop(p->props, kOfxParamPropDisplayMin, 0, dprop(p->props, kOfxParamPropMin, 0, 0));
-      double hi = dprop(p->props, kOfxParamPropDisplayMax, 0,
-                        dprop(p->props, kOfxParamPropMax, 0, p->kind == ParamType::Integer ? 100 : 1));
+      // A parameter with no declared range gets a sane one: 0..100 for an
+      // integer and 0..1 for a double.
+      double span = 1;
+      if (p->kind == ParamType::Integer) span = 100;
+      double hi = dprop(p->props, kOfxParamPropDisplayMax, 0, dprop(p->props, kOfxParamPropMax, 0, span));
       if (!(std::fabs(lo) < 1e7)) lo = 0;
-      if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + (p->kind == ParamType::Integer ? 100 : 1);
+      if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + span;
       ui.displayMin = lo;
       ui.displayMax = hi;
       ui.hardMin = dprop(p->props, kOfxParamPropMin, 0, lo);
@@ -288,7 +201,7 @@ static OfxStatus paramGetPropertySet(OfxParamHandle p, OfxPropertySetHandle *pro
   return kOfxStatOK;
 }
 static OfxStatus getValue(Param *p, va_list ap) {
-  std::lock_guard<std::mutex> lock(gValueMutex);
+  std::lock_guard<std::mutex> lock(renderContext().values());
   if (paramIsString(p->kind)) {
     *va_arg(ap, const char **) = p->s.c_str();
     return kOfxStatOK;
@@ -301,14 +214,18 @@ static OfxStatus getValue(Param *p, va_list ap) {
   return kOfxStatOK;
 }
 static OfxStatus setValue(Param *p, va_list ap) {
-  std::lock_guard<std::mutex> lock(gValueMutex);
+  std::lock_guard<std::mutex> lock(renderContext().values());
   if (paramIsString(p->kind)) {
     const char *s = va_arg(ap, const char *);
-    p->s = s ? s : "";
+    if (s) p->s = s;
+    else p->s.clear();
     return kOfxStatOK;
   }
   const bool ints = paramIsInteger(p->kind);
-  for (double &v : p->v) v = ints ? va_arg(ap, int) : va_arg(ap, double);
+  for (double &v : p->v) {
+    if (ints) v = va_arg(ap, int);
+    else v = va_arg(ap, double);
+  }
   return kOfxStatOK;
 }
 static OfxStatus paramGetValue(OfxParamHandle h, ...) {
@@ -350,7 +267,7 @@ static OfxStatus paramGetKeyIndex(OfxParamHandle, OfxTime, int, int *) { return 
 static OfxStatus paramDeleteKey(OfxParamHandle, OfxTime) { return kOfxStatOK; }
 static OfxStatus paramDeleteAllKeys(OfxParamHandle) { return kOfxStatOK; }
 static OfxStatus paramCopy(OfxParamHandle to, OfxParamHandle from, OfxTime, const OfxRangeD *) {
-  std::lock_guard<std::mutex> lock(gValueMutex);
+  std::lock_guard<std::mutex> lock(renderContext().values());
   PA(to)->v = PA(from)->v;
   PA(to)->s = PA(from)->s;
   return kOfxStatOK;
@@ -395,9 +312,21 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   Effect *e = c->owner;
   const bool isOutput = c->name == kOfxImageEffectOutputClipName;
   EffectGpu &g = effectGpu(*e);
-  OfxMetalBuffer *mbuf =
-      g.metalEnabled ? (isOutput ? (OfxMetalBuffer *)g.curDstMtl : (OfxMetalBuffer *)g.curSrcMtl) : nullptr;
-  void *data = mbuf ? ofxMetalBufferHandle(mbuf) : (isOutput ? (void *)e->dst : (void *)e->src);
+  OfxMetalBuffer *mbuf = nullptr;
+  if (g.metalEnabled) {
+    if (isOutput) mbuf = (OfxMetalBuffer *)g.curDstMtl;
+    else mbuf = (OfxMetalBuffer *)g.curSrcMtl;
+  }
+  // The Metal buffer is the image when the plugin renders on the GPU; otherwise
+  // the host's float buffer is.
+  void *data = nullptr;
+  if (mbuf) {
+    data = ofxMetalBufferHandle(mbuf);
+  } else if (isOutput) {
+    data = (void *)e->dst;
+  } else {
+    data = (void *)e->src;
+  }
   if (!data) return kOfxStatFailed;
   // Reuse the clip's pooled PropSet instead of heap-allocating per request.
   c->imgProps.m.clear();
@@ -415,8 +344,10 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   int bw = 0, bh = 0;
   {
     std::lock_guard<std::mutex> lock(e->dimMutex);
-    bw = isOutput ? e->outW : e->w;
-    bh = isOutput ? e->outH : e->h;
+    if (isOutput) bw = e->outW;
+    else bw = e->w;
+    if (isOutput) bh = e->outH;
+    else bh = e->h;
   }
   const int bounds[4] = {0, 0, bw, bh};
   propSetN<int, propSetInt>(h, kOfxImagePropBounds, 4, bounds);
@@ -434,13 +365,17 @@ static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle c, OfxTime, OfxRec
   const bool isOutput = clip->name == kOfxImageEffectOutputClipName;
   Effect *e = clip->owner;
   std::lock_guard<std::mutex> lock(e->dimMutex);
-  *rod = {0, 0, (double)(isOutput ? e->outW : e->w), (double)(isOutput ? e->outH : e->h)};
+  if (isOutput) *rod = {0, 0, (double)e->outW, (double)e->outH};
+  else *rod = {0, 0, (double)e->w, (double)e->h};
   return kOfxStatOK;
 }
-static int effectAbort(OfxImageEffectHandle e) { return E(e)->renderGen && E(e)->renderGen != gLatestGen; }
+static int effectAbort(OfxImageEffectHandle e) {
+  return E(e)->renderGen && !renderContext().isCurrent(E(e)->renderGen);
+}
 static OfxStatus imageMemoryAlloc(OfxImageEffectHandle, size_t n, OfxImageMemoryHandle *h) {
   *h = reinterpret_cast<OfxImageMemoryHandle>(malloc(n));
-  return *h ? kOfxStatOK : kOfxStatErrMemory;
+  if (*h) return kOfxStatOK;
+  return kOfxStatErrMemory;
 }
 static OfxStatus imageMemoryFree(OfxImageMemoryHandle h) {
   free(h);
@@ -452,179 +387,9 @@ static OfxStatus imageMemoryLock(OfxImageMemoryHandle h, void **ptr) {
 }
 static OfxStatus imageMemoryUnlock(OfxImageMemoryHandle) { return kOfxStatOK; }
 
-// Message, memory, multithread suites
-
-std::function<void(const std::string &)> gOnMessage;
-
-static OfxStatus message(void *, const char *type, const char *, const char *fmt, ...) {
-  char buf[4096];
-  va_list ap;
-  va_start(ap, fmt);
-  vsnprintf(buf, sizeof buf, fmt ? fmt : "", ap);
-  va_end(ap);
-  type = type ? type : "";
-  fprintf(stderr, "OFX %s: %s\n", type, buf);
-  // The status bar shows problems and one-shot reports. Log lines stay on
-  // stderr, because a render can raise many of them.
-  if (gOnMessage && (!strcmp(type, kOfxMessageError) || !strcmp(type, kOfxMessageFatal) ||
-                     !strcmp(type, kOfxMessageWarning) || !strcmp(type, kOfxMessageMessage)))
-    gOnMessage(buf[0] ? buf : "(plugin message)");
-  return !strcmp(type, kOfxMessageQuestion) ? kOfxStatReplyYes : kOfxStatOK;
-}
-static OfxStatus memoryAlloc(void *, size_t n, void **out) {
-  *out = malloc(n);
-  return *out ? kOfxStatOK : kOfxStatErrMemory;
-}
-static OfxStatus memoryFree(void *p) {
-  free(p);
-  return kOfxStatOK;
-}
-
-static thread_local unsigned tIndex = 0;
-static thread_local bool tSpawned = false;
-static unsigned cpuCount() { return std::max(1u, std::thread::hardware_concurrency()); }
-
-static std::mutex gMtMu;
-static std::condition_variable gMtCv;
-static std::condition_variable gMtDone;
-static OfxThreadFunctionV1 *gMtF = nullptr;
-static void *gMtArg = nullptr;
-static unsigned gMtN = 0;
-static std::atomic<unsigned> gMtNext{0};
-static unsigned gMtWorkersDone = 0;
-static unsigned gMtParticipants = 0;
-static std::atomic<bool> gMtActive{false};
-static std::atomic<bool> gMtShutdown{false};
-static std::vector<std::thread> gMtPool;
-
-static void mtRunSlices() {
-  for (;;) {
-    const unsigned i = gMtNext.fetch_add(1, std::memory_order_relaxed);
-    if (i >= gMtN) break;
-    tIndex = i;
-    tSpawned = true;
-    gMtF(i, gMtN, gMtArg);
-  }
-}
-
-static void mtWorkerLoop() {
-  for (;;) {
-    std::unique_lock<std::mutex> lock(gMtMu);
-    gMtCv.wait(lock, [] { return gMtShutdown.load() || gMtActive.load(); });
-    if (gMtShutdown.load()) return;
-    lock.unlock();
-    mtRunSlices();
-    lock.lock();
-    if (++gMtWorkersDone >= gMtParticipants) gMtDone.notify_one();
-  }
-}
-
-static void mtEnsurePool() {
-  static std::once_flag once;
-  std::call_once(once, [] {
-    const unsigned nw = cpuCount();
-    for (unsigned i = 1; i < nw; ++i) gMtPool.emplace_back(mtWorkerLoop);
-  });
-}
-
-static OfxStatus multiThreadEphemeral(OfxThreadFunctionV1 f, unsigned n, void *arg) {
-  std::vector<std::thread> threads;
-  for (unsigned i = 0; i < n; ++i)
-    threads.emplace_back([=] {
-      tIndex = i;
-      tSpawned = true;
-      f(i, n, arg);
-    });
-  for (auto &t : threads) t.join();
-  return kOfxStatOK;
-}
-
-static OfxStatus multiThread(OfxThreadFunctionV1 f, unsigned n, void *arg) {
-  if (!f) return kOfxStatFailed;
-  if (n <= 1) {
-    tIndex = 0;
-    tSpawned = false;
-    f(0, 1, arg);
-    return kOfxStatOK;
-  }
-  if (gMtActive.load() || tSpawned) return multiThreadEphemeral(f, n, arg);
-  mtEnsurePool();
-  const unsigned helpers = std::min((unsigned)gMtPool.size(), n - 1);
-  {
-    std::unique_lock<std::mutex> lock(gMtMu);
-    gMtF = f;
-    gMtArg = arg;
-    gMtN = n;
-    gMtNext.store(0, std::memory_order_relaxed);
-    gMtWorkersDone = 0;
-    gMtParticipants = 1 + helpers;
-    gMtActive.store(true);
-  }
-  gMtCv.notify_all();
-  tSpawned = false;
-  mtRunSlices();
-  {
-    std::unique_lock<std::mutex> lock(gMtMu);
-    if (++gMtWorkersDone >= gMtParticipants) gMtDone.notify_one();
-    gMtDone.wait(lock, [] { return gMtWorkersDone >= gMtParticipants; });
-    gMtActive.store(false);
-  }
-  return kOfxStatOK;
-}
-static OfxStatus multiThreadNumCPUs(unsigned *n) {
-  *n = cpuCount();
-  return kOfxStatOK;
-}
-static OfxStatus multiThreadIndex(unsigned *i) {
-  *i = tIndex;
-  return kOfxStatOK;
-}
-static int multiThreadIsSpawnedThread() { return tSpawned; }
-static std::recursive_mutex *MX(OfxMutexHandle m) { return reinterpret_cast<std::recursive_mutex *>(m); }
-static OfxStatus mutexCreate(OfxMutexHandle *m, int lockCount) {
-  auto *mx = new std::recursive_mutex;
-  for (int i = 0; i < lockCount; ++i) mx->lock();
-  *m = reinterpret_cast<OfxMutexHandle>(mx);
-  return kOfxStatOK;
-}
-static OfxStatus mutexDestroy(const OfxMutexHandle m) {
-  delete MX(m);
-  return kOfxStatOK;
-}
-static OfxStatus mutexLock(const OfxMutexHandle m) {
-  MX(m)->lock();
-  return kOfxStatOK;
-}
-static OfxStatus mutexUnLock(const OfxMutexHandle m) {
-  MX(m)->unlock();
-  return kOfxStatOK;
-}
-static OfxStatus mutexTryLock(const OfxMutexHandle m) { return MX(m)->try_lock() ? kOfxStatOK : kOfxStatFailed; }
 
 // Suite tables and host
 
-static const OfxPropertySuiteV1 gPropSuite = [] {
-  OfxPropertySuiteV1 s{};
-  s.propSetPointer = propSetPointer;
-  s.propSetString = propSetString;
-  s.propSetDouble = propSetDouble;
-  s.propSetInt = propSetInt;
-  s.propSetPointerN = propSetN<void *, propSetPointer>;
-  s.propSetStringN = propSetN<const char *, propSetString>;
-  s.propSetDoubleN = propSetN<double, propSetDouble>;
-  s.propSetIntN = propSetN<int, propSetInt>;
-  s.propGetPointer = propGetPointer;
-  s.propGetString = propGetString;
-  s.propGetDouble = propGetDouble;
-  s.propGetInt = propGetInt;
-  s.propGetPointerN = propGetN<void *, propGetPointer>;
-  s.propGetStringN = propGetN<char *, propGetString>;
-  s.propGetDoubleN = propGetN<double, propGetDouble>;
-  s.propGetIntN = propGetN<int, propGetInt>;
-  s.propReset = propReset;
-  s.propGetDimension = propGetDimension;
-  return s;
-}();
 static const OfxParameterSuiteV1 gParamSuite = [] {
   OfxParameterSuiteV1 s{};
   s.paramDefine = paramDefine;
@@ -664,41 +429,18 @@ static const OfxImageEffectSuiteV1 gEffectSuite = [] {
   s.imageMemoryUnlock = imageMemoryUnlock;
   return s;
 }();
-static const OfxMessageSuiteV1 gMessageSuite = [] {
-  OfxMessageSuiteV1 s{};
-  s.message = message;
-  return s;
-}();
-static const OfxMemorySuiteV1 gMemorySuite = [] {
-  OfxMemorySuiteV1 s{};
-  s.memoryAlloc = memoryAlloc;
-  s.memoryFree = memoryFree;
-  return s;
-}();
-static const OfxMultiThreadSuiteV1 gThreadSuite = [] {
-  OfxMultiThreadSuiteV1 s{};
-  s.multiThread = multiThread;
-  s.multiThreadNumCPUs = multiThreadNumCPUs;
-  s.multiThreadIndex = multiThreadIndex;
-  s.multiThreadIsSpawnedThread = multiThreadIsSpawnedThread;
-  s.mutexCreate = mutexCreate;
-  s.mutexDestroy = mutexDestroy;
-  s.mutexLock = mutexLock;
-  s.mutexUnLock = mutexUnLock;
-  s.mutexTryLock = mutexTryLock;
-  return s;
-}();
 
 static const void *fetchSuite(OfxPropertySetHandle, const char *name, int version) {
   if (version != 1) return nullptr;
-  if (!strcmp(name, kOfxPropertySuite)) return &gPropSuite;
+  if (!strcmp(name, kOfxPropertySuite)) return &propSuiteTable();
   if (!strcmp(name, kOfxParameterSuite)) return &gParamSuite;
   if (!strcmp(name, kOfxImageEffectSuite)) return &gEffectSuite;
-  if (!strcmp(name, kOfxMessageSuite)) return &gMessageSuite;
-  if (!strcmp(name, kOfxMemorySuite)) return &gMemorySuite;
-  if (!strcmp(name, kOfxMultiThreadSuite)) return &gThreadSuite;
+  if (!strcmp(name, kOfxMessageSuite)) return &messageSuiteTable();
+  if (!strcmp(name, kOfxMemorySuite)) return &memorySuiteTable();
+  if (!strcmp(name, kOfxMultiThreadSuite)) return &threadSuiteTable();
   return nullptr;
 }
+
 
 static PropSet gHostProps = [] {
   PropSet ps;

@@ -1,7 +1,8 @@
 #include "ofx/SpektraPreset.h"
+#include "core/RenderContext.h"
 
 #include "ofx/OfxTypes.h"
-#include "persist/Json.h"
+#include "core/Json.h"
 
 #include <cstdint>
 #include <fstream>
@@ -141,7 +142,7 @@ Param *applyLine(const std::string &line, Effect *effect) {
     if (!ok) return nullptr;
   }
 
-  std::lock_guard<std::mutex> lock(gValueMutex);
+  std::lock_guard<std::mutex> lock(renderContext().values());
   for (int i = 0; i < components; ++i) p->v[i] = values[i];
   return p;
 }

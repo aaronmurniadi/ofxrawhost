@@ -1,6 +1,6 @@
 #include "ui/ImGuiBackend.h"
 
-#include "AppState.h"
+#include "model/GuiState.h"
 #include "platform/EmbeddedResource.h"
 #include "platform/Paths.h"
 #include "platform/SystemUiFont.h"

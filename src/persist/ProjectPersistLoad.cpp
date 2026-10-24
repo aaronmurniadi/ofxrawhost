@@ -63,7 +63,7 @@ bool loadChain(const JsonValue &chain, PersistChain &out) {
     if (const JsonValue *groups = node.find("groupOpen"))
       for (const auto &kv : groups->obj) n.groupOpen[kv.first] = kv.second.kind == JsonValue::Kind::Bool && kv.second.b;
     if (const JsonValue *params = node.find("params"))
-      for (const auto &kv : params->obj) n.paramsJson[kv.first] = kv.second.dump();
+      for (const auto &kv : params->obj) n.params[kv.first] = kv.second;
     out.nodes.push_back(std::move(n));
   }
   return true;

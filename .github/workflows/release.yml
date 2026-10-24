@@ -179,11 +179,9 @@ jobs:
         run: |
           # Runs under a virtual display; a runner without GPU acceleration may
           # lack OpenGL 3.2, which is a runner limit and not a build failure.
-          if xvfb-run -a ./build/OfxRawHost --selftest; then
-            echo "selftest passed"
-          else
-            echo "::warning::selftest did not pass on the runner; continuing"
-          fi
+          # The self-test lives in OfxRawHostTests, so it needs no GL context;
+          # xvfb-run stays because a plugin may create one.
+          xvfb-run -a ./build/OfxRawHostTests
       - name: Build AppImage
         env:
           VERSION: ${{ needs.prepare.outputs.version }}

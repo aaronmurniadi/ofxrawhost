@@ -101,7 +101,8 @@ void drawPreviewPanel(App &app) {
     }
 #else
     const float wheel = ImGui::GetIO().MouseWheel;
-    if (wheel != 0.0f) zoomFactor *= (wheel > 0.0f ? 1.1f : 1.0f / 1.1f);
+    if (wheel > 0.0f) zoomFactor *= 1.1f;
+    else if (wheel < 0.0f) zoomFactor *= 1.0f / 1.1f;
 #endif
     if (zoomFactor != 1.0f) {
       const float oldZoom = app.gui.previewZoom;
@@ -111,8 +112,12 @@ void drawPreviewPanel(App &app) {
       const float oy = canvasPos.y + canvasSize.y * 0.5f + app.gui.previewPanY;
       const float oldW = app.tex.w * fit * oldZoom, oldH = app.tex.h * fit * oldZoom;
       const float newW = app.tex.w * fit * app.gui.previewZoom, newH = app.tex.h * fit * app.gui.previewZoom;
-      const float u = oldW > 0.0f ? (mouse.x - (ox - oldW * 0.5f)) / oldW : 0.5f;
-      const float v = oldH > 0.0f ? (mouse.y - (oy - oldH * 0.5f)) / oldH : 0.5f;
+      // Keep the image point under the cursor still. Fall back to the centre
+      // when the previous frame had no size to map against.
+      float u = 0.5f;
+      float v = 0.5f;
+      if (oldW > 0.0f) u = (mouse.x - (ox - oldW * 0.5f)) / oldW;
+      if (oldH > 0.0f) v = (mouse.y - (oy - oldH * 0.5f)) / oldH;
       app.gui.previewPanX += (u - 0.5f) * (oldW - newW);
       app.gui.previewPanY += (v - 0.5f) * (oldH - newH);
     }
