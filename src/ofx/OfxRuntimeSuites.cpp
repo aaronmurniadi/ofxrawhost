@@ -12,6 +12,7 @@
 #include "ofxMessage.h"
 #include "ofxMultiThread.h"
 
+#include <algorithm>
 #include <atomic>
 #include <climits>
 #include <condition_variable>
