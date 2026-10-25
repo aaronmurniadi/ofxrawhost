@@ -54,6 +54,7 @@ int runSelfTest() {
   if (const int rc = testDenoisePlugin()) return rc;
   if (const int rc = testDenoiseSeeding()) return rc;
   if (const int rc = testEveryPlugin(src)) return rc;
+  if (const int rc = testWorkerShutdown()) return rc;
   if (const int rc = testConcurrency(src)) return rc;
   return 0;
 }

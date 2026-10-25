@@ -40,7 +40,7 @@ ExportJob captureExportJob(Workspace &app, std::string outPath) {
   job.previewH = app.document.preview.h;
   // The chain writes the preview space; the export converts from it to the
   // chosen export space with the chosen rendering intent.
-  job.chainSpace = app.chainOutputSpace;
+  job.chainSpace = app.render.outputSpace();
   job.exportSpace = app.gui.exportSpace;
   job.fileSpace = app.document.fileSpace;
   job.intent = app.gui.exportIntent;

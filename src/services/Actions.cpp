@@ -95,7 +95,7 @@ void openPathNow(Workspace &app, const std::string &path, bool useSavedChain) {
     seedNoiseForOpenCamera(app, meta);
   }
 
-  app.render.rebuildPreview();
+  app.rebuildPreviewImage();
   // The chain carries the document input space into its first plugin, and no
   // sidecar may have run, so re-derive it for the image that is now open.
   syncChainColorSpaces(app);
@@ -167,7 +167,7 @@ void setInputSpace(Workspace &app, int index) {
   // The chain carries this space into its first plugin, and a later plugin can
   // change what leaves the chain, so the whole walk and a render are needed.
   syncChainColorSpaces(app);
-  app.render.request();
+  app.scheduleRender();
 }
 
 void setPreviewSpace(Workspace &app, int index) {
@@ -175,7 +175,7 @@ void setPreviewSpace(Workspace &app, int index) {
   // encoded into this space and shown as it is. Only the display conversion
   // changes, so a re-render is not needed.
   app.gui.previewSpace = outputSpace(std::clamp(index, 0, kColorSpaceCount - 1));
-  app.render.recolor();
+  app.scheduleRecolor();
 }
 
 void setExportSpace(Workspace &app, int index) {
@@ -188,5 +188,5 @@ void setExportIntent(Workspace &app, int intentIndex) {
 
 void setPreviewRes(Workspace &app, int index) {
   app.gui.previewRes = static_cast<PreviewRes>(std::clamp(index, 0, kPreviewResCount - 1));
-  app.render.rebuildPreview();
+  app.rebuildPreviewImage();
 }

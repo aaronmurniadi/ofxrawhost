@@ -135,15 +135,15 @@ void pumpFilmstripThumbs(Filmstrip &fs) {
   }
 }
 
-static void filmstripThumbWorker(Filmstrip *fs, std::atomic<bool> *quit) {
-  while (!*quit) {
+static void filmstripThumbWorker(Filmstrip *fs) {
+  while (!fs->stop) {
     std::string path;
     int gen = 0;
     int edge = 0;
     {
       std::unique_lock<std::mutex> lock(fs->mutex);
-      fs->cv.wait(lock, [&] { return *quit || !fs->queue.empty(); });
-      if (*quit) break;
+      fs->cv.wait(lock, [&] { return fs->stop.load() || !fs->queue.empty(); });
+      if (fs->stop) break;
       path = fs->queue.front();
       fs->queue.pop_front();
       fs->queued.erase(path);
@@ -166,12 +166,11 @@ static void filmstripThumbWorker(Filmstrip *fs, std::atomic<bool> *quit) {
 }
 
 #if defined(__APPLE__)
-std::thread startFilmstripThumbThread(Filmstrip *fs, std::atomic<bool> *quit) {
+std::thread startFilmstripThumbThread(Filmstrip *fs) {
   struct Ctx {
     Filmstrip *fs;
-    std::atomic<bool> *quit;
   };
-  auto *ctx = new Ctx{fs, quit};
+  auto *ctx = new Ctx{fs};
   pthread_t tid;
   pthread_attr_t attr;
   pthread_attr_init(&attr);
@@ -180,7 +179,7 @@ std::thread startFilmstripThumbThread(Filmstrip *fs, std::atomic<bool> *quit) {
       &tid, &attr,
       +[](void *p) -> void * {
         auto *c = static_cast<Ctx *>(p);
-        filmstripThumbWorker(c->fs, c->quit);
+        filmstripThumbWorker(c->fs);
         delete c;
         return nullptr;
       },
@@ -188,13 +187,13 @@ std::thread startFilmstripThumbThread(Filmstrip *fs, std::atomic<bool> *quit) {
   pthread_attr_destroy(&attr);
   if (err != 0) {
     delete ctx;
-    return std::thread(filmstripThumbWorker, fs, quit);
+    return std::thread(filmstripThumbWorker, fs);
   }
   return std::thread([tid]() { pthread_join(tid, nullptr); });
 }
 #else
-std::thread startFilmstripThumbThread(Filmstrip *fs, std::atomic<bool> *quit) {
-  return std::thread(filmstripThumbWorker, fs, quit);
+std::thread startFilmstripThumbThread(Filmstrip *fs) {
+  return std::thread(filmstripThumbWorker, fs);
 }
 #endif
 

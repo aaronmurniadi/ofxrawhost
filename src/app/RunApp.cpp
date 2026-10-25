@@ -112,7 +112,7 @@ int runApp(const std::string &optionalPath) {
   if (app.gui.checkUpdatesAtStartup) app.updates.startCheck(hostVersion(), app.gui.updateChannel);
 
   // Plugin warnings and errors land in the status bar.
-  renderContext().setMessageSink([&app](const std::string &msg) { app.reportStatus(msg); });
+  renderContext().setMessageSink([&status = app.status](const std::string &msg) { status.report(msg); });
   loadPlugins();
   if (plugins().empty())
     app.reportStatus("No OFX filter plugins found in the default OFX path or OFX_PLUGIN_PATH");
@@ -121,7 +121,7 @@ int runApp(const std::string &optionalPath) {
   if (!optionalPath.empty()) openPath(app, optionalPath);
 
   app.render.start();
-  app.filmstrip.thread = startFilmstripThumbThread(&app.filmstrip, &app.quit);
+  app.filmstrip.thread = startFilmstripThumbThread(&app.filmstrip);
 
   glfwSetDropCallback(app.window, [](GLFWwindow *w, int count, const char **paths) {
     auto *app = static_cast<App *>(glfwGetWindowUserPointer(w));
@@ -155,10 +155,12 @@ int runApp(const std::string &optionalPath) {
     glfwSwapBuffers(app.window);
   }
 
-  app.quit = true;
-  app.render.schedule().cv.notify_one();
-  app.filmstrip.cv.notify_one();
   app.render.stop();
+  {
+    std::lock_guard<std::mutex> lock(app.filmstrip.mutex);
+    app.filmstrip.stop = true;
+  }
+  app.filmstrip.cv.notify_one();
   if (app.filmstrip.thread.joinable()) app.filmstrip.thread.join();
   app.exporter.wait();
   saveCurrentInputSidecar(app.document, app.chain);

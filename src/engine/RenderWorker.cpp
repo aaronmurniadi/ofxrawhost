@@ -13,17 +13,17 @@
 // preview size, so a draft is only built when the preview is larger than this.
 static constexpr int kDraftMaxEdge = 1280;
 
-// ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
-
 RenderWorker::~RenderWorker() { stop(); }
 
 void RenderWorker::start() {
   if (thread_.joinable()) return;
+  stopping_ = false;
   thread_ = std::thread([this] { run(); });
 }
 
 void RenderWorker::stop() {
   if (!thread_.joinable()) return;
+  stopping_ = true;
   {
     std::lock_guard<std::mutex> lock(schedule_.mutex);
     schedule_.pending = false;
@@ -47,45 +47,45 @@ void RenderWorker::publish(Image img, ColorSpace from, ColorSpace to) {
   displayDirty_ = true;
 }
 
-void RenderWorker::showSourcePreview() {
-  const Image &preview = host_->previewImage();
-  if (preview.px.empty()) return;
-  publish(preview, host_->workingSpace(), host_->previewSpace());
+void RenderWorker::showSourcePreview(const RenderInputs &inputs) {
+  if (!inputs.hasPreview()) return;
+  publish(*inputs.preview, inputs.workingSpace, inputs.previewSpace);
 }
 
-void RenderWorker::request() {
-  if (host_->quitting()) return;
-  if (host_->chain().nodes.empty() || host_->previewImage().px.empty()) {
-    showSourcePreview();
+void RenderWorker::request(const RenderInputs &inputs) {
+  if (stopping_) return;
+  if (!inputs.hasChain() || !inputs.hasPreview()) {
+    showSourcePreview(inputs);
     return;
   }
   renderContext().cancelInFlight();
   {
     std::lock_guard<std::mutex> lock(schedule_.mutex);
+    inputs_ = inputs;
     schedule_.pending = true;
   }
   schedule_.cv.notify_one();
 }
 
-void RenderWorker::recolor() {
-  if (host_->quitting()) return;
+void RenderWorker::recolor(const RenderInputs &inputs) {
+  if (stopping_) return;
   renderContext().cancelInFlight();
   {
     std::lock_guard<std::mutex> lock(schedule_.mutex);
+    inputs_ = inputs;
     schedule_.recolorPending = true;
     schedule_.pending = true;
   }
   schedule_.cv.notify_one();
 }
 
-void RenderWorker::rebuildPreview() {
-  if (host_->fullImage().px.empty()) return;
+void RenderWorker::rebuildPreview(const RenderInputs &inputs) {
+  if (!inputs.hasFull() || !inputs.preview) return;
   // makePreview rewrites the preview image, which the worker may be reading.
   waitIdle();
-  const int maxEdge = host_->wantedPreviewMaxEdge();
-  builtPreviewMaxEdge_ = maxEdge;
-  makePreview(host_->fullImage(), maxEdge, host_->mutablePreviewImage());
-  request();
+  builtPreviewMaxEdge_ = inputs.previewMaxEdge;
+  makePreview(*inputs.full, inputs.previewMaxEdge, *inputs.preview);
+  request(inputs);
 }
 
 void RenderWorker::pumpUpload(GlTexture &texture) {
@@ -114,18 +114,20 @@ static double passRenderScale(int projectEdge, const Image &rendered) {
 
 void RenderWorker::run() {
   ChainRenderer renderer;
-  while (!host_->quitting()) {
+  while (!stopping_) {
     bool recolorOnly = false;
+    RenderInputs inputs;
     {
       std::unique_lock<std::mutex> lock(schedule_.mutex);
       schedule_.cv.wait(lock, [this] {
-        return host_->quitting() || (schedule_.pending.load() && !schedule_.exporting);
+        return stopping_.load() || (schedule_.pending.load() && !schedule_.exporting);
       });
-      if (host_->quitting()) break;
+      if (stopping_) break;
       recolorOnly = schedule_.recolorPending;
       schedule_.recolorPending = false;
       schedule_.pending = false;
       schedule_.busy = true;
+      inputs = inputs_;
     }
     RenderSchedule::Guard busy(&schedule_);
     if (recolorOnly) {
@@ -137,37 +139,36 @@ void RenderWorker::run() {
         if (display_.px.empty()) continue;
         img = display_;
       }
-      if (host_->chain().nodes.empty()) from = host_->workingSpace();
-      else from = host_->outputSpace();
-      to = host_->previewSpace();
+      if (!inputs.hasChain()) from = inputs.workingSpace;
+      else from = outputSpace();
+      to = inputs.previewSpace;
       publish(std::move(img), from, to);
       continue;
     }
-    if (host_->chain().nodes.empty() || host_->previewImage().px.empty()) continue;
+    if (!inputs.hasChain() || !inputs.hasPreview()) continue;
     const int gen = renderContext().beginPass();
-    host_->reportStatus("Rendering...");
-    const Image &preview = host_->previewImage();
+    status_->report("Rendering...");
     Image out;
-    const int longEdge = std::max(preview.w, preview.h);
+    const int longEdge = std::max(inputs.preview->w, inputs.preview->h);
     if (longEdge > kDraftMaxEdge) {
       Image draftInput;
-      if (makePreview(preview, kDraftMaxEdge, draftInput)) {
-        const OfxStatus draftSt = renderer.render(host_->chain(), plugins(), draftInput, out, gen, true,
-                                                  passRenderScale(host_->projectLongEdge(), draftInput));
+      if (makePreview(*inputs.preview, kDraftMaxEdge, draftInput)) {
+        const OfxStatus draftSt = renderer.render(*inputs.chain, plugins(), draftInput, out, gen, true,
+                                                  passRenderScale(inputs.projectLongEdge(), draftInput));
         if (!renderContext().isCurrent(gen)) continue;
-        if (draftSt == kOfxStatOK) publish(std::move(out), host_->outputSpace(), host_->previewSpace());
+        if (draftSt == kOfxStatOK) publish(std::move(out), outputSpace(), inputs.previewSpace);
       }
     }
     if (!renderContext().isCurrent(gen)) continue;
-    const OfxStatus st = renderer.render(host_->chain(), plugins(), preview, out, gen, false,
-                                         passRenderScale(host_->projectLongEdge(), preview));
+    const OfxStatus st = renderer.render(*inputs.chain, plugins(), *inputs.preview, out, gen, false,
+                                         passRenderScale(inputs.projectLongEdge(), *inputs.preview));
     if (!renderContext().isCurrent(gen)) continue;
     if (st == kOfxStatOK) {
       const int ow = out.w, oh = out.h;
-      publish(std::move(out), host_->outputSpace(), host_->previewSpace());
-      host_->reportStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
+      publish(std::move(out), outputSpace(), inputs.previewSpace);
+      status_->report(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
-      host_->reportStatus("Render failed (OFX status " + std::to_string(st) + ")");
+      status_->report("Render failed (OFX status " + std::to_string(st) + ")");
     }
   }
 }

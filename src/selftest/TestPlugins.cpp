@@ -487,19 +487,19 @@ int testChainColorSpaceFlow() {
   app.document.workingSpace = ColorSpace::LinearRec709;
   app.document.inputSpace = ColorSpace::LinearRec709;
   if (!addNode(app, (int)(it - plugins().begin()))) return fail("chain space: addNode");
-  if (app.chainOutputSpace.load() != ColorSpace::LinearRec709) return fail("chain space: space not carried through");
+  if (app.render.outputSpace() != ColorSpace::LinearRec709) return fail("chain space: space not carried through");
 
   // The document input space reaches the chain output, because Transform declares
   // no output space of its own.
   setInputSpace(app, 0);  // sRGB
   if (app.document.inputSpace != ColorSpace::sRGB) return fail("chain space: input space not set");
-  if (app.chainOutputSpace.load() != ColorSpace::sRGB) return fail("chain space: input space not carried");
+  if (app.render.outputSpace() != ColorSpace::sRGB) return fail("chain space: input space not carried");
 
   // The preview destination is the last conversion, so it must not move the
   // chain.
   setPreviewSpace(app, 3);  // Linear Rec.2020
   if (app.gui.previewSpace != ColorSpace::LinearRec2020) return fail("chain space: preview space not set");
-  if (app.chainOutputSpace.load() != ColorSpace::sRGB) return fail("chain space: preview changed the chain");
+  if (app.render.outputSpace() != ColorSpace::sRGB) return fail("chain space: preview changed the chain");
 
   clearNodes(app);
   printf("ok  chain color space flow\n");

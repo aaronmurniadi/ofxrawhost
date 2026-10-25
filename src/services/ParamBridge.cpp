@@ -92,7 +92,7 @@ void syncChainColorSpaces(Workspace &app) {
       // The plugin does not describe its output, so the space it received passes
       // through unchanged.
     }
-    app.chainOutputSpace = carried;
+    app.render.setOutputSpace(carried);
   }
   for (size_t i = 0; i < changedParams.size(); ++i) notifyChanged(*changedNodes[i], changedParams[i]);
 }

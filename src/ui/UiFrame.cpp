@@ -423,7 +423,7 @@ static void applyFitPreviewSize(App &app) {
   }
   if (now - app.gui.previewFitSettleTime < 0.25) return;
   app.gui.previewFitSettleTime = 0.0;
-  app.render.rebuildPreview();
+  app.rebuildPreviewImage();
 }
 
 // Confirms a parameter reset, because one click discards the whole edit of the

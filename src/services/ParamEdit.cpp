@@ -37,7 +37,7 @@ void resetParamToDefault(Param *p) {
 void commitParamEdit(Workspace &app, Node &node, Param *p) {
   notifyChanged(node, p);
   syncChainColorSpaces(app);
-  app.render.request();
+  app.scheduleRender();
 }
 
 int resetNodeParamsToDefaults(Workspace &app, Node &node) {
@@ -58,6 +58,6 @@ int resetNodeParamsToDefaults(Workspace &app, Node &node) {
   // Notify after the values change, so the plugin sees the whole new state.
   for (Param *p : reset) notifyChanged(node, p);
   syncChainColorSpaces(app);
-  app.render.request();
+  app.scheduleRender();
   return (int)reset.size();
 }

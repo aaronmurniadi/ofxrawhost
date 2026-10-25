@@ -32,7 +32,7 @@ void destroyNode(Workspace &app, int index) {
   else if (app.chain.selectedNode > index)
     --app.chain.selectedNode;
   app.gui.paramFilter[0] = '\0';
-  app.render.request();
+  app.scheduleRender();
 }
 
 void clearNodes(Workspace &app) {
@@ -73,7 +73,7 @@ bool addNode(Workspace &app, int pluginIndex) {
   if (!appendNode(app, pluginIndex)) return false;
   // Walk after the push, so the new node receives the space the chain carries.
   syncChainColorSpaces(app);
-  app.render.request();
+  app.scheduleRender();
   return true;
 }
 
@@ -95,7 +95,7 @@ void applyChain(Workspace &app, const PersistChain &chain) {
   // transient, so a walk of every prefix and a render per node would be work
   // thrown away.
   syncChainColorSpaces(app);
-  app.render.request();
+  app.scheduleRender();
 }
 
 void moveNode(Workspace &app, int from, int to) {
@@ -106,12 +106,12 @@ void moveNode(Workspace &app, int from, int to) {
   app.chain.nodes.insert(app.chain.nodes.begin() + to, std::move(n));
   app.chain.selectedNode = to;
   syncChainColorSpaces(app);
-  app.render.request();
+  app.scheduleRender();
 }
 
 void setNodeEnabled(Workspace &app, int index, bool enabled) {
   if (index < 0 || index >= (int)app.chain.nodes.size()) return;
   app.render.waitIdle();  // the worker reads node.enabled
   app.chain.nodes[index].enabled = enabled;
-  app.render.request();
+  app.scheduleRender();
 }

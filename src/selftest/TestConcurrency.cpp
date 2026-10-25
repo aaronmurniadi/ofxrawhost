@@ -41,7 +41,7 @@ int testConcurrency(const Image &src) {
   // UI-side queryOutputSize runs Transform's getRoD, whose clip-RoD suite reads must
   // not race the worker's dim writes in renderEffect/queryOutputSize.
   for (int k = 0; k < 8; ++k) {
-    app.render.request();
+    app.scheduleRender();
     int ow = 0, oh = 0;
     queryOutputSize(plugins()[app.chain.nodes[0].pluginIndex].plugin, app.chain.nodes[0].instance.get(), app.document.preview.w,
                     app.document.preview.h, &ow, &oh);
@@ -51,8 +51,8 @@ int testConcurrency(const Image &src) {
 
   const fs::path out = fs::temp_directory_path() / "ofxrawhost-selftest-export.png";
   for (int i = 0; i < 200; ++i) {
-    app.render.request();
-    if (i % 11 == 0) app.render.recolor();
+    app.scheduleRender();
+    if (i % 11 == 0) app.scheduleRecolor();
     if (i % 13 == 0) {
       // UI keeps writing the preview destination while renders run (the
       // Plugins panel colorspace combo).
@@ -60,7 +60,7 @@ int testConcurrency(const Image &src) {
       else app.gui.previewSpace = ColorSpace::sRGB;
       syncChainColorSpaces(app);
     }
-    if (i % 17 == 0) app.render.rebuildPreview();  // preview rewrite must wait out the worker
+    if (i % 17 == 0) app.rebuildPreviewImage();  // preview rewrite must wait out the worker
     if (i == 50) {
       doExport(app, out.string());
       // Mutating the graph right after an export must wait it out, not race it.
@@ -75,8 +75,6 @@ int testConcurrency(const Image &src) {
     }
   }
   app.render.waitIdle();  // also waits out the export thread
-  app.quit = true;
-  app.render.schedule().cv.notify_one();
   app.render.stop();
   app.exporter.wait();
   if (!fs::exists(out) || fs::file_size(out) == 0) return fail("concurrent export output");
@@ -85,5 +83,47 @@ int testConcurrency(const Image &src) {
   if (fs::exists(side)) fs::remove(side);
   clearNodes(app);
   printf("ok  concurrency\n");
+  return 0;
+}
+
+// The render worker owns its stop flag and reports into a sink its owner declares
+// first. This checks the two things a structural change can silently lose: that
+// stopping is the worker's own business, and that the sink is still usable after
+// the thread is gone.
+int testWorkerShutdown() {
+  StatusSink status;
+  RenderWorker worker(status);
+
+  Image preview;
+  preview.w = 8;
+  preview.h = 6;
+  preview.px.assign((size_t)preview.w * preview.h * 4, 0.5f);
+  Image full = preview;
+
+  RenderInputs inputs;
+  inputs.full = &full;
+  inputs.preview = &preview;
+  inputs.workingSpace = ColorSpace::LinearRec709;
+  inputs.previewSpace = ColorSpace::sRGB;
+  inputs.previewMaxEdge = 8;
+
+  // No chain: the request publishes the source preview, no thread needed.
+  worker.request(inputs);
+  if (worker.displayCopy().px.empty()) return fail("worker shutdown: no source preview published");
+
+  worker.setOutputSpace(ColorSpace::sRGB);
+  if (worker.outputSpace() != ColorSpace::sRGB) return fail("worker shutdown: output space not stored");
+
+  worker.start();
+  if (worker.stopping()) return fail("worker shutdown: reports stopped before start");
+  worker.request(inputs);
+  worker.stop();
+  if (!worker.stopping()) return fail("worker shutdown: stop did not raise the flag");
+  worker.stop();      // idempotent
+  worker.waitIdle();  // safe with no thread running
+
+  status.report("after stop");
+  if (status.text() != "after stop") return fail("worker shutdown: sink lost the last message");
+  printf("ok  worker shutdown\n");
   return 0;
 }

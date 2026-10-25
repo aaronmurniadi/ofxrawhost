@@ -52,6 +52,7 @@ struct Filmstrip {
   std::atomic<int> thumbEdge{256};  // snapped long-edge cap (see kFilmstripThumbEdges)
   int lruTick = 0;
   std::thread thread;
+  std::atomic<bool> stop{false};  // raises to end the thumbnail worker
   std::mutex mutex;
   std::condition_variable cv;
   std::deque<std::string> queue;
@@ -66,5 +67,6 @@ void requestFilmstripThumb(Filmstrip &fs, int index, bool front);
 void pumpFilmstripThumbs(Filmstrip &fs);
 // Rebuilds the entry list for the workspace and selects activePath.
 void refreshFilmstrip(Filmstrip &fs, const std::string &workspaceDir, const std::string &activePath);
-// quit is the app-lifetime stop flag shared with the render worker.
-std::thread startFilmstripThumbThread(Filmstrip *fs, std::atomic<bool> *quit);
+// Starts the thumbnail worker. It runs until fs->stop is raised and fs->cv is
+// notified, so the owner of the filmstrip controls its thread.
+std::thread startFilmstripThumbThread(Filmstrip *fs);

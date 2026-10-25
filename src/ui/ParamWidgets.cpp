@@ -41,7 +41,7 @@ static void importSpektrafilmPreset(Workspace &app, Node &node) {
   app.reportStatus(result.message);
   if (result.changed <= 0) return;
   syncChainColorSpaces(app);
-  app.render.request();
+  app.scheduleRender();
 }
 
 // Asks for a .cube destination, runs the plugin export, then moves the file the

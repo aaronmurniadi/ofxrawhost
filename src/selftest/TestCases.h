@@ -32,3 +32,5 @@ int testEveryPlugin(Image &src);
 
 // Render worker against graph mutation and a full-resolution export.
 int testConcurrency(const Image &src);
+// The worker's own stop flag, and the status sink outliving its thread.
+int testWorkerShutdown();
