@@ -4,7 +4,7 @@
 #include "app/AppState.h"
 #include "core/RenderContext.h"
 #include "services/StateMapping.h"
-#include "model/Filmstrip.h"
+#include "services/Filmstrip.h"
 #include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
 #include "platform/Report.h"

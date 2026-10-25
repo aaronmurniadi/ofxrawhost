@@ -5,6 +5,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# The layer graph: a source file may include its own layer and the ones below it,
+# never one above. The targets catch this when a symbol has to resolve, which is
+# too late for a header-only include or one whose symbol happens to resolve
+# through another consumer. See cmake/check_layers.cmake.
+execute_process(
+  COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/check_layers.cmake
+  RESULT_VARIABLE _layer_check
+  OUTPUT_VARIABLE _layer_output
+  ERROR_VARIABLE _layer_output)
+if(NOT _layer_check EQUAL 0)
+  message(FATAL_ERROR "${_layer_output}")
+endif()
+
 # MSVC: keep windows.h from defining min/max macros (the code calls std::min and
 # std::max), and read the UTF-8 sources and string literals as UTF-8.
 if(MSVC)
@@ -223,8 +236,10 @@ else()
   target_link_libraries(ofxrawhost_io PRIVATE ${JXL_LIBRARY} ${JXL_THREADS_LIBRARY})
 endif()
 
-add_library(ofxrawhost_model STATIC src/model/Filmstrip.cpp)
-target_link_libraries(ofxrawhost_model PUBLIC ofxrawhost_core ofxrawhost_gfx)
+# The model layer is header-only state: Document, Chain, GuiState. It owns no
+# translation unit, so it is an interface target.
+add_library(ofxrawhost_model INTERFACE)
+target_link_libraries(ofxrawhost_model INTERFACE ofxrawhost_core ofxrawhost_gfx)
 
 add_library(ofxrawhost_ofx STATIC
   src/ofx/OfxSuites.cpp
@@ -267,6 +282,7 @@ add_library(ofxrawhost_services STATIC
   src/services/ParamEdit.cpp
   src/services/PluginPresets.cpp
   src/services/UpdateCheck.cpp
+  src/services/Filmstrip.cpp
 )
 target_link_libraries(ofxrawhost_services PUBLIC ofxrawhost_engine)
 
@@ -334,7 +350,6 @@ set(OFX_MODULE_TARGETS
   ofxrawhost_gfx
   ofxrawhost_platform
   ofxrawhost_io
-  ofxrawhost_model
   ofxrawhost_ofx
   ofxrawhost_engine
   ofxrawhost_services

@@ -1,7 +1,7 @@
 #include "ui/UiFrame.h"
 
 #include "services/Actions.h"
-#include "model/Filmstrip.h"
+#include "services/Filmstrip.h"
 
 #include "imgui.h"
 

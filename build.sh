@@ -22,6 +22,9 @@ fi
 if [ "${OFX_NATIVE_ARCH:-0}" = "1" ]; then
   CMAKE_ARGS="$CMAKE_ARGS -DOFX_NATIVE_ARCH=ON"
 fi
+# The layer graph is checked before anything is built, so a local build fails the
+# same way the release build does.
+cmake -P cmake/check_layers.cmake
 cmake -S . -B "$BUILD" $CMAKE_ARGS
 cmake --build "$BUILD" -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
 

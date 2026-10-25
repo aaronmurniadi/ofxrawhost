@@ -14,7 +14,7 @@
 #include "engine/RenderWorker.h"
 #include "model/Chain.h"
 #include "model/Document.h"
-#include "model/Filmstrip.h"
+#include "services/Filmstrip.h"
 #include "model/GuiState.h"
 #include "services/UpdateCheck.h"
 

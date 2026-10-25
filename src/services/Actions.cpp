@@ -1,6 +1,6 @@
 #include "services/Actions.h"
 
-#include "model/Filmstrip.h"
+#include "services/Filmstrip.h"
 #include "services/NodeGraph.h"
 #include "services/ParamBridge.h"
 #include "engine/RenderWorker.h"

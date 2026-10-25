@@ -1,4 +1,4 @@
-#include "model/Filmstrip.h"
+#include "services/Filmstrip.h"
 
 #include "codecs/ImageIO.h"
 #include "persist/ProjectPersist.h"
