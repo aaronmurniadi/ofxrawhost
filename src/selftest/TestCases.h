@@ -24,6 +24,7 @@ int testDenoiseSeeding();
 int testDenoisePlugin();
 int testTransformPlugin(Image &src);
 int testTransformLegacyMigration();
+int testOpenWithSidecarPrompt();
 int testAutoExposurePlugin();
 int testResetNodeParams();
 int testChainColorSpaceFlow();

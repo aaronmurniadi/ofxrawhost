@@ -105,6 +105,11 @@ struct GuiState {
   bool showDevBuildWarning = false;    // it is due on this run
   bool showExportDialog = false;
   bool showResetParamsConfirm = false;
+  // An image open that stopped to ask which chain the image should open with:
+  // the one saved for it, or the one that is in place now. The path waits here
+  // until the user answers.
+  bool showSidecarPrompt = false;
+  std::string pendingOpenPath;
   bool showSettings = false;
   bool themeApplyPending = false;
   bool fontApplyPending = false;

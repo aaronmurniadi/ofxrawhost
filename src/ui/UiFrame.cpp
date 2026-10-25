@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 
 // The build passes the release version in. Keep a fallback for builds that do
 // not, so the About window always shows a version.
@@ -452,6 +453,36 @@ static void drawResetParamsConfirm(App &app) {
   ImGui::EndPopup();
 }
 
+// The chain saved for the image that is opening and the chain in place can both
+// hold work, so the open waits here for the user to pick one.
+static void drawSidecarPrompt(App &app) {
+  if (app.gui.showSidecarPrompt) {
+    ImGui::OpenPopup("Saved parameters");
+    app.gui.showSidecarPrompt = false;
+  }
+  if (!ImGui::BeginPopupModal("Saved parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  ImGui::TextWrapped(
+      "This image has parameters saved for it. Open it with those parameters? The parameters of the image that is "
+      "open now will be replaced.");
+  if (!app.gui.pendingOpenPath.empty())
+    ImGui::TextDisabled("%s", std::filesystem::path(app.gui.pendingOpenPath).filename().string().c_str());
+  ImGui::TextDisabled(
+      "Yes restores the parameters saved for this image. No keeps the parameters of the image that is open now and "
+      "applies them to this one.");
+  ImGui::Spacing();
+  if (ImGui::Button("Yes", ImVec2(120.0f, 0.0f))) {
+    ImGui::CloseCurrentPopup();
+    resolvePendingOpen(app, /*useSavedChain=*/true);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("No", ImVec2(120.0f, 0.0f))) {
+    ImGui::CloseCurrentPopup();
+    resolvePendingOpen(app, /*useSavedChain=*/false);
+  }
+  ImGui::EndPopup();
+}
+
 void drawUiFrame(App &app) {
   if (app.gui.themeApplyPending) {
     applyTheme(app.gui.themeIndex);
@@ -552,6 +583,7 @@ void drawUiFrame(App &app) {
   }
 
   drawResetParamsConfirm(app);
+  drawSidecarPrompt(app);
   drawExportDialog(app);
   drawSettingsModal(app);
   drawDevBuildWarning(app);

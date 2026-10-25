@@ -6,7 +6,13 @@
 
 #include <string>
 
+// Opens an image. When another image is open, its chain holds plugins, and this
+// image has a saved chain of its own, the open stops and asks first.
 void openPath(Workspace &app, const std::string &path);
+// Finishes an open that stopped to ask which chain the image opens with.
+// useSavedChain restores the chain recorded in the image sidecar; otherwise the
+// chain of the image that was open carries over to it.
+void resolvePendingOpen(Workspace &app, bool useSavedChain);
 // Opens dir as the workspace; returns false if it is not a directory.
 bool openWorkspace(Workspace &app, const std::string &dir);
 

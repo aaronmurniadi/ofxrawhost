@@ -100,6 +100,17 @@ For each source file `photo.cr2`, the chain is stored in
 `{state}/<mirrored path>/photo.cr2.json`. The host writes it when the image
 changes or when the application exits, and reads it when the image opens.
 
+A chain saved for an image and the chain in place can both hold work, so opening
+an image that has a sidecar while another image is open does not restore it
+silently. When the chain in place has plugins, the host asks whether to open the
+image with the parameters saved for it, which replaces what is in place, or with
+the parameters of the image that is open now, which carries them into the new
+image. _Yes_ restores the saved chain and the chain input space; _No_ leaves the
+chain untouched, so the settings of the previous image apply to this one, and
+the sidecar of this image records them the next time it changes. An image opened
+with no other image open, or an image whose own sidecar is missing, needs no
+answer: the saved chain is restored, and without one the chain in place stays.
+
 ## Export sidecar
 
 An export writes `{state}/<mirrored path>/<export name>.json` only while **Export

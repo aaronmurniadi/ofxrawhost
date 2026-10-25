@@ -302,6 +302,133 @@ int testStateFilesAreAppLevel() {
   return rc;
 }
 
+// The chain saved for an image and the chain in place can both hold work, so
+// opening an image that has a sidecar while another image is open stops and
+// asks instead of choosing. The answer decides the chain the image opens with,
+// and nothing about the open may change before it arrives.
+int testOpenWithSidecarPrompt() {
+  auto it = std::find_if(plugins().begin(), plugins().end(),
+                         [](const PluginEntry &pe) { return pe.label == "Transform"; });
+  if (it == plugins().end()) return fail("open prompt: bundled Transform plugin not found");
+
+  const fs::path base = fs::temp_directory_path() / "ofxrawhost-selftest-open";
+  std::error_code ec;
+  fs::remove_all(base, ec);
+  fs::create_directories(base, ec);
+
+  // Point the configuration directory at the temp folder, so the settings file
+  // an open writes lands there instead of the real user directory.
+#ifdef _WIN32
+  const char *envKey = "APPDATA";
+#else
+  const char *envKey = "HOME";
+#endif
+  const char *oldEnv = std::getenv(envKey);
+  std::string oldValue;
+  if (oldEnv) oldValue = oldEnv;
+#ifdef _WIN32
+  _putenv_s(envKey, base.string().c_str());
+#else
+  setenv(envKey, base.string().c_str(), 1);
+#endif
+
+  int rc = 0;
+  Image flat;
+  flat.w = 8;
+  flat.h = 8;
+  flat.px.assign((size_t)flat.w * flat.h * 4, 0.5f);
+  const std::string imageA = (base / "a.png").string();
+  const std::string imageB = (base / "b.png").string();
+  const std::string imageC = (base / "c.png").string();
+  const std::string images[] = {imageA, imageB, imageC};
+  for (const std::string &path : images)
+    if (!writeImage(flat, path)) rc = fail("open prompt: the test image was not written");
+
+  // One Transform node per chain, and the zoom tells the chains apart.
+  auto makeChain = [&](double zoom) {
+    PersistChain chain;
+    chain.selectedNode = 0;
+    PersistNode node;
+    node.pluginIdentifier = it->plugin->pluginIdentifier;
+    node.pluginLabel = it->label;
+    node.params["zoom"] = JsonValue::makeDouble(zoom);
+    chain.nodes.push_back(std::move(node));
+    return chain;
+  };
+  auto openZoom = [](const Workspace &app) {
+    const PersistChain chain = captureChain(app.chain);
+    if (chain.nodes.empty()) return 0.0;
+    auto value = chain.nodes[0].params.find("zoom");
+    if (value == chain.nodes[0].params.end()) return 0.0;
+    return value->second.d;
+  };
+
+  // Image A opens with no other image open, so its chain is restored without an
+  // answer. Its sidecar then records the chain that was built for it.
+  App app;
+  openPath(app, imageA);
+  if (rc == 0 && app.doc.path != imageA) rc = fail("open prompt: the first image did not open");
+  if (rc == 0 && app.gui.showSidecarPrompt) rc = fail("open prompt: the first image asked");
+  if (rc == 0) applyChain(app, makeChain(100.0));
+  if (rc == 0 && openZoom(app) != 100.0) rc = fail("open prompt: the chain of the first image did not apply");
+  if (rc == 0) saveCurrentInputSidecar(app.doc, app.chain);
+  if (rc == 0 && !saveInputSidecar(imageB, ColorSpace::sRGB, ColorSpace::sRGB, makeChain(300.0)))
+    rc = fail("open prompt: the sidecar of the second image was not written");
+
+  // Image B carries a saved chain of its own, so the open waits for the answer
+  // and leaves the document and the chain alone until it arrives.
+  if (rc == 0) {
+    openPath(app, imageB);
+    if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the open did not ask");
+    if (app.gui.pendingOpenPath != imageB) rc = fail("open prompt: the pending path is not the opened image");
+    if (app.doc.path != imageA) rc = fail("open prompt: the document changed before the answer");
+    if (openZoom(app) != 100.0) rc = fail("open prompt: the chain changed before the answer");
+  }
+  // Yes: the chain recorded in the sidecar wins.
+  if (rc == 0) {
+    resolvePendingOpen(app, true);
+    if (app.doc.path != imageB) rc = fail("open prompt: Yes did not open the image");
+    if (openZoom(app) != 300.0) rc = fail("open prompt: Yes did not restore the saved chain");
+  }
+  // No: the chain in place carries into the image, and the saved one is dropped.
+  if (rc == 0) {
+    openPath(app, imageA);
+    if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the second open did not ask");
+    resolvePendingOpen(app, false);
+    if (app.doc.path != imageA) rc = fail("open prompt: No did not open the image");
+    if (openZoom(app) != 300.0) rc = fail("open prompt: No did not keep the chain in place");
+  }
+  // An image with no sidecar needs no answer, and the chain carries into it.
+  if (rc == 0) {
+    openPath(app, imageC);
+    if (app.gui.showSidecarPrompt) rc = fail("open prompt: an image without a sidecar asked");
+    if (app.doc.path != imageC) rc = fail("open prompt: the third image did not open");
+    if (openZoom(app) != 300.0) rc = fail("open prompt: the chain did not carry into an image without a sidecar");
+  }
+  // A chain with no plugin holds no work, so the saved chain is restored without
+  // a question.
+  if (rc == 0 && !saveInputSidecar(imageA, ColorSpace::sRGB, ColorSpace::sRGB, makeChain(500.0)))
+    rc = fail("open prompt: the sidecar of the first image was not rewritten");
+  if (rc == 0) {
+    clearNodes(app);
+    openPath(app, imageA);
+    if (app.gui.showSidecarPrompt) rc = fail("open prompt: an empty chain asked");
+    if (openZoom(app) != 500.0) rc = fail("open prompt: the saved chain was not restored over an empty one");
+  }
+
+  if (rc == 0) std::printf("ok  open with sidecar prompt\n");
+
+#ifdef _WIN32
+  if (oldValue.empty()) _putenv_s(envKey, "");
+  else _putenv_s(envKey, oldValue.c_str());
+#else
+  if (oldValue.empty()) unsetenv(envKey);
+  else setenv(envKey, oldValue.c_str(), 1);
+#endif
+  fs::remove_all(base, ec);
+  return rc;
+}
+
 // The per-user settings file must round-trip the preference fields, so a
 // restart restores the theme, font, panel visibility, and export defaults. The
 // case points the config directory at a temp folder, so it never reads or
