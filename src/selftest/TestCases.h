@@ -2,7 +2,7 @@
 // order, because some cases depend on the plugin registry being loaded.
 #pragma once
 
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 
 // Decode, row order, and color conversion.
 int testTiffDecode();

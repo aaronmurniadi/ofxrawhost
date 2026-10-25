@@ -48,7 +48,7 @@ class WorkspaceRenderHost : public RenderHost {
 };
 
 struct Workspace {
-  DocumentState doc;
+  DocumentState document;
   GuiState gui;
   ChainState chain;
   Filmstrip filmstrip;
@@ -67,11 +67,11 @@ struct Workspace {
 
   std::mutex statusMutex;
   std::string status = "Open an image. Source is fed to the plugin as scene-linear.";
-  void setStatus(const std::string &s) {
+  void reportStatus(const std::string &s) {
     std::lock_guard<std::mutex> lock(statusMutex);
     status = s;
   }
-  std::string getStatus() {
+  std::string statusText() {
     std::lock_guard<std::mutex> lock(statusMutex);
     return status;
   }
@@ -79,21 +79,21 @@ struct Workspace {
 
 inline const ChainState &WorkspaceRenderHost::chain() const { return workspace_.chain; }
 
-inline const Image &WorkspaceRenderHost::fullImage() const { return workspace_.doc.full; }
+inline const Image &WorkspaceRenderHost::fullImage() const { return workspace_.document.full; }
 
-inline const Image &WorkspaceRenderHost::previewImage() const { return workspace_.doc.preview; }
+inline const Image &WorkspaceRenderHost::previewImage() const { return workspace_.document.preview; }
 
-inline Image &WorkspaceRenderHost::mutablePreviewImage() { return workspace_.doc.preview; }
+inline Image &WorkspaceRenderHost::mutablePreviewImage() { return workspace_.document.preview; }
 
-inline ColorSpace WorkspaceRenderHost::workingSpace() const { return workspace_.doc.workingSpace; }
+inline ColorSpace WorkspaceRenderHost::workingSpace() const { return workspace_.document.workingSpace; }
 
 inline ColorSpace WorkspaceRenderHost::outputSpace() const { return workspace_.chainOutputSpace.load(); }
 
 inline ColorSpace WorkspaceRenderHost::previewSpace() const { return workspace_.gui.previewSpace; }
 
 inline int WorkspaceRenderHost::projectLongEdge() const {
-  const int w = workspace_.doc.full.w;
-  const int h = workspace_.doc.full.h;
+  const int w = workspace_.document.full.w;
+  const int h = workspace_.document.full.h;
   if (w > h) return w;
   return h;
 }
@@ -102,4 +102,4 @@ inline int WorkspaceRenderHost::wantedPreviewMaxEdge() const { return previewMax
 
 inline bool WorkspaceRenderHost::quitting() const { return workspace_.quit.load(); }
 
-inline void WorkspaceRenderHost::reportStatus(const std::string &text) { workspace_.setStatus(text); }
+inline void WorkspaceRenderHost::reportStatus(const std::string &text) { workspace_.reportStatus(text); }

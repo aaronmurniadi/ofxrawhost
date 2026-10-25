@@ -4,8 +4,8 @@
 #include "services/NodeGraph.h"
 #include "services/ParamBridge.h"
 #include "engine/RenderWorker.h"
-#include "services/Session.h"
-#include "imgio/ImageIO.h"
+#include "services/StateMapping.h"
+#include "codecs/ImageIO.h"
 #include "persist/ProjectPersist.h"
 
 #include <algorithm>
@@ -18,14 +18,14 @@ namespace {
 
 // Moves a decoded image into the document. Pure state: the caller has already
 // stopped the render worker and decided what to do with the chain.
-void adoptDocument(DocumentState &doc, const std::string &path, Image &&img, ColorSpace detected,
+void adoptDocument(DocumentState &document, const std::string &path, Image &&img, ColorSpace detected,
                    ColorSpace working, const ImageMeta &meta) {
-  doc.path = path;
-  doc.full = std::move(img);
-  doc.fileSpace = detected;
-  doc.workingSpace = working;
-  doc.inputSpace = working;
-  doc.meta = meta;
+  document.path = path;
+  document.full = std::move(img);
+  document.fileSpace = detected;
+  document.workingSpace = working;
+  document.inputSpace = working;
+  document.meta = meta;
 }
 
 // A new image opens fit in view, so the zoom and pan of the previous one do not
@@ -40,7 +40,7 @@ void resetViewFor(GuiState &gui) {
 // the chain, and the chain itself.
 void applySidecarFor(Workspace &app, const PersistSidecar &sidecar) {
   // A sidecar that recorded a chain input space restores that choice.
-  app.doc.inputSpace = colorSpaceFromName(sidecar.chainInputColorSpace, app.doc.workingSpace);
+  app.document.inputSpace = colorSpaceFromName(sidecar.chainInputColorSpace, app.document.workingSpace);
   applyChain(app, sidecar.chain);
 }
 
@@ -50,7 +50,7 @@ void applySidecarFor(Workspace &app, const PersistSidecar &sidecar) {
 // only cue the user gets for it.
 void seedNoiseForOpenCamera(Workspace &app, const ImageMeta &meta) {
   if (seedNoiseModelParams(app) > 0)
-    app.setStatus("Denoise (profiled): " + meta.cameraMaker + " " + meta.cameraModel + " ISO " +
+    app.reportStatus("Denoise (profiled): " + meta.cameraMaker + " " + meta.cameraModel + " ISO " +
                   std::to_string(meta.iso) + " profile applied");
 }
 
@@ -58,7 +58,7 @@ void seedNoiseForOpenCamera(Workspace &app, const ImageMeta &meta) {
 // about: the image has a saved chain of its own, and the chain in place holds
 // plugins too, so the two cannot both survive the open.
 bool savedChainNeedsAnswer(const Workspace &app, const std::string &path) {
-  if (app.doc.path.empty() || app.doc.path == path) return false;
+  if (app.document.path.empty() || app.document.path == path) return false;
   if (app.chain.nodes.empty()) return false;
   PersistSidecar saved;
   return loadInputSidecar(path, saved) && !saved.chain.nodes.empty();
@@ -73,22 +73,22 @@ void openPathNow(Workspace &app, const std::string &path, bool useSavedChain) {
   ColorSpace working = ColorSpace::LinearRec709;
   ImageMeta meta;
   if (!loadImage(path, img, detected, working, &meta)) {
-    app.setStatus("Could not decode " + fs::path(path).filename().string());
+    app.reportStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
 
   const std::string name = fs::path(path).filename().string();
   app.render.waitIdle();  // worker reads inputSpace; stop it before swapping the image
-  adoptDocument(app.doc, path, std::move(img), detected, working, meta);
+  adoptDocument(app.document, path, std::move(img), detected, working, meta);
   resetViewFor(app.gui);
-  app.setStatus("Loaded " + name + " (" + colorSpaceName(detected) + ")");
+  app.reportStatus("Loaded " + name + " (" + colorSpaceName(detected) + ")");
   app.filmstrip.index = filmstripIndexForPath(app.filmstrip, path);
 
   PersistSidecar saved;
   if (!useSavedChain) {
     // The user chose the parameters of the image that was open, so they carry
     // into this image as they are.
-    app.setStatus("Loaded " + name + " with the parameters of the previous image");
+    app.reportStatus("Loaded " + name + " with the parameters of the previous image");
   } else if (loadInputSidecar(path, saved)) {
     applySidecarFor(app, saved);
   } else {
@@ -99,7 +99,7 @@ void openPathNow(Workspace &app, const std::string &path, bool useSavedChain) {
   // The chain carries the document input space into its first plugin, and no
   // sidecar may have run, so re-derive it for the image that is now open.
   syncChainColorSpaces(app);
-  persistWorkspace(app.doc, app.gui);
+  persistWorkspace(app.document, app.gui);
 }
 
 }  // namespace
@@ -107,42 +107,42 @@ void openPathNow(Workspace &app, const std::string &path, bool useSavedChain) {
 bool openWorkspace(Workspace &app, const std::string &dir) {
   std::error_code ec;
   if (!fs::is_directory(dir, ec)) {
-    app.setStatus("Not a directory");
+    app.reportStatus("Not a directory");
     return false;
   }
-  saveCurrentInputSidecar(app.doc, app.chain);
-  persistWorkspace(app.doc, app.gui);
-  app.doc.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
-  refreshFilmstrip(app.filmstrip, app.doc.workspaceDir, app.doc.path);
+  saveCurrentInputSidecar(app.document, app.chain);
+  persistWorkspace(app.document, app.gui);
+  app.document.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
+  refreshFilmstrip(app.filmstrip, app.document.workspaceDir, app.document.path);
   // The project records which image was open. Its chain lives in the sidecar of
   // that image, and the interface state lives in the settings file.
   std::string activeRel;
-  loadWorkspaceProject(app.doc.workspaceDir, activeRel);
+  loadWorkspaceProject(app.document.workspaceDir, activeRel);
   std::string toOpen;
   if (!activeRel.empty()) {
-    fs::path p = fs::path(app.doc.workspaceDir) / activeRel;
+    fs::path p = fs::path(app.document.workspaceDir) / activeRel;
     if (fs::is_regular_file(p, ec)) toOpen = p.string();
   }
   if (toOpen.empty() && !app.filmstrip.entries.empty()) toOpen = app.filmstrip.entries[0].path;
   if (!toOpen.empty())
     openPath(app, toOpen);
   else
-    app.setStatus("Directory: " + fs::path(app.doc.workspaceDir).filename().string() + " (no images)");
+    app.reportStatus("Directory: " + fs::path(app.document.workspaceDir).filename().string() + " (no images)");
   // An open that waits for the user to answer records the active image itself
   // once it finishes, so a half-finished open leaves the project alone.
-  if (app.gui.pendingOpenPath.empty()) persistWorkspace(app.doc, app.gui);
+  if (app.gui.pendingOpenPath.empty()) persistWorkspace(app.document, app.gui);
   app.gui.showFilmstrip = true;
   return true;
 }
 
 void openPath(Workspace &app, const std::string &path) {
   if (isHostMetadataPath(path)) {
-    app.setStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
+    app.reportStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
     return;
   }
   // The outgoing image keeps its own chain, so write its sidecar before the
   // document is replaced.
-  if (!app.doc.path.empty() && app.doc.path != path) saveCurrentInputSidecar(app.doc, app.chain);
+  if (!app.document.path.empty() && app.document.path != path) saveCurrentInputSidecar(app.document, app.chain);
 
   // A saved chain and the chain in place are both work, so the user picks which
   // one this image opens with. The open resumes when they answer.
@@ -163,7 +163,7 @@ void resolvePendingOpen(Workspace &app, bool useSavedChain) {
 }
 
 void setInputSpace(Workspace &app, int index) {
-  app.doc.inputSpace = outputSpace(std::clamp(index, 0, kColorSpaceCount - 1));
+  app.document.inputSpace = outputSpace(std::clamp(index, 0, kColorSpaceCount - 1));
   // The chain carries this space into its first plugin, and a later plugin can
   // change what leaves the chain, so the whole walk and a render are needed.
   syncChainColorSpaces(app);

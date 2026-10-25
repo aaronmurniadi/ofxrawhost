@@ -7,8 +7,8 @@
 #include "services/NodeGraph.h"
 #include "services/ParamBridge.h"
 #include "engine/RenderWorker.h"
-#include "imgio/ImageIO.h"
-#include "imgio/NoiseProfiles.h"
+#include "codecs/ImageIO.h"
+#include "codecs/NoiseProfiles.h"
 #include "ofx/OfxHost.h"
 #include "ofxParam.h"
 #include "persist/ProjectPersist.h"
@@ -68,10 +68,10 @@ int testDenoiseSeeding() {
   const int index = (int)(it - plugins().begin());
 
   App app;
-  app.doc.meta.hasCamera = true;
-  app.doc.meta.cameraMaker = "Fujifilm";
-  app.doc.meta.cameraModel = "X-M1";
-  app.doc.meta.iso = 6400;
+  app.document.meta.hasCamera = true;
+  app.document.meta.cameraMaker = "Fujifilm";
+  app.document.meta.cameraModel = "X-M1";
+  app.document.meta.iso = 6400;
   if (!addNode(app, index)) return fail("seeding: addNode");
   Param *slope = findParam(app.chain.nodes.back().instance.get(), "noiseSlope");
   Param *offset = findParam(app.chain.nodes.back().instance.get(), "noiseOffset");
@@ -483,16 +483,16 @@ int testChainColorSpaceFlow() {
   if (app.gui.previewSpace != ColorSpace::sRGB) return fail("chain space: preview default is not sRGB");
   if (app.gui.exportSpace != ColorSpace::sRGB) return fail("chain space: export default is not sRGB");
 
-  app.doc.fileSpace = ColorSpace::LinearRec709;
-  app.doc.workingSpace = ColorSpace::LinearRec709;
-  app.doc.inputSpace = ColorSpace::LinearRec709;
+  app.document.fileSpace = ColorSpace::LinearRec709;
+  app.document.workingSpace = ColorSpace::LinearRec709;
+  app.document.inputSpace = ColorSpace::LinearRec709;
   if (!addNode(app, (int)(it - plugins().begin()))) return fail("chain space: addNode");
   if (app.chainOutputSpace.load() != ColorSpace::LinearRec709) return fail("chain space: space not carried through");
 
   // The document input space reaches the chain output, because Transform declares
   // no output space of its own.
   setInputSpace(app, 0);  // sRGB
-  if (app.doc.inputSpace != ColorSpace::sRGB) return fail("chain space: input space not set");
+  if (app.document.inputSpace != ColorSpace::sRGB) return fail("chain space: input space not set");
   if (app.chainOutputSpace.load() != ColorSpace::sRGB) return fail("chain space: input space not carried");
 
   // The preview destination is the last conversion, so it must not move the

@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "core/Image.h"
-#include "imgio/FileFormats.h"
+#include "codecs/FileFormats.h"
 
 // Loads RAW via LibRaw (linear, camera WB), TIFF via libtiff, or PNG/JPEG/EXR via stb/tinyexr.
 // detected: inferred Input Color Space (RAW / untagged float → Linear Rec.2020; untagged LDR → sRGB;

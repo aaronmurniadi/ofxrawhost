@@ -3,7 +3,7 @@
 #include "services/Actions.h"
 #include "app/AppState.h"
 #include "core/RenderContext.h"
-#include "services/Session.h"
+#include "services/StateMapping.h"
 #include "model/Filmstrip.h"
 #include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
@@ -112,12 +112,12 @@ int runApp(const std::string &optionalPath) {
   if (app.gui.checkUpdatesAtStartup) app.updates.startCheck(hostVersion(), app.gui.updateChannel);
 
   // Plugin warnings and errors land in the status bar.
-  renderContext().setMessageSink([&app](const std::string &msg) { app.setStatus(msg); });
+  renderContext().setMessageSink([&app](const std::string &msg) { app.reportStatus(msg); });
   loadPlugins();
   if (plugins().empty())
-    app.setStatus("No OFX filter plugins found in the default OFX path or OFX_PLUGIN_PATH");
+    app.reportStatus("No OFX filter plugins found in the default OFX path or OFX_PLUGIN_PATH");
   else
-    app.setStatus("Add plugins with + to build a processing chain.");
+    app.reportStatus("Add plugins with + to build a processing chain.");
   if (!optionalPath.empty()) openPath(app, optionalPath);
 
   app.render.start();
@@ -131,7 +131,7 @@ int runApp(const std::string &optionalPath) {
 
   while (!glfwWindowShouldClose(app.window)) {
     glfwPollEvents();
-    app.render.pumpUpload(app.tex);
+    app.render.pumpUpload(app.previewTexture);
     pumpFilmstripThumbs(app.filmstrip);
     app.updates.pump();
 
@@ -161,12 +161,12 @@ int runApp(const std::string &optionalPath) {
   app.render.stop();
   if (app.filmstrip.thread.joinable()) app.filmstrip.thread.join();
   app.exporter.wait();
-  saveCurrentInputSidecar(app.doc, app.chain);
-  persistWorkspace(app.doc, app.gui);
+  saveCurrentInputSidecar(app.document, app.chain);
+  persistWorkspace(app.document, app.gui);
   clearNodes(app);
 
   freeFilmstripTextures(app.filmstrip);
-  app.tex.destroy();
+  app.previewTexture.destroy();
   ImGuiBackend_Shutdown();
 #if defined(__APPLE__)
   MacPinch_Shutdown();

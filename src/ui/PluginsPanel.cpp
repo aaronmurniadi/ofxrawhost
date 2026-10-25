@@ -1,7 +1,7 @@
 #include "ui/UiFrame.h"
 
 #include "services/Actions.h"
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "services/ParamBridge.h"
 #include "persist/ProjectPersist.h"
 #include "services/NodeGraph.h"
@@ -120,8 +120,8 @@ void drawPluginsPanel(Workspace &app) {
   // decoded buffer and is handed to the first plugin; a later plugin can change
   // what leaves the chain. The export color space and the rendering intent live
   // in the export dialog.
-  int inputSpace = static_cast<int>(app.doc.inputSpace);
-  ImGui::BeginDisabled(app.doc.full.px.empty());
+  int inputSpace = static_cast<int>(app.document.inputSpace);
+  ImGui::BeginDisabled(app.document.full.px.empty());
   if (uiChoiceCombo("Input colorspace", nullptr, kColorSpaces, kColorSpaceCount, &inputSpace))
     setInputSpace(app, inputSpace);
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -144,7 +144,7 @@ void drawPluginsPanel(Workspace &app) {
     if (uiChoiceCombo("Preview", nullptr, items, kPreviewResCount, &res)) setPreviewRes(app, res);
   }
   ImGui::Separator();
-  const std::string status = app.getStatus();
+  const std::string status = app.statusText();
   ImGui::TextWrapped("%s", status.c_str());
   ImGui::Separator();
 

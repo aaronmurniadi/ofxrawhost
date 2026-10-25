@@ -3,7 +3,7 @@
 #include "services/Workspace.h"
 #include "engine/ExportJob.h"
 #include "engine/ExportWorker.h"
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "persist/ProjectPersist.h"
 #include "services/ChainIO.h"
 
@@ -33,16 +33,16 @@ const char *exportExtension(ExportFormat fmt) {
 // so the document and the chain cannot move underneath it.
 ExportJob captureExportJob(Workspace &app, std::string outPath) {
   ExportJob job;
-  job.src = app.doc.full;
+  job.src = app.document.full;
   job.outPath = std::move(outPath);
-  job.sourcePath = app.doc.path;
-  job.previewW = app.doc.preview.w;
-  job.previewH = app.doc.preview.h;
+  job.sourcePath = app.document.path;
+  job.previewW = app.document.preview.w;
+  job.previewH = app.document.preview.h;
   // The chain writes the preview space; the export converts from it to the
   // chosen export space with the chosen rendering intent.
   job.chainSpace = app.chainOutputSpace;
   job.exportSpace = app.gui.exportSpace;
-  job.fileSpace = app.doc.fileSpace;
+  job.fileSpace = app.document.fileSpace;
   job.intent = app.gui.exportIntent;
   job.opts.bitDepth = app.gui.exportBitDepth;
   job.opts.quality = app.gui.exportQuality;
@@ -54,12 +54,12 @@ ExportJob captureExportJob(Workspace &app, std::string outPath) {
 
 }  // namespace
 
-bool canExport(const Workspace &app) { return !app.doc.full.px.empty() && !app.chain.nodes.empty(); }
+bool canExport(const Workspace &app) { return !app.document.full.px.empty() && !app.chain.nodes.empty(); }
 
 std::string defaultExportName(const Workspace &app) {
   // Keep the source name so exports land beside it, but add a suffix so the
   // default never overwrites the original image.
-  std::string stem = fs::path(app.doc.path).stem().string();
+  std::string stem = fs::path(app.document.path).stem().string();
   if (stem.empty()) stem = "export";
   else stem += "_export";
   return stem + exportExtension(app.gui.exportFormat);
@@ -73,8 +73,8 @@ void doExport(Workspace &app, const std::string &path) {
   // Wait for a quiet render before the job reads the document and the chain.
   app.render.waitIdle();
   ExportJob job = captureExportJob(app, std::move(outPath));
-  app.setStatus("Exporting full resolution...");
+  app.reportStatus("Exporting full resolution...");
   const bool started = app.exporter.start(app.chain, std::move(job), app.render.schedule(),
-                                          [&app](const ExportResult &result) { app.setStatus(result.message); });
-  if (!started) app.setStatus("Export already in progress");
+                                          [&app](const ExportResult &result) { app.reportStatus(result.message); });
+  if (!started) app.reportStatus("Export already in progress");
 }

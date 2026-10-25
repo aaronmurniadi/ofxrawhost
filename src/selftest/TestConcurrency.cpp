@@ -6,7 +6,7 @@
 #include "services/NodeGraph.h"
 #include "services/ParamBridge.h"
 #include "engine/RenderWorker.h"
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "ofx/OfxHost.h"
 #include "persist/ProjectPersist.h"
 
@@ -31,8 +31,8 @@ int testConcurrency(const Image &src) {
   if (transformPi < 0) return fail("concurrency: Transform plugin missing");
 
   App app;
-  app.doc.full = src;
-  app.doc.preview = src;
+  app.document.full = src;
+  app.document.preview = src;
   app.render.start();
   if (!addNode(app, transformPi)) return fail("concurrency addNode 1");
   for (int pi : usable)
@@ -43,9 +43,9 @@ int testConcurrency(const Image &src) {
   for (int k = 0; k < 8; ++k) {
     app.render.request();
     int ow = 0, oh = 0;
-    queryOutputSize(plugins()[app.chain.nodes[0].pluginIndex].plugin, app.chain.nodes[0].instance.get(), app.doc.preview.w,
-                    app.doc.preview.h, &ow, &oh);
-    if (ow != app.doc.preview.w || oh != app.doc.preview.h) return fail("concurrent queryOutputSize");
+    queryOutputSize(plugins()[app.chain.nodes[0].pluginIndex].plugin, app.chain.nodes[0].instance.get(), app.document.preview.w,
+                    app.document.preview.h, &ow, &oh);
+    if (ow != app.document.preview.w || oh != app.document.preview.h) return fail("concurrent queryOutputSize");
   }
   app.render.waitIdle();
 

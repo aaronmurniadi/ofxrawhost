@@ -5,9 +5,9 @@
 #include "app/AppState.h"
 #include "services/ChainIO.h"
 #include "services/NodeGraph.h"
-#include "services/Session.h"
+#include "services/StateMapping.h"
 #include "services/UpdateCheck.h"
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "ofx/OfxHost.h"
 #include "persist/ProjectPersist.h"
 #include "persist/ProjectPersistPriv.h"
@@ -367,11 +367,11 @@ int testOpenWithSidecarPrompt() {
   // answer. Its sidecar then records the chain that was built for it.
   App app;
   openPath(app, imageA);
-  if (rc == 0 && app.doc.path != imageA) rc = fail("open prompt: the first image did not open");
+  if (rc == 0 && app.document.path != imageA) rc = fail("open prompt: the first image did not open");
   if (rc == 0 && app.gui.showSidecarPrompt) rc = fail("open prompt: the first image asked");
   if (rc == 0) applyChain(app, makeChain(100.0));
   if (rc == 0 && openZoom(app) != 100.0) rc = fail("open prompt: the chain of the first image did not apply");
-  if (rc == 0) saveCurrentInputSidecar(app.doc, app.chain);
+  if (rc == 0) saveCurrentInputSidecar(app.document, app.chain);
   if (rc == 0 && !saveInputSidecar(imageB, ColorSpace::sRGB, ColorSpace::sRGB, makeChain(300.0)))
     rc = fail("open prompt: the sidecar of the second image was not written");
 
@@ -381,13 +381,13 @@ int testOpenWithSidecarPrompt() {
     openPath(app, imageB);
     if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the open did not ask");
     if (app.gui.pendingOpenPath != imageB) rc = fail("open prompt: the pending path is not the opened image");
-    if (app.doc.path != imageA) rc = fail("open prompt: the document changed before the answer");
+    if (app.document.path != imageA) rc = fail("open prompt: the document changed before the answer");
     if (openZoom(app) != 100.0) rc = fail("open prompt: the chain changed before the answer");
   }
   // Yes: the chain recorded in the sidecar wins.
   if (rc == 0) {
     resolvePendingOpen(app, true);
-    if (app.doc.path != imageB) rc = fail("open prompt: Yes did not open the image");
+    if (app.document.path != imageB) rc = fail("open prompt: Yes did not open the image");
     if (openZoom(app) != 300.0) rc = fail("open prompt: Yes did not restore the saved chain");
   }
   // No: the chain in place carries into the image, and the saved one is dropped.
@@ -395,14 +395,14 @@ int testOpenWithSidecarPrompt() {
     openPath(app, imageA);
     if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the second open did not ask");
     resolvePendingOpen(app, false);
-    if (app.doc.path != imageA) rc = fail("open prompt: No did not open the image");
+    if (app.document.path != imageA) rc = fail("open prompt: No did not open the image");
     if (openZoom(app) != 300.0) rc = fail("open prompt: No did not keep the chain in place");
   }
   // An image with no sidecar needs no answer, and the chain carries into it.
   if (rc == 0) {
     openPath(app, imageC);
     if (app.gui.showSidecarPrompt) rc = fail("open prompt: an image without a sidecar asked");
-    if (app.doc.path != imageC) rc = fail("open prompt: the third image did not open");
+    if (app.document.path != imageC) rc = fail("open prompt: the third image did not open");
     if (openZoom(app) != 300.0) rc = fail("open prompt: the chain did not carry into an image without a sidecar");
   }
   // A chain with no plugin holds no work, so the saved chain is restored without

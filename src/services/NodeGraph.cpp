@@ -54,10 +54,10 @@ static bool appendNode(Workspace &app, int pluginIndex) {
   node.pluginIndex = pluginIndex;
   node.instance = createInstance(plugins()[pluginIndex]);
   if (!node.instance) {
-    app.setStatus("Plugin failed to create an instance");
+    app.reportStatus("Plugin failed to create an instance");
     return false;
   }
-  if (app.doc.preview.w) node.instance->setInputSize(app.doc.preview.w, app.doc.preview.h);
+  if (app.document.preview.w) node.instance->setInputSize(app.document.preview.w, app.document.preview.h);
   for (auto &p : node.instance->params)
     if (p->type == kOfxParamTypeGroup) node.groupOpen[p->name] = dprop(p->props, kOfxParamPropGroupOpen, 0, 1) != 0;
   app.chain.nodes.push_back(std::move(node));

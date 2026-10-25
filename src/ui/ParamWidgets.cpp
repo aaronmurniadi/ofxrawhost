@@ -38,7 +38,7 @@ static void importSpektrafilmPreset(Workspace &app, Node &node) {
   if (files.empty()) return;
 
   const PresetImportResult result = importSpektrafilmPreset(node, files.front());
-  app.setStatus(result.message);
+  app.reportStatus(result.message);
   if (result.changed <= 0) return;
   syncChainColorSpaces(app);
   app.render.request();
@@ -60,10 +60,10 @@ static void exportSpektrafilmLut(Workspace &app, Node &node, Param *button) {
   const LutExportResult result = runSpektrafilmLutExport(node, button);
   if (result.produced.empty()) {
     // The plugin reports its own failure, so speak only when it stayed silent.
-    if (!result.reported) app.setStatus("The plugin did not report an exported LUT file");
+    if (!result.reported) app.reportStatus("The plugin did not report an exported LUT file");
     return;
   }
-  app.setStatus(placeLutExport(result.produced, target));
+  app.reportStatus(placeLutExport(result.produced, target));
 }
 
 // True for a string parameter the plugin marks as a file or directory path, so

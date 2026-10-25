@@ -1,6 +1,6 @@
 #pragma once
 
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 
 #include <cstdint>
 #include <string>

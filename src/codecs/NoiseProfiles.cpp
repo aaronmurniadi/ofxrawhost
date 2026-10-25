@@ -1,4 +1,4 @@
-#include "imgio/NoiseProfiles.h"
+#include "codecs/NoiseProfiles.h"
 
 #include "core/Json.h"
 #include "platform/EmbeddedResource.h"

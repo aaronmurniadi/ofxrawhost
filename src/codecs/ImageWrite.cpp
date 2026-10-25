@@ -1,5 +1,5 @@
-#include "imgio/ImageIO.h"
-#include "imgio/ImageIOPriv.h"
+#include "codecs/ImageIO.h"
+#include "codecs/ImageIOPriv.h"
 
 #include <jxl/encode.h>
 #include <jxl/thread_parallel_runner.h>

@@ -56,20 +56,20 @@ void drawPreviewPanel(App &app) {
   app.gui.previewAreaW = (int)std::lround(canvasSize.x * fbScale.x);
   app.gui.previewAreaH = (int)std::lround(canvasSize.y * fbScale.y);
 
-  if (!app.tex.id) {
+  if (!app.previewTexture.id) {
     dl->AddText(ImVec2(canvasPos.x + 8.0f, canvasPos.y + 8.0f), ImGui::GetColorU32(ImGuiCol_Text),
                 "Open an image to preview.");
     return;
   }
 
-  const float fit = std::min(canvasSize.x / (float)app.tex.w, canvasSize.y / (float)app.tex.h);
-  const float dispW = app.tex.w * fit * app.gui.previewZoom;
-  const float dispH = app.tex.h * fit * app.gui.previewZoom;
+  const float fit = std::min(canvasSize.x / (float)app.previewTexture.w, canvasSize.y / (float)app.previewTexture.h);
+  const float dispW = app.previewTexture.w * fit * app.gui.previewZoom;
+  const float dispH = app.previewTexture.h * fit * app.gui.previewZoom;
   const ImVec2 p0(canvasPos.x + canvasSize.x * 0.5f + app.gui.previewPanX - dispW * 0.5f,
                   canvasPos.y + canvasSize.y * 0.5f + app.gui.previewPanY - dispH * 0.5f);
   const ImVec2 p1(p0.x + dispW, p0.y + dispH);
   dl->PushClipRect(canvasPos, canvasMax, true);
-  dl->AddImage((ImTextureID)(intptr_t)app.tex.id, p0, p1);
+  dl->AddImage((ImTextureID)(intptr_t)app.previewTexture.id, p0, p1);
   dl->PopClipRect();
   char zoomLbl[32];
   std::snprintf(zoomLbl, sizeof zoomLbl, "%.0f%%", app.gui.previewZoom * 100.0f);
@@ -78,8 +78,8 @@ void drawPreviewPanel(App &app) {
   const float zoomY = canvasPos.y + canvasSize.y - overlayTextH - kOverlayPad;
   // On a panel too short to hold both bands the name yields: the zoom level has
   // no other home, and two overlapping labels would be unreadable.
-  if (!app.doc.path.empty() && canvasPos.y + kOverlayPad + overlayTextH <= zoomY) {
-    const std::string name = fs::path(app.doc.path).filename().string();
+  if (!app.document.path.empty() && canvasPos.y + kOverlayPad + overlayTextH <= zoomY) {
+    const std::string name = fs::path(app.document.path).filename().string();
     previewOverlayText(dl, ImVec2(canvasPos.x + kOverlayPad, canvasPos.y + kOverlayPad), overlayMaxW,
                        ImGui::GetColorU32(ImGuiCol_TextDisabled), name.c_str());
   }
@@ -110,8 +110,8 @@ void drawPreviewPanel(App &app) {
       const ImVec2 mouse = ImGui::GetIO().MousePos;
       const float ox = canvasPos.x + canvasSize.x * 0.5f + app.gui.previewPanX;
       const float oy = canvasPos.y + canvasSize.y * 0.5f + app.gui.previewPanY;
-      const float oldW = app.tex.w * fit * oldZoom, oldH = app.tex.h * fit * oldZoom;
-      const float newW = app.tex.w * fit * app.gui.previewZoom, newH = app.tex.h * fit * app.gui.previewZoom;
+      const float oldW = app.previewTexture.w * fit * oldZoom, oldH = app.previewTexture.h * fit * oldZoom;
+      const float newW = app.previewTexture.w * fit * app.gui.previewZoom, newH = app.previewTexture.h * fit * app.gui.previewZoom;
       // Keep the image point under the cursor still. Fall back to the centre
       // when the previous frame had no size to map against.
       float u = 0.5f;

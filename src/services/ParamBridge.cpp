@@ -1,8 +1,8 @@
 #include "services/ParamBridge.h"
 #include "core/RenderContext.h"
 
-#include "imgio/ImageIO.h"
-#include "imgio/NoiseProfiles.h"
+#include "codecs/ImageIO.h"
+#include "codecs/NoiseProfiles.h"
 #include "ofx/OfxHost.h"
 #include "ofxImageEffect.h"
 #include "ofxParam.h"
@@ -77,7 +77,7 @@ void syncChainColorSpaces(Workspace &app) {
   // and every later plugin is told the space the previous plugin declares. The
   // space that leaves the last enabled plugin is what the preview and the export
   // start from.
-  ColorSpace carried = app.doc.inputSpace;
+  ColorSpace carried = app.document.inputSpace;
   std::vector<Node *> changedNodes;
   std::vector<Param *> changedParams;
   {
@@ -116,9 +116,9 @@ static Param *writeNodeDoubleParam(Node &node, const char *label, double value) 
 }
 
 int seedNoiseModelParams(Workspace &app, Node &node) {
-  if (!node.instance || !app.doc.meta.hasCamera || app.doc.meta.iso <= 0) return 0;
+  if (!node.instance || !app.document.meta.hasCamera || app.document.meta.iso <= 0) return 0;
   NoiseProfile profile;
-  if (!noiseProfileLookup(app.doc.meta.cameraMaker, app.doc.meta.cameraModel, app.doc.meta.iso, profile)) return 0;
+  if (!noiseProfileLookup(app.document.meta.cameraMaker, app.document.meta.cameraModel, app.document.meta.iso, profile)) return 0;
 
   std::vector<Param *> changed;
   {

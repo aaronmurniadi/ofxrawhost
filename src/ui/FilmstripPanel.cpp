@@ -22,7 +22,7 @@ static const FilmstripTabItem kFilmstripTabs[] = {
 };
 
 void drawFilmstripPanel(Workspace &app) {
-  if (app.doc.workspaceDir.empty() || app.filmstrip.entries.empty()) {
+  if (app.document.workspaceDir.empty() || app.filmstrip.entries.empty()) {
     ImGui::TextDisabled("Open a directory to browse images.");
     return;
   }

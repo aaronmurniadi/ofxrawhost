@@ -29,7 +29,7 @@ services/   use-cases: document, chain, session, persist    -> engine, io, model
 engine/     ChainRenderer, RenderWorker, ExportWorker       -> model, ofx, core
 model/      Document, Chain, GuiState, RenderState, Filmstrip -> core, gfx
 ofx/        OpenFX SDK adapter                              -> io, core
-io/         imgio codecs + persist storage                  -> core
+io/         codecs + persist storage                  -> core
 gfx/        GlTexture (leaf, no ImGui, no GL in headers)    -> nothing
 core/       Image, ColorSpace, Json, UpdateChannel, Status   -> nothing
 platform/   Paths, Http, Console, Report, fonts             -> core
@@ -72,7 +72,7 @@ include, and the self-test has to ship inside the product binary.
 - Delete the empty `src/video/` tree.
 - CI: the self-test job fails the build instead of warning.
 
-**Accept:** a wrong-direction include does not compile; `--selftest` still passes; the
+**Accept:** a wrong-direction include fails to link; `--selftest` still passes; the
 deprecated `--selftest` flag on the app binary keeps working for one release
 (alias to the test binary) so `build.sh` and the release smoke tests do not break.
 
@@ -269,7 +269,7 @@ engine/     ChainRenderer, RenderWorker, ExportWorker,
             RenderHost, RenderSchedule, jobs                -> ofx, io, model, gfx, core
 ofx/        suite files (props, params+effects, runtime), plugins,
             Metal bridge                                    -> io, platform, core
-io/         imgio codecs + persist storage                   -> core, platform
+io/         codecs + persist storage                   -> core, platform
 model/      Document, Chain, GuiState, Filmstrip             -> core, gfx
 gfx/        GlTexture                                        -> core, glfw
 core/       Image, Json, RenderContext, Version, UpdateChannel, Perf -> nothing

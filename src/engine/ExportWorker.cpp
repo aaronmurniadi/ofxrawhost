@@ -1,7 +1,7 @@
 #include "engine/ExportWorker.h"
 
 #include "engine/ChainRenderer.h"
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "ofx/OfxRegistry.h"
 #include "persist/ProjectPersist.h"
 

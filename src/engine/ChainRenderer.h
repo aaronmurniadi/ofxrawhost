@@ -4,7 +4,7 @@
 #pragma once
 
 #include "model/Chain.h"
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "ofx/OfxRegistry.h"
 #include "ofxCore.h"
 

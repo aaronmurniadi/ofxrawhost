@@ -1,6 +1,6 @@
 #include "model/Filmstrip.h"
 
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "persist/ProjectPersist.h"
 
 #if defined(__APPLE__)

@@ -4,7 +4,7 @@
 #include "services/Actions.h"
 #include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
-#include "services/Session.h"
+#include "services/StateMapping.h"
 #include "persist/ProjectPersist.h"
 #include "platform/SystemUiFont.h"
 #include "engine/RenderWorker.h"
@@ -78,9 +78,9 @@ static void drawMenuBar(App &app) {
         if (!r.empty()) app.gui.pendingWorkspaceDir = r;
       }
       if (ImGui::MenuItem("Save Project")) {
-        saveCurrentInputSidecar(app.doc, app.chain);
-        persistWorkspace(app.doc, app.gui);
-        app.setStatus("Saved project and sidecar");
+        saveCurrentInputSidecar(app.document, app.chain);
+        persistWorkspace(app.document, app.gui);
+        app.reportStatus("Saved project and sidecar");
       }
 #ifdef __APPLE__
       if (ImGui::MenuItem("Export", "⌘+E")) exportImage(app);
@@ -352,7 +352,7 @@ static void drawDevBuildWarning(App &app) {
     ImGui::OpenPopup("Development build");
     app.gui.showDevBuildWarning = false;
     app.gui.devBuildWarningShown = true;
-    persistWorkspace(app.doc, app.gui);
+    persistWorkspace(app.document, app.gui);
   }
   if (!ImGui::BeginPopupModal("Development build", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
@@ -363,7 +363,7 @@ static void drawDevBuildWarning(App &app) {
   ImGui::Spacing();
   if (ImGui::Button("Yes, turn it off", ImVec2(160.0f, 0.0f))) {
     app.gui.checkUpdatesAtStartup = false;
-    persistWorkspace(app.doc, app.gui);
+    persistWorkspace(app.document, app.gui);
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();
@@ -411,7 +411,7 @@ static void drawSettingsModal(App &app) {
 // "Fit to preview" follows the preview panel size. Wait for the size to settle,
 // so dragging a dock splitter does not queue a rebuild on every frame.
 static void applyFitPreviewSize(App &app) {
-  if (app.gui.previewRes != PreviewRes::Fit || app.doc.full.px.empty()) return;
+  if (app.gui.previewRes != PreviewRes::Fit || app.document.full.px.empty()) return;
   if (previewMaxEdge(app.gui) == app.render.builtPreviewMaxEdge()) {
     app.gui.previewFitSettleTime = 0.0;
     return;
@@ -445,7 +445,7 @@ static void drawResetParamsConfirm(App &app) {
     ImGui::CloseCurrentPopup();
     if (node) {
       const int count = resetNodeParamsToDefaults(app, *node);
-      app.setStatus("Reset " + std::to_string(count) + " parameters of " + label);
+      app.reportStatus("Reset " + std::to_string(count) + " parameters of " + label);
     }
   }
   ImGui::SameLine();

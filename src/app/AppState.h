@@ -11,5 +11,5 @@ struct GLFWwindow;
 // Workspace&, so they cannot reach either one.
 struct App : Workspace {
   GLFWwindow *window = nullptr;
-  GlTexture tex;
+  GlTexture previewTexture;
 };

@@ -1,4 +1,4 @@
-#include "services/Session.h"
+#include "services/StateMapping.h"
 
 #include "services/Workspace.h"
 #include "services/ChainIO.h"
@@ -59,9 +59,9 @@ void applyAppearance(GuiState &gui, const PersistAppearance &appearance) {
   gui.fontApplyPending = true;
 }
 
-void saveCurrentInputSidecar(const DocumentState &doc, const ChainState &chain) {
-  if (doc.path.empty()) return;
-  saveInputSidecar(doc.path, doc.fileSpace, doc.inputSpace, captureChain(chain));
+void saveCurrentInputSidecar(const DocumentState &document, const ChainState &chain) {
+  if (document.path.empty()) return;
+  saveInputSidecar(document.path, document.fileSpace, document.inputSpace, captureChain(chain));
 }
 
 PersistUpdates captureUpdates(const GuiState &gui) {
@@ -83,12 +83,12 @@ void applyUpdates(GuiState &gui, const PersistUpdates &u) {
   gui.devBuildWarningShown = u.devWarningShown;
 }
 
-void persistWorkspace(const DocumentState &doc, const GuiState &gui) {
+void persistWorkspace(const DocumentState &document, const GuiState &gui) {
   // The per-user preferences file always reflects the current session, even when
   // no workspace is open, so the next start restores the theme, font, and view.
   saveGlobalSettings(captureGui(gui), captureAppearance(gui), captureUpdates(gui));
-  if (doc.workspaceDir.empty()) return;
+  if (document.workspaceDir.empty()) return;
   std::string active;
-  if (!doc.path.empty()) active = relativeToWorkspace(doc.workspaceDir, doc.path);
-  saveWorkspaceProject(doc.workspaceDir, active);
+  if (!document.path.empty()) active = relativeToWorkspace(document.workspaceDir, document.path);
+  saveWorkspaceProject(document.workspaceDir, active);
 }

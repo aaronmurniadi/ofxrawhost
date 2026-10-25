@@ -2,7 +2,7 @@
 #include "persist/ProjectPersistPriv.h"
 
 #include "core/Image.h"
-#include "imgio/FileFormats.h"
+#include "codecs/FileFormats.h"
 #include "platform/Paths.h"
 
 #include <algorithm>

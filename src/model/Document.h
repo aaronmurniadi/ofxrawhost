@@ -1,8 +1,8 @@
 // The open image and its workspace context. A plain data holder: the document
-// commands live in Actions.cpp, and its capture and restore in Session.cpp.
+// commands live in Actions.cpp, and its capture and restore in StateMapping.cpp.
 #pragma once
 
-#include "imgio/ImageIO.h"
+#include "core/Image.h"
 
 #include <string>
 

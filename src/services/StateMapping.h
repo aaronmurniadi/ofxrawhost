@@ -4,7 +4,7 @@
 // each field belongs to.
 //
 // Every entry point takes the narrow state unit it touches, never App. A caller
-// that owns an App passes the unit it needs (app.gui, app.doc, app.chain).
+// that owns an App passes the unit it needs (app.gui, app.document, app.chain).
 #pragma once
 
 #include "persist/ProjectPersist.h"
@@ -29,7 +29,7 @@ void applyUpdates(GuiState &gui, const PersistUpdates &u);
 
 // Writes the sidecar of the open image, if there is one. The chain travels with
 // it, so the caller supplies both units.
-void saveCurrentInputSidecar(const DocumentState &doc, const ChainState &chain);
+void saveCurrentInputSidecar(const DocumentState &document, const ChainState &chain);
 // Writes the per-user settings file, and the workspace project when a workspace
 // is open.
-void persistWorkspace(const DocumentState &doc, const GuiState &gui);
+void persistWorkspace(const DocumentState &document, const GuiState &gui);

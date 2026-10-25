@@ -320,7 +320,7 @@ clang-tidy -p build src/services/ChainIO.cpp
 | Workspace folder + filmstrip thumbnails                                         | Done (v0.3.7)  |
 | Project / sidecar JSON (reproducible chain + export metadata)                   | Done (v0.3.7)  |
 | ImGui DockSpace layout + modular UI modules                                     | Done (v0.3.7)  |
-| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)                      | Done (v0.3.8)  |
+| Layered source layout (`codecs` / `ofx` / `persist` / `ui`)                      | Done (v0.3.8)  |
 | Correct JPEG/PNG passthrough preview color                                      | Done (v0.3.8)  |
 | Cached display buffer + Output tag recolor without re-render                    | Done (v0.3.9)  |
 | OFX multi-thread worker pool                                                    | Done (v0.3.9)  |
@@ -371,7 +371,7 @@ clang-tidy -p build src/services/ChainIO.cpp
 | Linux: AppImage embeds update information and publishes its .zsync              | Done (v0.4.3)  |
 | Refactor: `persist` is storage only; session / chain / export services own App   | Done (v0.4.3)  |
 | Refactor: self-test cases split into `src/selftest/Test*.cpp` modules            | Done (v0.4.3)  |
-| Refactor: one CMake target per layer; a wrong-direction include does not compile | Done (v0.4.4)  |
+| Refactor: one CMake target per layer; link edges are one-directional            | Done (v0.4.4)  |
 | Refactor: shared value types in `core/`; `imgio` and `persist` no longer cycle   | Done (v0.4.4)  |
 | Refactor: `RenderWorker` / `ExportWorker` replace the render free functions      | Done (v0.4.4)  |
 | Refactor: no mutable render globals; `RenderContext` and `OfxRegistry` own state | Done (v0.4.4)  |
@@ -379,7 +379,7 @@ clang-tidy -p build src/services/ChainIO.cpp
 | Refactor: parameter values are `JsonValue`; one JSON parser, no hand-rolled text | Done (v0.4.4)  |
 | Refactor: plugin preset/LUT policy out of the widgets; `drawParam` split        | Done (v0.4.4)  |
 | Refactor: OFX suites split per suite file; self-test is its own binary and gates CI | Done (v0.4.4) |
-| Style: `.clang-tidy` plus a CI gate; no conditional operators left in the tree  | Done (v0.4.4)  |
+| Style: `.clang-tidy`; no conditional operators left in the tree                 | Done (v0.4.4)  |
 
 ---
 

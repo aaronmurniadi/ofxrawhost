@@ -136,7 +136,7 @@ endif()
 #   services/   use-cases, persistence      -> engine ofx io model core
 #   engine/     chain rendering, scheduling -> ofx io model gfx core
 #   ofx/        OpenFX SDK adapter          -> io core platform
-#   io/         imgio codecs, persist       -> core platform
+#   io/         codecs, persist       -> core platform
 #   model/      state units, no ImGui       -> core gfx
 #   gfx/        GlTexture                   -> nothing
 #   core/       Image, Json, version        -> nothing
@@ -173,10 +173,10 @@ endif()
 target_link_libraries(ofxrawhost_platform PUBLIC ofxrawhost_core)
 
 add_library(ofxrawhost_io STATIC
-  src/imgio/ImageLoad.cpp
-  src/imgio/ImageColor.cpp
-  src/imgio/ImageWrite.cpp
-  src/imgio/NoiseProfiles.cpp
+  src/codecs/ImageLoad.cpp
+  src/codecs/ImageColor.cpp
+  src/codecs/ImageWrite.cpp
+  src/codecs/NoiseProfiles.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
   third_party/tinyexr/tinyexr.cc
@@ -261,7 +261,7 @@ add_library(ofxrawhost_services STATIC
   src/services/Actions.cpp
   src/services/NodeGraph.cpp
   src/services/Export.cpp
-  src/services/Session.cpp
+  src/services/StateMapping.cpp
   src/services/ChainIO.cpp
   src/services/ParamBridge.cpp
   src/services/ParamEdit.cpp

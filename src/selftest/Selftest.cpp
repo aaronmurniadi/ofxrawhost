@@ -7,7 +7,7 @@
 #include "selftest/TestCases.h"
 #include "selftest/TestSupport.h"
 
-#include "imgio/ImageIO.h"
+#include "codecs/ImageIO.h"
 #include "ofx/OfxHost.h"
 
 #include <cmath>
