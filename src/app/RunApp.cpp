@@ -131,6 +131,9 @@ int runApp(const std::string &optionalPath) {
 
   while (!glfwWindowShouldClose(app.window)) {
     glfwPollEvents();
+    // Applies a decode that finished this frame, so the interface keeps drawing
+    // while a RAW develops instead of blocking on it.
+    pumpOpen(app);
     app.render.pumpUpload(app.previewTexture);
     pumpFilmstripThumbs(app.filmstrip);
     app.updates.pump();
@@ -155,6 +158,7 @@ int runApp(const std::string &optionalPath) {
     glfwSwapBuffers(app.window);
   }
 
+  app.opener.wait();
   app.render.stop();
   {
     std::lock_guard<std::mutex> lock(app.filmstrip.mutex);

@@ -37,6 +37,31 @@ static void previewOverlayText(ImDrawList *dl, const ImVec2 pos, float maxWidth,
   ImGui::PopStyleColor();
 }
 
+// A spinner is the only feedback the user gets while a RAW develops, because the
+// decode runs on its own thread and the window stays responsive. The arc is
+// drawn from the frame clock, so it turns.
+static void drawOpeningSpinner(ImDrawList *dl, const ImVec2 center, float radius, ImU32 col) {
+  constexpr float kPi = 3.14159265f;
+  const float turn = (float)ImGui::GetTime() * 2.6f;
+  dl->PathClear();
+  dl->PathArcTo(center, radius, turn, turn + kPi * 1.25f, 40);
+  dl->PathStroke(col, 0, 3.0f);
+}
+
+// The block shown over the canvas while an image is being decoded.
+static void drawOpeningState(ImDrawList *dl, const ImVec2 canvasPos, const ImVec2 canvasSize, const std::string &name) {
+  const ImVec2 canvasMax(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y);
+  dl->AddRectFilled(canvasPos, canvasMax, IM_COL32(0, 0, 0, 140));
+  const ImVec2 center(canvasPos.x + canvasSize.x * 0.5f, canvasPos.y + canvasSize.y * 0.5f);
+  const ImU32 accent = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+  drawOpeningSpinner(dl, ImVec2(center.x, center.y - 12.0f), 16.0f, accent);
+  char label[192];
+  if (name.empty()) std::snprintf(label, sizeof label, "Opening\xE2\x80\xA6");
+  else std::snprintf(label, sizeof label, "Opening %s\xE2\x80\xA6", name.c_str());
+  const ImVec2 textSize = ImGui::CalcTextSize(label);
+  dl->AddText(ImVec2(center.x - textSize.x * 0.5f, center.y + 16.0f), ImGui::GetColorU32(ImGuiCol_Text), label);
+}
+
 void drawPreviewPanel(App &app) {
   const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
   const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
@@ -55,6 +80,14 @@ void drawPreviewPanel(App &app) {
   const ImVec2 fbScale = ImGui::GetIO().DisplayFramebufferScale;
   app.gui.previewAreaW = (int)std::lround(canvasSize.x * fbScale.x);
   app.gui.previewAreaH = (int)std::lround(canvasSize.y * fbScale.y);
+
+  // A decode in flight covers the canvas, so the user sees progress instead of a
+  // frozen window. The previous image stays underneath until the new one lands.
+  if (app.opener.busy()) {
+    const std::string name = std::filesystem::path(app.opener.path()).filename().string();
+    drawOpeningState(dl, canvasPos, canvasSize, name);
+    return;
+  }
 
   if (!app.previewTexture.id) {
     dl->AddText(ImVec2(canvasPos.x + 8.0f, canvasPos.y + 8.0f), ImGui::GetColorU32(ImGuiCol_Text),

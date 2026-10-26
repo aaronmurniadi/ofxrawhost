@@ -20,12 +20,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -306,6 +308,16 @@ int testStateFilesAreAppLevel() {
 // opening an image that has a sidecar while another image is open stops and
 // asks instead of choosing. The answer decides the chain the image opens with,
 // and nothing about the open may change before it arrives.
+// Opening decodes on a worker thread now, so a case that opens waits for the
+// decode and applies it the way the frame loop does before asserting on it.
+static bool finishOpen(Workspace &app) {
+  // An open that stopped to ask which chain to use starts no decode, so an idle
+  // worker is a pass, not a failure.
+  for (int i = 0; i < 4000 && app.opener.busy(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  pumpOpen(app);
+  return !app.opener.busy();
+}
+
 int testOpenWithSidecarPrompt() {
   auto it = std::find_if(plugins().begin(), plugins().end(),
                          [](const PluginEntry &pe) { return pe.label == "Transform"; });
@@ -367,6 +379,7 @@ int testOpenWithSidecarPrompt() {
   // answer. Its sidecar then records the chain that was built for it.
   App app;
   openPath(app, imageA);
+  if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
   if (rc == 0 && app.document.path != imageA) rc = fail("open prompt: the first image did not open");
   if (rc == 0 && app.gui.showSidecarPrompt) rc = fail("open prompt: the first image asked");
   if (rc == 0) applyChain(app, makeChain(100.0));
@@ -379,6 +392,7 @@ int testOpenWithSidecarPrompt() {
   // and leaves the document and the chain alone until it arrives.
   if (rc == 0) {
     openPath(app, imageB);
+    if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the open did not ask");
     if (app.gui.pendingOpenPath != imageB) rc = fail("open prompt: the pending path is not the opened image");
     if (app.document.path != imageA) rc = fail("open prompt: the document changed before the answer");
@@ -387,20 +401,24 @@ int testOpenWithSidecarPrompt() {
   // Yes: the chain recorded in the sidecar wins.
   if (rc == 0) {
     resolvePendingOpen(app, true);
+    if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.document.path != imageB) rc = fail("open prompt: Yes did not open the image");
     if (openZoom(app) != 300.0) rc = fail("open prompt: Yes did not restore the saved chain");
   }
   // No: the chain in place carries into the image, and the saved one is dropped.
   if (rc == 0) {
     openPath(app, imageA);
+    if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the second open did not ask");
     resolvePendingOpen(app, false);
+    if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.document.path != imageA) rc = fail("open prompt: No did not open the image");
     if (openZoom(app) != 300.0) rc = fail("open prompt: No did not keep the chain in place");
   }
   // An image with no sidecar needs no answer, and the chain carries into it.
   if (rc == 0) {
     openPath(app, imageC);
+    if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.gui.showSidecarPrompt) rc = fail("open prompt: an image without a sidecar asked");
     if (app.document.path != imageC) rc = fail("open prompt: the third image did not open");
     if (openZoom(app) != 300.0) rc = fail("open prompt: the chain did not carry into an image without a sidecar");
@@ -412,6 +430,7 @@ int testOpenWithSidecarPrompt() {
   if (rc == 0) {
     clearNodes(app);
     openPath(app, imageA);
+    if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.gui.showSidecarPrompt) rc = fail("open prompt: an empty chain asked");
     if (openZoom(app) != 500.0) rc = fail("open prompt: the saved chain was not restored over an empty one");
   }

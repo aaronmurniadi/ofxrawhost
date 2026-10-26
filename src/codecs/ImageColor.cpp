@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <mutex>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -58,7 +59,18 @@ static cmsHPROFILE makeProfile(ColorSpace cs) {
 // Cache for deterministic ICC profiles, serialized bytes, and CMS transforms.
 // Profiles are recreated from scratch on every call without this cache, which is
 // expensive (lcms2 profile building + CMS transform linking) and called per-frame.
-static cmsHPROFILE cachedProfile(ColorSpace cs) {
+//
+// The cache is shared: the render worker encodes a display frame while the
+// interface thread decodes an image, so the first fill of an entry is a data
+// race without a lock. The leaf accessors take one lock and the callers above
+// them use the unlocked variants, so no path takes it twice.
+static std::mutex &cacheMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+// Callers must hold cacheMutex().
+static cmsHPROFILE cachedProfileLocked(ColorSpace cs) {
   static std::array<cmsHPROFILE, 4> profiles{};
   const int idx = (int)cs;
   if (!profiles[idx]) profiles[idx] = makeProfile(cs);
@@ -66,17 +78,24 @@ static cmsHPROFILE cachedProfile(ColorSpace cs) {
 }
 
 static cmsHPROFILE srgbProfile() {
+  // A function-local static is initialized exactly once, guarded by the runtime.
   static cmsHPROFILE p = cmsCreate_sRGBProfile();
   return p;
 }
 
-static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
+static cmsHPROFILE cachedProfile(ColorSpace cs) {
+  std::lock_guard<std::mutex> lock(cacheMutex());
+  return cachedProfileLocked(cs);
+}
+
+// Callers must hold cacheMutex().
+static const std::vector<uint8_t> &cachedIccBytesLocked(ColorSpace cs) {
   static std::array<std::vector<uint8_t>, 4> bytes{};
   static std::array<bool, 4> tried{};
   const int idx = (int)cs;
   if (tried[idx]) return bytes[idx];
   tried[idx] = true;
-  cmsHPROFILE p = cachedProfile(cs);
+  cmsHPROFILE p = cachedProfileLocked(cs);
   if (!p) return bytes[idx];
   cmsUInt32Number n = 0;
   if (cmsSaveProfileToMem(p, nullptr, &n) && n > 0) {
@@ -89,18 +108,29 @@ static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
   return bytes[idx];
 }
 
-static cmsHTRANSFORM cachedTransform(ColorSpace cs) {
+static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
+  std::lock_guard<std::mutex> lock(cacheMutex());
+  return cachedIccBytesLocked(cs);
+}
+
+// Callers must hold cacheMutex().
+static cmsHTRANSFORM cachedTransformLocked(ColorSpace cs) {
   static std::array<cmsHTRANSFORM, 4> transforms{};
   static std::array<bool, 4> tried{};
   const int idx = (int)cs;
   if (tried[idx]) return transforms[idx];
   tried[idx] = true;
-  cmsHPROFILE src = cachedProfile(cs);
+  cmsHPROFILE src = cachedProfileLocked(cs);
   cmsHPROFILE dst = srgbProfile();
   if (src && dst)
     transforms[idx] = cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_8, INTENT_RELATIVE_COLORIMETRIC,
                                          cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
   return transforms[idx];
+}
+
+static cmsHTRANSFORM cachedTransform(ColorSpace cs) {
+  std::lock_guard<std::mutex> lock(cacheMutex());
+  return cachedTransformLocked(cs);
 }
 
 bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out) {

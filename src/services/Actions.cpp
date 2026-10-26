@@ -64,35 +64,26 @@ bool savedChainNeedsAnswer(const Workspace &app, const std::string &path) {
   return loadInputSidecar(path, saved) && !saved.chain.nodes.empty();
 }
 
-// The open itself: decode the image, replace the document, and set the chain the
-// caller picked. Runs when the image has no sidecar, or when the user has
-// answered which chain it opens with.
-void openPathNow(Workspace &app, const std::string &path, bool useSavedChain) {
-  Image img;
-  ColorSpace detected = ColorSpace::LinearRec2020;
-  ColorSpace working = ColorSpace::LinearRec709;
-  ImageMeta meta;
-  if (!loadImage(path, img, detected, working, &meta)) {
-    app.reportStatus("Could not decode " + fs::path(path).filename().string());
-    return;
-  }
-
-  const std::string name = fs::path(path).filename().string();
+// Applies a finished decode. Everything here is fast and runs on the interface
+// thread: the slow part was the decode, which the worker already did.
+void applyDecoded(Workspace &app, DecodedImage &&decoded) {
+  const std::string name = fs::path(decoded.path).filename().string();
   app.render.waitIdle();  // worker reads inputSpace; stop it before swapping the image
-  adoptDocument(app.document, path, std::move(img), detected, working, meta);
+  adoptDocument(app.document, decoded.path, std::move(decoded.full), decoded.fileSpace, decoded.workingSpace,
+                decoded.meta);
   resetViewFor(app.gui);
-  app.reportStatus("Loaded " + name + " (" + colorSpaceName(detected) + ")");
-  app.filmstrip.index = filmstripIndexForPath(app.filmstrip, path);
+  app.reportStatus("Loaded " + name + " (" + colorSpaceName(decoded.fileSpace) + ")");
+  app.filmstrip.index = filmstripIndexForPath(app.filmstrip, decoded.path);
 
   PersistSidecar saved;
-  if (!useSavedChain) {
+  if (!decoded.useSavedChain) {
     // The user chose the parameters of the image that was open, so they carry
     // into this image as they are.
     app.reportStatus("Loaded " + name + " with the parameters of the previous image");
-  } else if (loadInputSidecar(path, saved)) {
+  } else if (loadInputSidecar(decoded.path, saved)) {
     applySidecarFor(app, saved);
   } else {
-    seedNoiseForOpenCamera(app, meta);
+    seedNoiseForOpenCamera(app, decoded.meta);
   }
 
   app.rebuildPreviewImage();
@@ -100,6 +91,17 @@ void openPathNow(Workspace &app, const std::string &path, bool useSavedChain) {
   // sidecar may have run, so re-derive it for the image that is now open.
   syncChainColorSpaces(app);
   persistWorkspace(app.document, app.gui);
+}
+
+// Starts the decode on the worker. The rest of the open happens when the result
+// is pumped in, so the window keeps drawing while a RAW develops.
+void startDecode(Workspace &app, const std::string &path, bool useSavedChain) {
+  const std::string name = fs::path(path).filename().string();
+  if (!app.opener.start(path, useSavedChain)) {
+    app.reportStatus("Still opening " + fs::path(app.opener.path()).filename().string());
+    return;
+  }
+  app.reportStatus("Opening " + name + "\xE2\x80\xA6");
 }
 
 }  // namespace
@@ -151,7 +153,7 @@ void openPath(Workspace &app, const std::string &path) {
     app.gui.showSidecarPrompt = true;
     return;
   }
-  openPathNow(app, path, /*useSavedChain=*/true);
+  startDecode(app, path, /*useSavedChain=*/true);
 }
 
 void resolvePendingOpen(Workspace &app, bool useSavedChain) {
@@ -159,7 +161,18 @@ void resolvePendingOpen(Workspace &app, bool useSavedChain) {
   app.gui.pendingOpenPath.clear();
   app.gui.showSidecarPrompt = false;
   if (path.empty()) return;
-  openPathNow(app, path, useSavedChain);
+  startDecode(app, path, useSavedChain);
+}
+
+bool pumpOpen(Workspace &app) {
+  DecodedImage decoded;
+  if (!app.opener.take(decoded)) return false;
+  if (!decoded.ok) {
+    app.reportStatus("Could not decode " + fs::path(decoded.path).filename().string());
+    return true;
+  }
+  applyDecoded(app, std::move(decoded));
+  return true;
 }
 
 void setInputSpace(Workspace &app, int index) {

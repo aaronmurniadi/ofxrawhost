@@ -16,6 +16,7 @@
 #include "model/Document.h"
 #include "services/Filmstrip.h"
 #include "model/GuiState.h"
+#include "services/OpenWorker.h"
 #include "services/UpdateCheck.h"
 
 #include <string>
@@ -32,6 +33,8 @@ struct Workspace {
   StatusSink status;
   RenderWorker render{status};
   ExportWorker exporter;
+  // Decodes the next image off the interface thread. Pumped once per frame.
+  OpenWorker opener;
 
   void reportStatus(const std::string &text) { status.report(text); }
   std::string statusText() const { return status.text(); }

@@ -13,6 +13,9 @@ void openPath(Workspace &app, const std::string &path);
 // useSavedChain restores the chain recorded in the image sidecar; otherwise the
 // chain of the image that was open carries over to it.
 void resolvePendingOpen(Workspace &app, bool useSavedChain);
+// Applies a decode that has finished, and returns whether one was waiting. The
+// frame loop calls this once per frame; nothing else has to pump.
+bool pumpOpen(Workspace &app);
 // Opens dir as the workspace; returns false if it is not a directory.
 bool openWorkspace(Workspace &app, const std::string &dir);
 

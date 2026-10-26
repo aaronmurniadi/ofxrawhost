@@ -283,6 +283,7 @@ add_library(ofxrawhost_services STATIC
   src/services/PluginPresets.cpp
   src/services/UpdateCheck.cpp
   src/services/Filmstrip.cpp
+  src/services/OpenWorker.cpp
 )
 target_link_libraries(ofxrawhost_services PUBLIC ofxrawhost_engine)
 
