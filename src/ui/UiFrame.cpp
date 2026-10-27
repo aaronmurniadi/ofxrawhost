@@ -1,15 +1,16 @@
 #include "ui/UiFrame.h"
 
-#include "Actions.h"
-#include "NodeGraph.h"
+#include "services/Export.h"
+#include "services/Actions.h"
+#include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
-#include "persist/DocumentActions.h"
+#include "services/StateMapping.h"
 #include "persist/ProjectPersist.h"
 #include "platform/SystemUiFont.h"
-#include "RenderScheduler.h"
-#include "UpdateCheck.h"
+#include "engine/RenderWorker.h"
+#include "services/UpdateCheck.h"
 #include "ui/Themes.h"
-#include "ui/ParamEdit.h"
+#include "services/ParamEdit.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
 #include "ui/Widgets.h"
@@ -30,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 
 // The build passes the release version in. Keep a fallback for builds that do
 // not, so the About window always shows a version.
@@ -76,9 +78,9 @@ static void drawMenuBar(App &app) {
         if (!r.empty()) app.gui.pendingWorkspaceDir = r;
       }
       if (ImGui::MenuItem("Save Project")) {
-        saveCurrentInputSidecar(app);
-        persistWorkspace(app);
-        app.setStatus("Saved project and sidecar");
+        saveCurrentInputSidecar(app.document, app.chain);
+        persistWorkspace(app.document, app.gui);
+        app.reportStatus("Saved project and sidecar");
       }
 #ifdef __APPLE__
       if (ImGui::MenuItem("Export", "⌘+E")) exportImage(app);
@@ -134,12 +136,12 @@ static const char *const kExportFilters[] = {
 };
 
 // Opens the export dialog; the destination is chosen from inside it.
-void exportImage(App &app) {
+void exportImage(Workspace &app) {
   if (!canExport(app)) return;
   app.gui.showExportDialog = true;
 }
 
-static void drawExportDialog(App &app) {
+static void drawExportDialog(Workspace &app) {
   if (app.gui.showExportDialog) {
     ImGui::OpenPopup("Export");
     app.gui.showExportDialog = false;
@@ -350,7 +352,7 @@ static void drawDevBuildWarning(App &app) {
     ImGui::OpenPopup("Development build");
     app.gui.showDevBuildWarning = false;
     app.gui.devBuildWarningShown = true;
-    persistWorkspace(app);
+    persistWorkspace(app.document, app.gui);
   }
   if (!ImGui::BeginPopupModal("Development build", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
@@ -361,7 +363,7 @@ static void drawDevBuildWarning(App &app) {
   ImGui::Spacing();
   if (ImGui::Button("Yes, turn it off", ImVec2(160.0f, 0.0f))) {
     app.gui.checkUpdatesAtStartup = false;
-    persistWorkspace(app);
+    persistWorkspace(app.document, app.gui);
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();
@@ -409,8 +411,8 @@ static void drawSettingsModal(App &app) {
 // "Fit to preview" follows the preview panel size. Wait for the size to settle,
 // so dragging a dock splitter does not queue a rebuild on every frame.
 static void applyFitPreviewSize(App &app) {
-  if (app.gui.previewRes != PreviewRes::Fit || app.doc.full.px.empty()) return;
-  if (previewMaxEdge(app.gui) == app.render.builtPreviewMaxEdge) {
+  if (app.gui.previewRes != PreviewRes::Fit || app.document.full.px.empty()) return;
+  if (previewMaxEdge(app.gui) == app.render.builtPreviewMaxEdge()) {
     app.gui.previewFitSettleTime = 0.0;
     return;
   }
@@ -421,7 +423,7 @@ static void applyFitPreviewSize(App &app) {
   }
   if (now - app.gui.previewFitSettleTime < 0.25) return;
   app.gui.previewFitSettleTime = 0.0;
-  rebuildPreview(app);
+  app.rebuildPreviewImage();
 }
 
 // Confirms a parameter reset, because one click discards the whole edit of the
@@ -435,7 +437,7 @@ static void drawResetParamsConfirm(App &app) {
 
   Node *node = selectedNode(app);
   std::string label;
-  if (node) label = gPlugins[node->pluginIndex].label;
+  if (node) label = plugins()[node->pluginIndex].label;
   ImGui::TextWrapped("Return every parameter of %s to its default value?", label.c_str());
   ImGui::TextDisabled("This cannot be undone.");
   ImGui::Spacing();
@@ -443,11 +445,41 @@ static void drawResetParamsConfirm(App &app) {
     ImGui::CloseCurrentPopup();
     if (node) {
       const int count = resetNodeParamsToDefaults(app, *node);
-      app.setStatus("Reset " + std::to_string(count) + " parameters of " + label);
+      app.reportStatus("Reset " + std::to_string(count) + " parameters of " + label);
     }
   }
   ImGui::SameLine();
   if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+}
+
+// The chain saved for the image that is opening and the chain in place can both
+// hold work, so the open waits here for the user to pick one.
+static void drawSidecarPrompt(App &app) {
+  if (app.gui.showSidecarPrompt) {
+    ImGui::OpenPopup("Saved parameters");
+    app.gui.showSidecarPrompt = false;
+  }
+  if (!ImGui::BeginPopupModal("Saved parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+  ImGui::TextWrapped(
+      "This image has parameters saved for it. Open it with those parameters? The parameters of the image that is "
+      "open now will be replaced.");
+  if (!app.gui.pendingOpenPath.empty())
+    ImGui::TextDisabled("%s", std::filesystem::path(app.gui.pendingOpenPath).filename().string().c_str());
+  ImGui::TextDisabled(
+      "Yes restores the parameters saved for this image. No keeps the parameters of the image that is open now and "
+      "applies them to this one.");
+  ImGui::Spacing();
+  if (ImGui::Button("Yes", ImVec2(120.0f, 0.0f))) {
+    ImGui::CloseCurrentPopup();
+    resolvePendingOpen(app, /*useSavedChain=*/true);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("No", ImVec2(120.0f, 0.0f))) {
+    ImGui::CloseCurrentPopup();
+    resolvePendingOpen(app, /*useSavedChain=*/false);
+  }
   ImGui::EndPopup();
 }
 
@@ -551,6 +583,7 @@ void drawUiFrame(App &app) {
   }
 
   drawResetParamsConfirm(app);
+  drawSidecarPrompt(app);
   drawExportDialog(app);
   drawSettingsModal(app);
   drawDevBuildWarning(app);

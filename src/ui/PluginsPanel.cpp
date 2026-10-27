@@ -1,11 +1,11 @@
 #include "ui/UiFrame.h"
 
-#include "Actions.h"
-#include "imgio/ImageIO.h"
-#include "ParamBridge.h"
+#include "services/Actions.h"
+#include "codecs/ImageIO.h"
+#include "services/ParamBridge.h"
 #include "persist/ProjectPersist.h"
-#include "NodeGraph.h"
-#include "RenderScheduler.h"
+#include "services/NodeGraph.h"
+#include "engine/RenderWorker.h"
 #include "ofx/OfxHost.h"
 #include "ui/Widgets.h"
 
@@ -15,21 +15,21 @@
 
 #include <string>
 
-static void drawPluginPicker(App &app) {
+static void drawPluginPicker(Workspace &app) {
   if (ImGui::Button("Add Plugin", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##pluginFilter", "Search...", app.gui.pluginFilter, sizeof app.gui.pluginFilter);
     ImGui::Separator();
-    if (gPlugins.empty()) {
+    if (plugins().empty()) {
       ImGui::TextDisabled("No plugins found");
     } else {
       const std::string q = app.gui.pluginFilter;
       std::string curAuthor;
       int shown = 0;
-      for (int i = 0; i < (int)gPlugins.size(); ++i) {
-        const auto &pe = gPlugins[i];
+      for (int i = 0; i < (int)plugins().size(); ++i) {
+        const auto &pe = plugins()[i];
         if (!q.empty() && !icontains(pe.label, q) && !icontains(pe.author, q) &&
             !(pe.plugin && pe.plugin->pluginIdentifier && icontains(pe.plugin->pluginIdentifier, q)))
           continue;
@@ -50,7 +50,7 @@ static void drawPluginPicker(App &app) {
   }
 }
 
-static void drawNodeList(App &app) {
+static void drawNodeList(Workspace &app) {
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
   if (app.chain.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a plugin to build a chain.");
   const float btnH = ImGui::GetFrameHeight();
@@ -61,7 +61,7 @@ static void drawNodeList(App &app) {
     ImGui::PushID(i);
     Node &node = app.chain.nodes[i];
     const bool selected = app.chain.selectedNode == i;
-    const std::string label = gPlugins[node.pluginIndex].label;
+    const std::string label = plugins()[node.pluginIndex].label;
     if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
     if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(ImGui::GetContentRegionAvail().x - btnsW - btnGap, btnH))) {
       app.chain.selectedNode = i;
@@ -81,9 +81,14 @@ static void drawNodeList(App &app) {
       ImGui::EndDragDropTarget();
     }
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##en", node.enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) setNodeEnabled(app, i, !node.enabled);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-      ImGui::SetTooltip(node.enabled ? "Disable processing" : "Enable processing");
+    const char *enabledIcon = ICON_FA_EYE_SLASH;
+    const char *enabledHint = "Enable processing";
+    if (node.enabled) {
+      enabledIcon = ICON_FA_EYE;
+      enabledHint = "Disable processing";
+    }
+    if (iconBtn("##en", enabledIcon)) setNodeEnabled(app, i, !node.enabled);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", enabledHint);
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) moveNode(app, i, i - 1);
     ImGui::SameLine(0.0f, btnGap);
@@ -96,7 +101,7 @@ static void drawNodeList(App &app) {
   ImGui::EndChild();
 }
 
-void drawPluginsPanel(App &app) {
+void drawPluginsPanel(Workspace &app) {
   if (ImGui::Button("Open image")) {
     auto f = pfd::open_file("Open image", "", openImageDialogFilters());
     auto r = f.result();
@@ -115,8 +120,8 @@ void drawPluginsPanel(App &app) {
   // decoded buffer and is handed to the first plugin; a later plugin can change
   // what leaves the chain. The export color space and the rendering intent live
   // in the export dialog.
-  int inputSpace = static_cast<int>(app.doc.inputSpace);
-  ImGui::BeginDisabled(app.doc.full.px.empty());
+  int inputSpace = static_cast<int>(app.document.inputSpace);
+  ImGui::BeginDisabled(app.document.full.px.empty());
   if (uiChoiceCombo("Input colorspace", nullptr, kColorSpaces, kColorSpaceCount, &inputSpace))
     setInputSpace(app, inputSpace);
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -139,7 +144,7 @@ void drawPluginsPanel(App &app) {
     if (uiChoiceCombo("Preview", nullptr, items, kPreviewResCount, &res)) setPreviewRes(app, res);
   }
   ImGui::Separator();
-  const std::string status = app.getStatus();
+  const std::string status = app.statusText();
   ImGui::TextWrapped("%s", status.c_str());
   ImGui::Separator();
 

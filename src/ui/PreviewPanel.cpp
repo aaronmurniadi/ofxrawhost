@@ -37,6 +37,31 @@ static void previewOverlayText(ImDrawList *dl, const ImVec2 pos, float maxWidth,
   ImGui::PopStyleColor();
 }
 
+// A spinner is the only feedback the user gets while a RAW develops, because the
+// decode runs on its own thread and the window stays responsive. The arc is
+// drawn from the frame clock, so it turns.
+static void drawOpeningSpinner(ImDrawList *dl, const ImVec2 center, float radius, ImU32 col) {
+  constexpr float kPi = 3.14159265f;
+  const float turn = (float)ImGui::GetTime() * 2.6f;
+  dl->PathClear();
+  dl->PathArcTo(center, radius, turn, turn + kPi * 1.25f, 40);
+  dl->PathStroke(col, 0, 3.0f);
+}
+
+// The block shown over the canvas while an image is being decoded.
+static void drawOpeningState(ImDrawList *dl, const ImVec2 canvasPos, const ImVec2 canvasSize, const std::string &name) {
+  const ImVec2 canvasMax(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y);
+  dl->AddRectFilled(canvasPos, canvasMax, IM_COL32(0, 0, 0, 140));
+  const ImVec2 center(canvasPos.x + canvasSize.x * 0.5f, canvasPos.y + canvasSize.y * 0.5f);
+  const ImU32 accent = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+  drawOpeningSpinner(dl, ImVec2(center.x, center.y - 12.0f), 16.0f, accent);
+  char label[192];
+  if (name.empty()) std::snprintf(label, sizeof label, "Opening\xE2\x80\xA6");
+  else std::snprintf(label, sizeof label, "Opening %s\xE2\x80\xA6", name.c_str());
+  const ImVec2 textSize = ImGui::CalcTextSize(label);
+  dl->AddText(ImVec2(center.x - textSize.x * 0.5f, center.y + 16.0f), ImGui::GetColorU32(ImGuiCol_Text), label);
+}
+
 void drawPreviewPanel(App &app) {
   const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
   const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
@@ -56,20 +81,28 @@ void drawPreviewPanel(App &app) {
   app.gui.previewAreaW = (int)std::lround(canvasSize.x * fbScale.x);
   app.gui.previewAreaH = (int)std::lround(canvasSize.y * fbScale.y);
 
-  if (!app.tex.id) {
+  // A decode in flight covers the canvas, so the user sees progress instead of a
+  // frozen window. The previous image stays underneath until the new one lands.
+  if (app.opener.busy()) {
+    const std::string name = std::filesystem::path(app.opener.path()).filename().string();
+    drawOpeningState(dl, canvasPos, canvasSize, name);
+    return;
+  }
+
+  if (!app.previewTexture.id) {
     dl->AddText(ImVec2(canvasPos.x + 8.0f, canvasPos.y + 8.0f), ImGui::GetColorU32(ImGuiCol_Text),
                 "Open an image to preview.");
     return;
   }
 
-  const float fit = std::min(canvasSize.x / (float)app.tex.w, canvasSize.y / (float)app.tex.h);
-  const float dispW = app.tex.w * fit * app.gui.previewZoom;
-  const float dispH = app.tex.h * fit * app.gui.previewZoom;
+  const float fit = std::min(canvasSize.x / (float)app.previewTexture.w, canvasSize.y / (float)app.previewTexture.h);
+  const float dispW = app.previewTexture.w * fit * app.gui.previewZoom;
+  const float dispH = app.previewTexture.h * fit * app.gui.previewZoom;
   const ImVec2 p0(canvasPos.x + canvasSize.x * 0.5f + app.gui.previewPanX - dispW * 0.5f,
                   canvasPos.y + canvasSize.y * 0.5f + app.gui.previewPanY - dispH * 0.5f);
   const ImVec2 p1(p0.x + dispW, p0.y + dispH);
   dl->PushClipRect(canvasPos, canvasMax, true);
-  dl->AddImage((ImTextureID)(intptr_t)app.tex.id, p0, p1);
+  dl->AddImage((ImTextureID)(intptr_t)app.previewTexture.id, p0, p1);
   dl->PopClipRect();
   char zoomLbl[32];
   std::snprintf(zoomLbl, sizeof zoomLbl, "%.0f%%", app.gui.previewZoom * 100.0f);
@@ -78,8 +111,8 @@ void drawPreviewPanel(App &app) {
   const float zoomY = canvasPos.y + canvasSize.y - overlayTextH - kOverlayPad;
   // On a panel too short to hold both bands the name yields: the zoom level has
   // no other home, and two overlapping labels would be unreadable.
-  if (!app.doc.path.empty() && canvasPos.y + kOverlayPad + overlayTextH <= zoomY) {
-    const std::string name = fs::path(app.doc.path).filename().string();
+  if (!app.document.path.empty() && canvasPos.y + kOverlayPad + overlayTextH <= zoomY) {
+    const std::string name = fs::path(app.document.path).filename().string();
     previewOverlayText(dl, ImVec2(canvasPos.x + kOverlayPad, canvasPos.y + kOverlayPad), overlayMaxW,
                        ImGui::GetColorU32(ImGuiCol_TextDisabled), name.c_str());
   }
@@ -101,7 +134,8 @@ void drawPreviewPanel(App &app) {
     }
 #else
     const float wheel = ImGui::GetIO().MouseWheel;
-    if (wheel != 0.0f) zoomFactor *= (wheel > 0.0f ? 1.1f : 1.0f / 1.1f);
+    if (wheel > 0.0f) zoomFactor *= 1.1f;
+    else if (wheel < 0.0f) zoomFactor *= 1.0f / 1.1f;
 #endif
     if (zoomFactor != 1.0f) {
       const float oldZoom = app.gui.previewZoom;
@@ -109,10 +143,14 @@ void drawPreviewPanel(App &app) {
       const ImVec2 mouse = ImGui::GetIO().MousePos;
       const float ox = canvasPos.x + canvasSize.x * 0.5f + app.gui.previewPanX;
       const float oy = canvasPos.y + canvasSize.y * 0.5f + app.gui.previewPanY;
-      const float oldW = app.tex.w * fit * oldZoom, oldH = app.tex.h * fit * oldZoom;
-      const float newW = app.tex.w * fit * app.gui.previewZoom, newH = app.tex.h * fit * app.gui.previewZoom;
-      const float u = oldW > 0.0f ? (mouse.x - (ox - oldW * 0.5f)) / oldW : 0.5f;
-      const float v = oldH > 0.0f ? (mouse.y - (oy - oldH * 0.5f)) / oldH : 0.5f;
+      const float oldW = app.previewTexture.w * fit * oldZoom, oldH = app.previewTexture.h * fit * oldZoom;
+      const float newW = app.previewTexture.w * fit * app.gui.previewZoom, newH = app.previewTexture.h * fit * app.gui.previewZoom;
+      // Keep the image point under the cursor still. Fall back to the centre
+      // when the previous frame had no size to map against.
+      float u = 0.5f;
+      float v = 0.5f;
+      if (oldW > 0.0f) u = (mouse.x - (ox - oldW * 0.5f)) / oldW;
+      if (oldH > 0.0f) v = (mouse.y - (oy - oldH * 0.5f)) / oldH;
       app.gui.previewPanX += (u - 0.5f) * (oldW - newW);
       app.gui.previewPanY += (v - 0.5f) * (oldH - newH);
     }

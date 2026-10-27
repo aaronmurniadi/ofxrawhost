@@ -9,8 +9,17 @@ on:
     branches: ['release/v*']
   workflow_dispatch:
 
+# Build jobs read the repository only. The publish job asks for write access for
+# itself, so a build step cannot create a release.
 permissions:
-  contents: write
+  contents: read
+
+env:
+  # appimagetool runs inside the release job, so it is pinned to one release and
+  # checked against the digest GitHub publishes for that asset. The "continuous"
+  # tag is a moving target and must not be used.
+  APPIMAGETOOL_VERSION: 1.9.1
+  APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
 
 jobs:
   # One job decides the version, the release tag, and the pre-release flag, so
@@ -22,6 +31,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
       is_release: ${{ steps.version.outputs.is_release }}
+      appimage_target: ${{ steps.version.outputs.appimage_target }}
     steps:
       - id: version
         env:
@@ -34,6 +44,10 @@ jobs:
           tag=""
           prerelease="false"
           is_release="false"
+          # The release that the AppImage update information names. A stable build
+          # follows "latest", which GitHub resolves to the newest non-prerelease
+          # release.
+          appimage_target="latest"
           if [ "$REF_TYPE" = "tag" ]; then
             # The tag vX.X.X carries the version X.X.X.
             version="${REF_NAME#v}"
@@ -49,14 +63,18 @@ jobs:
             tag="v${version}-dev-${SHA:0:6}"
             prerelease="true"
             is_release="true"
+            # Follow the pre-release list, so a development build is never offered
+            # a stable release that is older than the build itself.
+            appimage_target="latest-pre"
           fi
           {
             echo "version=$version"
             echo "tag=$tag"
             echo "prerelease=$prerelease"
             echo "is_release=$is_release"
+            echo "appimage_target=$appimage_target"
           } >> "$GITHUB_OUTPUT"
-          echo "version=$version tag=$tag prerelease=$prerelease is_release=$is_release"
+          echo "version=$version tag=$tag prerelease=$prerelease is_release=$is_release appimage_target=$appimage_target"
 
   macos:
     needs: prepare
@@ -72,23 +90,30 @@ jobs:
             arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: true
+          persist-credentials: false
       - name: Install dependencies
         run: brew install cmake libraw libtiff little-cms2 webp jpeg-xl
       - name: Build and package DMG
+        env:
+          # These values reach the script through the environment, not through the
+          # script text, so a tag or branch name cannot break out of a quote.
+          ARCH: ${{ matrix.arch }}
+          VERSION_LABEL: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           rm -rf build
-          ARCHS=${{ matrix.arch }} VERSION_LABEL="${{ needs.prepare.outputs.tag }}" VERSION="${{ needs.prepare.outputs.version }}" ./build.sh
+          ARCHS="$ARCH" VERSION_LABEL="$VERSION_LABEL" VERSION="$VERSION" ./build.sh
           # Verify binary arch matches the matrix target
-          lipo -info build/OfxRawHost.app/Contents/MacOS/OfxRawHost | tee /dev/stderr | grep -q "${{ matrix.arch }}"
+          lipo -info build/OfxRawHost.app/Contents/MacOS/OfxRawHost | tee /dev/stderr | grep -q "$ARCH"
           mkdir -p build/dmg
           cp -R build/OfxRawHost.app build/dmg/
           ln -sf /Applications build/dmg/Applications
           hdiutil create -volname "OFX Raw Host" -srcfolder build/dmg -format UDZO -ov \
             "build/OfxRawHost-macOS-${{ matrix.arch }}.dmg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: OfxRawHost-macOS-${{ matrix.arch }}
           path: build/OfxRawHost-macOS-${{ matrix.arch }}.dmg
@@ -97,15 +122,22 @@ jobs:
   linux:
     needs: prepare
     runs-on: ubuntu-22.04
+    env:
+      # AppImageUpdate reads this string out of the AppImage and fetches the
+      # .zsync published beside the AppImage in the release it names. The target
+      # comes from the prepare job, so a pre-release follows the pre-release list
+      # and a stable build follows the newest stable release.
+      UPDATE_INFORMATION: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|${{ needs.prepare.outputs.appimage_target }}|OfxRawHost-Linux-x86_64.AppImage.zsync
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: true
+          persist-credentials: false
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config git file wget xvfb \
+            build-essential cmake ninja-build pkg-config git file wget xvfb zsync \
             libraw-dev libtiff-dev liblcms2-dev libwebp-dev zlib1g-dev libpng-dev \
             libgl1-mesa-dev libgl1-mesa-dri xorg-dev
       # Ubuntu 22.04 has no libjxl package (JPEG XL arrives in 24.04), so build
@@ -136,39 +168,76 @@ jobs:
           sudo ldconfig
           pkg-config --modversion libjxl libjxl_threads
       - name: Configure and build
+        env:
+          VERSION_LABEL: ${{ needs.prepare.outputs.tag }}
         run: |
           # The AppImage targets X11; GLFW would otherwise enable Wayland when
           # the runner image happens to ship libwayland-dev without wayland-scanner.
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGLFW_BUILD_WAYLAND=OFF -DOFX_VERSION_LABEL=${{ needs.prepare.outputs.tag }}
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGLFW_BUILD_WAYLAND=OFF "-DOFX_VERSION_LABEL=$VERSION_LABEL"
           cmake --build build --parallel "$(nproc)"
       - name: Self-test
         run: |
           # Runs under a virtual display; a runner without GPU acceleration may
           # lack OpenGL 3.2, which is a runner limit and not a build failure.
-          if xvfb-run -a ./build/OfxRawHost --selftest; then
-            echo "selftest passed"
-          else
-            echo "::warning::selftest did not pass on the runner; continuing"
-          fi
+          # The self-test lives in OfxRawHostTests, so it needs no GL context;
+          # xvfb-run stays because a plugin may create one.
+          xvfb-run -a ./build/OfxRawHostTests
       - name: Build AppImage
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           wget -q -O /tmp/appimagetool \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+            "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
+          echo "${APPIMAGETOOL_SHA256}  /tmp/appimagetool" | sha256sum -c -
           chmod +x /tmp/appimagetool
-          VERSION="${{ needs.prepare.outputs.version }}" APPIMAGETOOL=/tmp/appimagetool packaging/linux/build-appimage.sh
+          APPIMAGETOOL=/tmp/appimagetool packaging/linux/build-appimage.sh
           test -x build/AppImage/OfxRawHost-Linux-x86_64.AppImage
       - name: Smoke-test the AppImage
         run: |
           set -e
           APP=build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+          # Read the update information back out of the AppImage the way
+          # AppImageUpdate does, so a wrong owner, repository, release, or file
+          # name fails here instead of on a user's machine. The .upd_info section
+          # is 1024 bytes of NUL padding around the string, so drop the padding
+          # before comparing.
+          UPD=$("$APP" --appimage-updateinformation 2>/dev/null | tr -d '\000')
+          if [ "$UPD" != "$UPDATE_INFORMATION" ]; then
+            echo "::error::the AppImage carries the update information '$UPD', expected '$UPDATE_INFORMATION'"
+            exit 1
+          fi
+          # The file name inside the string has to be the name the release
+          # publishes, or every client fails to find the .zsync. This compares the
+          # string against the artifact, not against another copy of itself.
+          UPD_NAME="${UPDATE_INFORMATION##*|}"
+          ARTIFACT_NAME=$(basename "$APP")
+          if [ "$UPD_NAME" != "$ARTIFACT_NAME.zsync" ]; then
+            echo "::error::the update information names $UPD_NAME, but the artifact is $ARTIFACT_NAME.zsync"
+            exit 1
+          fi
+          if [ ! -f "$APP.zsync" ]; then
+            echo "::error::the AppImage has no .zsync file beside it"
+            exit 1
+          fi
+          # zsync rebuilds the file and verifies it against the SHA-1 recorded in
+          # the .zsync, so the .zsync has to describe this AppImage and no other.
+          ZSYNC_SHA1=$(sed -n 's/^SHA-1: *//p' "$APP.zsync" | head -1)
+          FILE_SHA1=$(sha1sum "$APP" | cut -d' ' -f1)
+          if [ "$ZSYNC_SHA1" != "$FILE_SHA1" ]; then
+            echo "::error::the .zsync records $ZSYNC_SHA1, but the AppImage is $FILE_SHA1"
+            exit 1
+          fi
           # The icon and interface fonts must sit next to the binary for the
-          # shipped build to resolve them outside the build tree.
+          # shipped build to resolve them outside the build tree, and so must the
+          # sensor noise profiles the denoise plugin reads.
           test -f build/AppImage/OfxRawHost.AppDir/usr/bin/fa-solid-900.ttf
           test -f build/AppImage/OfxRawHost.AppDir/usr/bin/Inter.ttf
+          test -f build/AppImage/OfxRawHost.AppDir/usr/bin/noiseprofiles.json
           OUT=$(APPIMAGE_EXTRACT_AND_RUN=1 "$APP" --selftest 2>&1)
           printf '%s\n' "$OUT" | tail -3
           printf '%s\n' "$OUT" | grep -q "ok  Transform"
           printf '%s\n' "$OUT" | grep -q "ok  Auto Exposure"
+          printf '%s\n' "$OUT" | grep -q "ok  noise profiles"
           # Start the interface and stop it again: this loads the bundled
           # libraries, opens a GL context, and reports a missing icon font.
           # Exit code 124 means the timeout stopped a running application.
@@ -196,10 +265,12 @@ jobs:
             echo "::error::the legacy OpenGL path exited with code $LEGACY_RC instead of running"
             exit 1
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: OfxRawHost-Linux-x86_64
-          path: build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+          path: |
+            build/AppImage/OfxRawHost-Linux-x86_64.AppImage
+            build/AppImage/OfxRawHost-Linux-x86_64.AppImage.zsync
           if-no-files-found: error
 
   windows:
@@ -214,11 +285,12 @@ jobs:
       # let actions/cache store the directory.
       VCPKG_BINARY_SOURCES: clear;files,C:/vcpkg-cache,readwrite
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: true
+          persist-credentials: false
       - name: Cache vcpkg packages
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: C:\vcpkg-cache
           # Key on the run, not on the manifest, so a version bump does not throw
@@ -233,9 +305,13 @@ jobs:
           C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
       - name: Configure and build
         shell: pwsh
+        env:
+          # The tag reaches the script through the environment, not through the
+          # script text, so it cannot break out of a quote.
+          OFX_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = '${{ needs.prepare.outputs.tag }}'
+          $tag = $env:OFX_TAG
           cmake -S . -B build -G 'Visual Studio 17 2022' -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
@@ -254,6 +330,8 @@ jobs:
           Get-Item $exe | Select-Object Name, Length
       - name: Smoke-test the executable
         shell: pwsh
+        env:
+          OFX_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
           $exe = 'build/OfxRawHost-Windows-x64.exe'
@@ -287,12 +365,13 @@ jobs:
           if ($proc.ExitCode -ne 0) { throw "selftest exited with $($proc.ExitCode)" }
           if ($out -notmatch 'ok  Transform') { throw 'the executable does not register the Transform effect' }
           if ($out -notmatch 'ok  Auto Exposure') { throw 'the executable does not register the Auto Exposure effect' }
+          if ($out -notmatch 'ok  noise profiles') { throw 'the executable does not carry the noise profiles' }
           if ($out -notmatch 'ok  bundled fonts') { throw 'the executable does not load the bundled fonts' }
-          $expected = '${{ needs.prepare.outputs.version }}'
+          $expected = $env:OFX_VERSION
           $actual = (Get-Item $exe).VersionInfo.FileVersion
           if ($actual -ne $expected) { throw "the file version is '$actual', expected '$expected'" }
           Write-Host "file version: $actual"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: OfxRawHost-Windows-x64
           path: build/OfxRawHost-Windows-x64.exe
@@ -302,11 +381,16 @@ jobs:
     needs: [prepare, macos, linux, windows]
     if: needs.prepare.outputs.is_release == 'true'
     runs-on: ubuntu-latest
+    # Creating the release and uploading its assets needs write access, and this
+    # is the only job that asks for it.
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
@@ -359,4 +443,20 @@ jobs:
             # A branch push has no tag yet, so point the new tag at this commit.
             gh release create "$TAG" --title "$TAG" --notes-file "$NOTES" --target "$GITHUB_SHA" "${FLAGS[@]}"
           fi
-          gh release upload "$TAG" dist/*.dmg dist/*.exe dist/*.AppImage --clobber
+          # The .zsync must sit beside the AppImage, because AppImageUpdate
+          # resolves the update information to it. A pre-release tag is unique per
+          # push, so replacing its assets is harmless. A stable release tag is not,
+          # so the upload fails there instead of swapping artifacts that existing
+          # installations already trust.
+          CLOBBER=()
+          if [ "$PRERELEASE" = "true" ]; then
+            CLOBBER+=(--clobber)
+          fi
+          gh release upload "$TAG" dist/*.dmg dist/*.exe dist/*.AppImage dist/*.zsync "${CLOBBER[@]}"
+          # The published asset list is the one link in the chain that no
+          # build-time check can see.
+          ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          if ! printf '%s\n' "$ASSETS" | grep -qx 'OfxRawHost-Linux-x86_64.AppImage.zsync'; then
+            echo "::error::the release $TAG does not publish OfxRawHost-Linux-x86_64.AppImage.zsync"
+            exit 1
+          fi

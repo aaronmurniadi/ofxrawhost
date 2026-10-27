@@ -1,7 +1,8 @@
 #include "persist/ProjectPersist.h"
 #include "persist/ProjectPersistPriv.h"
 
-#include "imgio/ImageIO.h"
+#include "core/Image.h"
+#include "codecs/FileFormats.h"
 #include "platform/Paths.h"
 
 #include <algorithm>
@@ -62,8 +63,7 @@ JsonValue makeChainJson(const PersistChain &chain) {
     for (const auto &kv : n.groupOpen) groups.set(kv.first, JsonValue::makeBool(kv.second));
     node.set("groupOpen", std::move(groups));
     JsonValue params = JsonValue::makeObject();
-    // Every value is already serialized JSON, so it is stored verbatim.
-    for (const auto &kv : n.paramsJson) params.set(kv.first, JsonValue::fromRaw(kv.second));
+    for (const auto &kv : n.params) params.set(kv.first, kv.second);
     node.set("params", std::move(params));
     nodes.arr.push_back(std::move(node));
   }

@@ -7,3 +7,4 @@
 
 void registerTransformPlugin(OFX::PluginFactoryArray &ids);
 void registerAutoExposurePlugin(OFX::PluginFactoryArray &ids);
+void registerDenoisePlugin(OFX::PluginFactoryArray &ids);

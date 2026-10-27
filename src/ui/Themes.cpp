@@ -1,6 +1,9 @@
 // Community ImGui themes from Patitotective/ImThemes (themes.toml), MIT License.
 // Copyright (c) 2022 Patitotective — see https://github.com/Patitotective/ImThemes
 #include "ui/Themes.h"
+
+#include "model/GuiState.h"
+
 #include "imgui.h"
 
 #include <algorithm>
@@ -705,6 +708,9 @@ static const struct { const char *name; void (*apply)(); } kThemes[] = {
   {"Material Flat", theme_Material_Flat},
   {"Future Dark", theme_Future_Dark},
 };
+
+static_assert(sizeof kThemes / sizeof kThemes[0] == (size_t)kThemeCount,
+              "kThemeCount in model/GuiState.h must match the theme registry");
 
 int themeCount() { return (int)(sizeof kThemes / sizeof kThemes[0]); }
 const char *themeName(int i) {

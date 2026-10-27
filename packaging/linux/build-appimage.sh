@@ -4,6 +4,12 @@
 # links shared libraries from the system, ldd.
 #
 # Usage: VERSION=1.2.3 APPIMAGETOOL=/path/to/appimagetool packaging/linux/build-appimage.sh
+#
+# Set UPDATE_INFORMATION to make the AppImage updateable. appimagetool then embeds
+# the string and writes <appimage>.zsync beside the AppImage, which must be published
+# next to it. appimagetool needs zsyncmake for that, and finds it on PATH or uses the
+# copy bundled in the appimagetool AppImage. See
+# https://docs.appimage.org/packaging-guide/optional/updates.html
 set -e
 cd "$(dirname "$0")/../.."
 
@@ -13,6 +19,7 @@ NAME=OfxRawHost
 APPDIR="$OUT/$NAME.AppDir"
 TOOL=${APPIMAGETOOL:-appimagetool}
 VERSION=${VERSION:-0.0.0}
+UPDATE_INFORMATION=${UPDATE_INFORMATION:-}
 
 case "$(uname -m)" in
   aarch64|arm64) APPTARGET=arm_aarch64 ;;
@@ -39,9 +46,16 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" \
          "$APPDIR/usr/share/metainfo"
 
 cp "$BIN" "$APPDIR/usr/bin/$NAME"
+# --selftest forwards to the test binary, which the smoke test calls through the
+# app binary with the AppImage mounted.
+if [ -x "$BUILD/OfxRawHostTests" ]; then
+  cp "$BUILD/OfxRawHostTests" "$APPDIR/usr/bin/OfxRawHostTests"
+fi
 # The host reads the interface and icon fonts next to its own binary.
 cp "$BUILD/fa-solid-900.ttf" "$APPDIR/usr/bin/"
 cp "$BUILD/Inter.ttf" "$APPDIR/usr/bin/"
+# The host reads the sensor noise profiles next to its own binary as well.
+cp "$BUILD/noiseprofiles.json" "$APPDIR/usr/bin/"
 # Bundled OFX plugins are found in <exe dir>/Plugins.
 if [ -d "$BUILD/Plugins/OfxRawHost.ofx.bundle" ]; then
   mkdir -p "$APPDIR/usr/bin/Plugins"
@@ -83,6 +97,36 @@ if command -v ldd >/dev/null 2>&1; then
     done
 fi
 
+APPIMAGE="$OUT/$NAME-Linux-$APPTARGET.AppImage"
+# zsyncmake names its output after the base name of the AppImage and writes it to
+# the directory it runs in, and appimagetool hands it the AppImage without asking
+# for another output path. The file therefore lands in this directory and not
+# beside the AppImage, which the release and the checks below expect.
+ZSYNC_IN_CWD="$(basename "$APPIMAGE").zsync"
+
+# appimagetool embeds the update information and writes the .zsync file only when
+# it is given the string, so an empty value must not reach the argument list.
+set -- --no-appstream
+if [ -n "$UPDATE_INFORMATION" ]; then
+  set -- "$@" -u "$UPDATE_INFORMATION"
+  # Drop the copy a previous build left here, so a failed run cannot be read as
+  # this one's output.
+  rm -f "$ZSYNC_IN_CWD"
+fi
+
 ARCH="$APPTARGET" VERSION="$VERSION" NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 \
-  "$TOOL" --no-appstream "$APPDIR" "$OUT/$NAME-Linux-$APPTARGET.AppImage"
-echo "Built $(pwd)/$OUT/$NAME-Linux-$APPTARGET.AppImage"
+  "$TOOL" "$@" "$APPDIR" "$APPIMAGE"
+
+echo "Built $(pwd)/$APPIMAGE"
+if [ -n "$UPDATE_INFORMATION" ]; then
+  if [ ! -f "$APPIMAGE.zsync" ] && [ -f "$ZSYNC_IN_CWD" ]; then
+    mv "$ZSYNC_IN_CWD" "$APPIMAGE.zsync"
+  fi
+  if [ ! -f "$APPIMAGE.zsync" ]; then
+    echo "error: appimagetool wrote no .zsync file for the update information" >&2
+    echo "error: install the zsync package, or use the appimagetool AppImage that bundles zsyncmake" >&2
+    exit 1
+  fi
+  echo "Embedded update information: $UPDATE_INFORMATION"
+  echo "Built $(pwd)/$APPIMAGE.zsync"
+fi

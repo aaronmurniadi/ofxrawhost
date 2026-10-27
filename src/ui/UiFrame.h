@@ -1,11 +1,11 @@
 #pragma once
 
-#include "AppState.h"
+#include "app/AppState.h"
 
-void drawPluginsPanel(App &app);
-void drawParametersPanel(App &app);
+void drawPluginsPanel(Workspace &app);
+void drawParametersPanel(Workspace &app);
 void drawPreviewPanel(App &app);
-void drawFilmstripPanel(App &app);
+void drawFilmstripPanel(Workspace &app);
 void drawUiFrame(App &app);
 // Prompts for a destination file, then exports the current image through the node chain.
-void exportImage(App &app);
+void exportImage(Workspace &app);

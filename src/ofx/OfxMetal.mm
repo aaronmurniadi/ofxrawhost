@@ -47,15 +47,18 @@ void ofxMetalBufferRelease(OfxMetalBuffer *buf) {
 }
 
 void *ofxMetalBufferContents(OfxMetalBuffer *buf) {
-  return buf ? [buf->buffer contents] : nullptr;
+  if (!buf) return nullptr;
+  return [buf->buffer contents];
 }
 
 void *ofxMetalBufferHandle(OfxMetalBuffer *buf) {
-  return buf ? (__bridge void *)buf->buffer : nullptr;
+  if (!buf) return nullptr;
+  return (__bridge void *)buf->buffer;
 }
 
 void *ofxMetalCommandQueue() {
-  return gQueue ? (__bridge void *)gQueue : nullptr;
+  if (!gQueue) return nullptr;
+  return (__bridge void *)gQueue;
 }
 
 void ofxMetalSync() {

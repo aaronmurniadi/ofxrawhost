@@ -1,5 +1,5 @@
 #pragma once
 
-#include "AppState.h"
+#include "services/Workspace.h"
 
-void drawParams(App &app, Node &node, const std::string &parent);
+void drawParams(Workspace &app, Node &node, const std::string &parent);

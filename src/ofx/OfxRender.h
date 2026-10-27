@@ -14,6 +14,8 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
 
 // src: bottom-up float RGBA w*h pixels. dst receives outW*outH pixels (capacity >= outW*outH).
 // gen 0 = never aborted.
+// renderScale is the proxy scale of the pass (1.0 = full resolution). Plugins read
+// it to size effects that depend on the pixel grid.
 // srcMtl/dstMtl are optional id<MTLBuffer> handles for chained GPU renders. When a
 // handle is given, the image lives on the GPU and the matching CPU pointer may be
 // null. When dstMtl is null and the node renders on Metal, renderEffect syncs and
@@ -22,7 +24,7 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
 // reads that buffer on the CPU.
 // draft selects kOfxImageEffectPropRenderQualityDraft for reduced-quality interactive passes.
 OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen,
-                       void *srcMtl = nullptr, void *dstMtl = nullptr, bool draft = false);
+                       void *srcMtl = nullptr, void *dstMtl = nullptr, bool draft = false, double renderScale = 1.0);
 
 // True when the node renders through Metal on this machine.
 bool effectUsesMetal(const Effect *e);

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds build/OfxRawHost.app (macOS) or build/OfxRawHost (elsewhere).
 # ARCHS=arm64 or ARCHS=x86_64 selects a single macOS architecture (default: host).
-# Self-check: build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+# Self-check: TEST=1 ./build.sh, or build/OfxRawHostTests, or the app with --selftest
 set -e
 cd "$(dirname "$0")"
 BUILD=build
@@ -22,8 +22,18 @@ fi
 if [ "${OFX_NATIVE_ARCH:-0}" = "1" ]; then
   CMAKE_ARGS="$CMAKE_ARGS -DOFX_NATIVE_ARCH=ON"
 fi
+# The layer graph is checked before anything is built, so a local build fails the
+# same way the release build does.
+cmake -P cmake/check_layers.cmake
 cmake -S . -B "$BUILD" $CMAKE_ARGS
 cmake --build "$BUILD" -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
+
+# TEST=1 also runs the self-test, which needs the plugins to be built.
+if [ "${TEST:-0}" = "1" ]; then
+  TESTS="$BUILD/OfxRawHostTests"
+  [ -x "$TESTS" ] || TESTS="$BUILD/Release/OfxRawHostTests"
+  "$TESTS"
+fi
 
 if [ "$(uname)" = Darwin ]; then
   APP="$BUILD/OfxRawHost.app"
@@ -31,6 +41,12 @@ if [ "$(uname)" = Darwin ]; then
   BIN="$BUILD/OfxRawHost"
   [ -x "$BIN" ] || BIN="$BUILD/Release/OfxRawHost"
   cp "$BIN" "$APP/Contents/MacOS/OfxRawHost"
+  # --selftest forwards to this binary, so it travels inside the bundle.
+  TESTS="$BUILD/OfxRawHostTests"
+  [ -x "$TESTS" ] || TESTS="$BUILD/Release/OfxRawHostTests"
+  if [ -x "$TESTS" ]; then
+    cp "$TESTS" "$APP/Contents/MacOS/OfxRawHostTests"
+  fi
   if [ -f docs/logo.png ]; then
     ICONSET=$(mktemp -d)/AppIcon.iconset
     mkdir "$ICONSET"

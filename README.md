@@ -65,6 +65,82 @@ the metering methods of the spektrafilm pipeline.
 - **Exposure Compensation**: bias added to the measured exposure, in EV, from -10 to 10, default 0. Negative values darken the image. Positive values brighten it.
 - **Input Color Space**: color space of the source pixels, one of _sRGB_, _Display P3_, _Linear Rec.709_, or _Linear Rec.2020_. The host sets this from the opened image. The meter decodes the transfer curve and uses the matching luminance weights.
 
+### Denoise (profiled)
+
+A bundled OFX plugin that removes sensor noise using a model of the sensor
+rather than a plain blur. It is a port of the wavelets mode of darktable's
+_denoise (profiled)_ module, and it is compiled into the Windows executable and
+shipped in the same OFX bundle as Transform and Auto Exposure.
+
+Sensor noise is not the same everywhere in a frame. Photons arrive at random, so
+the noise grows with the signal (shot noise), and the read-out adds a floor that
+dominates the shadows. The plugin describes that with two numbers per frame:
+
+```
+V(X) = a * X + b
+```
+
+where `X` is the linear signal with 1.0 at the sensor white level. It then
+applies the generalized Anscombe transform, which turns that signal-dependent
+noise into noise of unit variance, and runs edge-aware a-trous wavelets on the
+stabilized image. Each of the seven bands gets a BayesShrink threshold sized
+from the noise the band would carry against the detail it does carry, so flat
+areas are smoothed hard while edges and texture are left alone. The transform is
+inverted at the end. Because the thresholds are computed on unit-variance data,
+the same amount of smoothing happens in the shadows and in the highlights.
+
+**Parameters:**
+
+- **Noise Slope (a)**: Poisson part of the model, default `3.55e-05`, which is a typical full-frame value for ISO 1600. The host fills it in from the detected camera profile; the default is what stays on a file that carries no camera data. Raise it for a noisier frame, lower it for a cleaner one. It grows roughly in proportion to the ISO setting.
+- **Noise Offset (b)**: Gaussian part of the model, the read noise that is there even with no light, default `1.07e-07`. It is what dominates the deep shadows. The host fills it in from the detected camera profile as well.
+- **Strength**: how hard the wavelets shrink the detail, from 0.001 to 1000, default 1. _1_ removes the noise the model above describes; higher values remove more of it at the cost of fine texture.
+- **Preserve Shadows**: finetune the denoising of the dark areas, from 0 to 1.8, default 1. Decrease it to denoise them more aggressively, increase it to leave more shadow detail at the cost of shadow noise. darktable picks this from the profile as `clamp(0.1 - 0.1 * ln(a), 0.7, 1.8)`, which is 1.12 for the default _a_ and is worth setting by hand when _a_ moves a long way from it.
+- **Bias Correction**: corrects a color cast in the shadows that the inverse transform can leave behind, from -1000 to 100, default 0. Decrease it if the shadows are too purple, increase it if they are too green.
+- **Color Mode**: _RGB_ keeps the channels apart; _Y0U0V0_ (default) sums them into a luma-like signal that it denoises on its own and denoises the color differences separately, which keeps chroma noise down without flattening the fine texture as much.
+- **Input Color Space**: color space of the source pixels, one of _sRGB_, _Display P3_, _Linear Rec.709_, or _Linear Rec.2020_. The host sets this from the opened image. The transform needs linear light, so the transfer curve is removed on the way in and applied again on the way out.
+
+**Automatic detection:** when the open frame came from a RAW file, the host reads
+its camera make, camera model and ISO setting, looks them up in the bundled copy
+of darktable's noise profile database, and fills _Noise Slope_ and _Noise Offset_
+with the profile of that camera at that ISO before the plugin renders. An ISO the
+database has no shot for is interpolated between the two neighbouring settings,
+and one outside the camera's range clamps to the closest setting it has. The
+plugin is seeded when it joins the chain, and again when the open image changes
+while the chain stays in place; a project or a sidecar that already stores the two
+values keeps them, so a saved chain reproduces exactly. A JPEG or a TIFF carries
+no sensor data, and the database does not know every camera, so for those the two
+values are set by hand.
+
+**Where the values come from:** the noise profile database holds, for every
+supported camera and ISO setting, the fit of a flat shot to `V(X) = a * X + b`.
+It ships with the app as a copy of darktable's `data/noiseprofiles.json` (see
+[License](#license) — that file stays under darktable's GPL-3.0). The table below
+holds the median of the database per ISO, as a starting point for a file that
+carries no camera data and as a sanity check on a profile the host picked.
+Sensors differ by more than a factor of two around those medians, so a profile
+for the actual camera is always better: a model that is too high smoothes detail
+away, and one that is too low leaves noise behind.
+
+| ISO    | a       | b       |
+| ------ | ------- | ------- |
+| 100    | 3.155e-06 | 2.800e-09 |
+| 200    | 5.023e-06 | 6.100e-09 |
+| 400    | 9.395e-06 | 1.550e-08 |
+| 800    | 1.812e-05 | 3.900e-08 |
+| 1600   | 3.550e-05 | 1.072e-07 |
+| 3200   | 6.710e-05 | 2.696e-07 |
+| 6400   | 1.245e-04 | 5.614e-07 |
+| 12800  | 2.267e-04 | 1.313e-06 |
+| 25600  | 3.367e-04 | 2.124e-06 |
+| 51200  | 4.270e-04 | 1.426e-06 |
+| 102400 | 7.396e-04 | 3.572e-06 |
+
+**Notes:**
+
+- The noise model describes pixels of the full-resolution frame. The host renders previews at a reduced resolution, so it tells the plugin the proxy scale of every pass and the plugin scales `a` and `b` with it. A preview therefore shows the smoothing the export will write.
+- The model is read from the green channel of the profile, as darktable does, and the image is assumed to be white balanced already, which is what the host hands over.
+- The per-band frequency curve of darktable's module, which scales how hard each wavelet band is shrunk, is fixed here at darktable's default force of 0.5, because the host has no curve widget. _Strength_ is the single control for how hard the denoiser bites.
+
 ---
 
 ## Install
@@ -86,7 +162,7 @@ xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
 ### Windows
 
 Download `OfxRawHost-Windows-x64.exe` and run it. It is one self-contained file: the
-libraries, the icon font, and the Transform plugin are all inside it, so there is nothing
+libraries, the icon font, and the bundled plugins are all inside it, so there is nothing
 to unpack and nothing to install, and it opens no console window. Windows may warn about
 an unknown publisher because the executable is not code-signed.
 
@@ -107,7 +183,7 @@ chmod +x OfxRawHost-Linux-x86_64.AppImage
 ./OfxRawHost-Linux-x86_64.AppImage
 ```
 
-The AppImage carries the host, the bundled Transform plugin, and the libraries it needs.
+The AppImage carries the host, the bundled plugins, and the libraries it needs.
 It prefers OpenGL 3.3 and falls back to legacy OpenGL rendering when the driver offers
 neither. The file dialogs use `zenity` or `kdialog`, so install one of them if the Open and
 Export dialogs do not appear:
@@ -115,6 +191,22 @@ Export dialogs do not appear:
 ```sh
 sudo apt install zenity
 ```
+
+The AppImage carries update information, so AppImageUpdate updates it in place. A stable
+build follows the newest stable release. A build from a `release/vX.X.X` branch follows the
+newest pre-release, which is what the in-app update check does for a development build.
+
+The release publishes the `.zsync` file that the update tool reads. Get `appimageupdatetool`
+from the AppImageUpdate releases, and pass `-O` so it replaces the file in place:
+
+```sh
+appimageupdatetool -O ./OfxRawHost-Linux-x86_64.AppImage
+```
+
+An AppImage released before v0.4.3 carries no update information, so download one v0.4.3 or
+later build by hand once to start receiving in-place updates.
+
+Nothing is signature-verified, so an in-place update trusts the GitHub release channel.
 
 ---
 
@@ -171,7 +263,7 @@ cd ofxrawhost
 ./build.sh
 ```
 
-On Windows, configure CMake with the vcpkg toolchain. `OFX_VERSION` is stamped into
+On Windows, configure CMake with the vcpkg toolchain. `OFX_VERSION_LABEL` is stamped into
 the file properties of the executable:
 
 ```cmd
@@ -179,23 +271,37 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
   -DVCPKG_OVERLAY_TRIPLETS=packaging/vcpkg-triplets ^
   -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
-  -DOFX_VERSION=0.4.1
+  -DOFX_VERSION_LABEL=0.4.3
 cmake --build build --config Release
 ```
 
 On macOS this produces `build/OfxRawHost.app`. On Linux, `build/OfxRawHost` plus the
 `build/Plugins/OfxRawHost.ofx.bundle` folder next to it. On Windows, the single
-`build/Release/OfxRawHost.exe` holds the Transform plugin and the icon font.
+`build/Release/OfxRawHost.exe` holds the bundled plugins and the icon font.
 
 ```sh
 # Enable native CPU instructions (AVX, F16C, etc.) for extra speed
 OFX_NATIVE_ARCH=1 ./build.sh
 
-# macOS self-test
-build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+# Build and run the self-test in one step (macOS, Linux, and the Windows exe)
+TEST=1 ./build.sh
 
-# Linux / Windows
-build/OfxRawHost --selftest
+# The self-test is its own binary: it links the libraries, so it needs no window
+build/OfxRawHostTests
+
+# --selftest on the app forwards to it, and the macOS bundle and the AppImage
+# ship it, so the shipped artefact can check itself
+build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+```
+
+`.clang-tidy` holds the check set; run it against the compilation database. Its
+`readability-avoid-nested-conditional-operator` is the one machine check behind
+the "no conditional operator, use if/else" rule in `AGENTS.md`, so a plain `?:`
+stays a review rule:
+
+```sh
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+clang-tidy -p build src/services/ChainIO.cpp
 ```
 
 ---
@@ -214,7 +320,7 @@ build/OfxRawHost --selftest
 | Workspace folder + filmstrip thumbnails                                         | Done (v0.3.7)  |
 | Project / sidecar JSON (reproducible chain + export metadata)                   | Done (v0.3.7)  |
 | ImGui DockSpace layout + modular UI modules                                     | Done (v0.3.7)  |
-| Layered source layout (`imgio` / `ofx` / `persist` / `ui`)                      | Done (v0.3.8)  |
+| Layered source layout (`codecs` / `ofx` / `persist` / `ui`)                      | Done (v0.3.8)  |
 | Correct JPEG/PNG passthrough preview color                                      | Done (v0.3.8)  |
 | Cached display buffer + Output tag recolor without re-render                    | Done (v0.3.9)  |
 | OFX multi-thread worker pool                                                    | Done (v0.3.9)  |
@@ -257,11 +363,32 @@ build/OfxRawHost --selftest
 | Preview size "Fit to preview" (matches the preview panel pixels)                | Done (v0.4.2)  |
 | Bundled Transform: Crop and Zoom merge into one Zoom control                    | Done (v0.4.2)  |
 | Bundled Auto Exposure plugin (spektrafilm metering methods)                     | Done (v0.4.2)  |
+| Bundled Denoise (profiled) plugin (darktable wavelets port)                     | Done (v0.4.3)  |
+| Denoise profile from the RAW's camera and ISO (darktable's profile database)     | Done (v0.4.3)  |
+| Host reports the proxy render scale so plugins follow the preview resolution    | Done (v0.4.3)  |
 | UI: Input / Preview colorspace in the Plugins panel; Export colorspace + Intent | Done (v0.4.2)  |
 | UI: Parameter panel drops its plugin tabs (node list selects the plugin)        | Done (v0.4.2)  |
+| Linux: AppImage embeds update information and publishes its .zsync              | Done (v0.4.3)  |
+| Refactor: `persist` is storage only; session / chain / export services own App   | Done (v0.4.3)  |
+| Refactor: self-test cases split into `src/selftest/Test*.cpp` modules            | Done (v0.4.3)  |
+| Refactor: one CMake target per layer; link edges are one-directional            | Done (v0.4.4)  |
+| Refactor: shared value types in `core/`; `imgio` and `persist` no longer cycle   | Done (v0.4.4)  |
+| Refactor: `RenderWorker` / `ExportWorker` replace the render free functions      | Done (v0.4.4)  |
+| Refactor: no mutable render globals; `RenderContext` and `OfxRegistry` own state | Done (v0.4.4)  |
+| Refactor: commands take `Workspace`, not `App`; UI owns the window and texture   | Done (v0.4.4)  |
+| Refactor: parameter values are `JsonValue`; one JSON parser, no hand-rolled text | Done (v0.4.4)  |
+| Refactor: plugin preset/LUT policy out of the widgets; `drawParam` split        | Done (v0.4.4)  |
+| Refactor: OFX suites split per suite file; self-test is its own binary and gates CI | Done (v0.4.4) |
+| Style: `.clang-tidy`; no conditional operators left in the tree                 | Done (v0.4.4)  |
 
 ---
 
 ## License
 
 See [LICENSE](LICENSE). The OpenFX SDK in `third_party/openfx` (git submodule) is under its own license. Vendored headers under `third_party/stb`, `third_party/tinyexr`, `third_party/portable-file-dialogs`, and `third_party/fontawesome` keep their upstream licenses. UI themes in `src/ui/Themes.cpp` are from [ImThemes](https://github.com/Patitotective/ImThemes) (MIT).
+
+The sensor noise profile database in `third_party/noiseprofiles` is data from the
+[darktable](https://github.com/darktable-org/darktable) project and stays under
+its license, the GNU General Public License version 3 or later; the text is in
+`third_party/noiseprofiles/COPYING` next to it. It is read at runtime, and it is
+the only GPL-licensed material bundled with the app.

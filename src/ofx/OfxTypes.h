@@ -6,8 +6,6 @@
 #include "ofx/OfxProps.h"
 #include "ofxCore.h"
 
-#include <atomic>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -52,6 +50,12 @@ struct Param {
 // must leave them alone, so the host and the plugin keep the same color spaces.
 inline constexpr char kInputColorSpaceLabel[] = "Input Color Space";
 inline constexpr char kOutputColorSpaceLabel[] = "Output Color Space";
+
+// Labels of the sensor noise model parameters. The host seeds these from the
+// noise profile that matches the camera and ISO of the open frame, and the user
+// stays free to edit them afterwards.
+inline constexpr char kNoiseSlopeLabel[] = "Noise Slope (a)";
+inline constexpr char kNoiseOffsetLabel[] = "Noise Offset (b)";
 struct Effect;
 struct Clip {
   std::string name;
@@ -81,12 +85,6 @@ struct Effect {
   // Releases the Metal scratch buffers, if any.
   ~Effect();
 };
-
-// Bumping gLatestGen aborts in-flight interactive renders. gValueMutex guards Param values.
-extern std::atomic<int> gLatestGen;
-extern std::mutex gValueMutex;
-// Called with plugin warnings/errors, on the thread that raised them.
-extern std::function<void(const std::string &)> gOnMessage;
 
 int dims(const std::string &type);
 bool isIntType(const std::string &type);

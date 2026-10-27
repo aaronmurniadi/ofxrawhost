@@ -5,6 +5,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# The layer graph: a source file may include its own layer and the ones below it,
+# never one above. The targets catch this when a symbol has to resolve, which is
+# too late for a header-only include or one whose symbol happens to resolve
+# through another consumer. See cmake/check_layers.cmake.
+execute_process(
+  COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/check_layers.cmake
+  RESULT_VARIABLE _layer_check
+  OUTPUT_VARIABLE _layer_output
+  ERROR_VARIABLE _layer_output)
+if(NOT _layer_check EQUAL 0)
+  message(FATAL_ERROR "${_layer_output}")
+endif()
+
 # MSVC: keep windows.h from defining min/max macros (the code calls std::min and
 # std::max), and read the UTF-8 sources and string literals as UTF-8.
 if(MSVC)
@@ -126,61 +139,244 @@ if(NOT JXL_FOUND)
   message(FATAL_ERROR "libjxl not found. Install JPEG XL (e.g. brew install jpeg-xl / apt install libjxl-dev).")
 endif()
 
-add_executable(OfxRawHost
-  src/main.cpp
-  src/selftest/Selftest.cpp
+# --- Modules ---
+# One target per layer, and every target links only downwards. A wrong-direction
+# #include therefore fails to compile instead of passing review. See PLAN.md for
+# the graph.
+#
+#   app/        composition root            -> everything
+#   ui/         ImGui panels, GL, dialogs   -> services model engine gfx core
+#   services/   use-cases, persistence      -> engine ofx io model core
+#   engine/     chain rendering, scheduling -> ofx io model gfx core
+#   ofx/        OpenFX SDK adapter          -> io core platform
+#   io/         codecs, persist       -> core platform
+#   model/      state units, no ImGui       -> core gfx
+#   gfx/        GlTexture                   -> nothing
+#   core/       Image, Json, version        -> nothing
+add_library(ofxrawhost_core STATIC
+  src/core/Image.cpp
+  src/core/Json.cpp
+  src/core/RenderContext.cpp
+  src/core/Version.cpp
+  src/core/UpdateChannel.cpp
+)
+target_include_directories(ofxrawhost_core PUBLIC src)
+
+add_library(ofxrawhost_gfx STATIC src/gfx/GlTexture.cpp)
+target_link_libraries(ofxrawhost_gfx PUBLIC ofxrawhost_core glfw)
+if(APPLE)
+  target_link_libraries(ofxrawhost_gfx PUBLIC "-framework OpenGL")
+elseif(WIN32)
+  target_link_libraries(ofxrawhost_gfx PUBLIC opengl32)
+else()
+  target_link_libraries(ofxrawhost_gfx PUBLIC OpenGL::GL)
+endif()
+
+add_library(ofxrawhost_platform STATIC
   src/platform/Console.cpp
   src/platform/EmbeddedResource.cpp
   src/platform/Http.cpp
   src/platform/Paths.cpp
   src/platform/SystemUiFont.cpp
   src/platform/Report.cpp
-  src/ofx/OfxSuites.cpp
-  src/ofx/OfxPlugins.cpp
-  src/ofx/SpektraPreset.cpp
-  src/imgio/ImageLoad.cpp
-  src/imgio/ImageColor.cpp
-  src/imgio/ImageWrite.cpp
-  src/UI.cpp
-  src/UpdateCheck.cpp
-  src/NodeGraph.cpp
-  src/ParamBridge.cpp
-  src/ChainRenderer.cpp
-  src/RenderScheduler.cpp
-  src/Actions.cpp
-  src/persist/DocumentActions.cpp
-  src/persist/ChainIO.cpp
-  src/persist/Json.cpp
+)
+if(APPLE)
+  target_sources(ofxrawhost_platform PRIVATE src/platform/HttpApple.mm)
+endif()
+target_link_libraries(ofxrawhost_platform PUBLIC ofxrawhost_core)
+
+add_library(ofxrawhost_io STATIC
+  src/codecs/ImageLoad.cpp
+  src/codecs/ImageColor.cpp
+  src/codecs/ImageWrite.cpp
+  src/codecs/NoiseProfiles.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
+  third_party/tinyexr/tinyexr.cc
+)
+target_include_directories(ofxrawhost_io PRIVATE third_party/stb third_party/tinyexr)
+target_compile_definitions(ofxrawhost_io PUBLIC
+  "OFX_NOISE_PROFILE_PATH=\"${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json\"")
+target_link_libraries(ofxrawhost_io PUBLIC ofxrawhost_core ofxrawhost_platform PRIVATE ZLIB::ZLIB)
+
+if(TARGET PkgConfig::LIBRAW)
+  target_link_libraries(ofxrawhost_io PRIVATE PkgConfig::LIBRAW)
+else()
+  target_include_directories(ofxrawhost_io PRIVATE ${LIBRAW_INCLUDE_DIR})
+  target_link_libraries(ofxrawhost_io PRIVATE ${LIBRAW_LIBRARY})
+endif()
+if(TARGET PkgConfig::LIBTIFF)
+  target_link_libraries(ofxrawhost_io PRIVATE PkgConfig::LIBTIFF)
+else()
+  target_include_directories(ofxrawhost_io PRIVATE ${LIBTIFF_INCLUDE_DIR})
+  target_link_libraries(ofxrawhost_io PRIVATE ${LIBTIFF_LIBRARY})
+endif()
+if(TARGET PkgConfig::LCMS2)
+  target_link_libraries(ofxrawhost_io PRIVATE PkgConfig::LCMS2)
+else()
+  target_include_directories(ofxrawhost_io PRIVATE ${LCMS2_INCLUDE_DIR})
+  target_link_libraries(ofxrawhost_io PRIVATE ${LCMS2_LIBRARY})
+endif()
+if(TARGET PkgConfig::WEBP)
+  target_link_libraries(ofxrawhost_io PRIVATE PkgConfig::WEBP)
+else()
+  target_include_directories(ofxrawhost_io PRIVATE ${WEBP_INCLUDE_DIR})
+  target_link_libraries(ofxrawhost_io PRIVATE ${WEBP_LIBRARY})
+endif()
+if(TARGET PkgConfig::WEBPMUX)
+  target_link_libraries(ofxrawhost_io PRIVATE PkgConfig::WEBPMUX)
+else()
+  target_include_directories(ofxrawhost_io PRIVATE ${WEBP_INCLUDE_DIR})
+  target_link_libraries(ofxrawhost_io PRIVATE ${WEBPMUX_LIBRARY})
+endif()
+if(TARGET PkgConfig::JXL)
+  target_link_libraries(ofxrawhost_io PRIVATE PkgConfig::JXL)
+else()
+  target_include_directories(ofxrawhost_io PRIVATE ${JXL_INCLUDE_DIR})
+  target_link_libraries(ofxrawhost_io PRIVATE ${JXL_LIBRARY} ${JXL_THREADS_LIBRARY})
+endif()
+
+# The model layer is header-only state: Document, Chain, GuiState. It owns no
+# translation unit, so it is an interface target.
+add_library(ofxrawhost_model INTERFACE)
+target_link_libraries(ofxrawhost_model INTERFACE ofxrawhost_core ofxrawhost_gfx)
+
+add_library(ofxrawhost_ofx STATIC
+  src/ofx/OfxSuites.cpp
+  src/ofx/OfxPropsSuite.cpp
+  src/ofx/OfxRuntimeSuites.cpp
+  src/ofx/OfxPlugins.cpp
+  src/ofx/SpektraPreset.cpp
+)
+if(APPLE)
+  target_sources(ofxrawhost_ofx PRIVATE src/ofx/OfxMetal.mm)
+else()
+  target_sources(ofxrawhost_ofx PRIVATE src/ofx/OfxMetalStub.cpp)
+endif()
+target_include_directories(ofxrawhost_ofx PUBLIC third_party/openfx/include)
+target_link_libraries(ofxrawhost_ofx PUBLIC ofxrawhost_io OfxSupport)
+if(WIN32)
+  # The Windows release compiles the bundled effects into the executable, so the
+  # registry has to look for them. The switch belongs to the target that compiles
+  # loadPlugins(), not to the executable that happens to link it.
+  target_compile_definitions(ofxrawhost_ofx PRIVATE OFX_EMBEDDED_PLUGIN)
+endif()
+if(APPLE)
+  target_link_libraries(ofxrawhost_ofx PUBLIC "-framework Metal")
+endif()
+
+add_library(ofxrawhost_engine STATIC
+  src/engine/ChainRenderer.cpp
+  src/engine/RenderWorker.cpp
+  src/engine/ExportWorker.cpp
+)
+target_link_libraries(ofxrawhost_engine PUBLIC ofxrawhost_model ofxrawhost_ofx)
+
+add_library(ofxrawhost_services STATIC
+  src/services/Actions.cpp
+  src/services/NodeGraph.cpp
+  src/services/Export.cpp
+  src/services/StateMapping.cpp
+  src/services/ChainIO.cpp
+  src/services/ParamBridge.cpp
+  src/services/ParamEdit.cpp
+  src/services/PluginPresets.cpp
+  src/services/UpdateCheck.cpp
+  src/services/Filmstrip.cpp
+  src/services/OpenWorker.cpp
+)
+target_link_libraries(ofxrawhost_services PUBLIC ofxrawhost_engine)
+
+add_library(ofxrawhost_ui STATIC
   src/ui/Themes.cpp
-  src/ui/GlTexture.cpp
-  src/Filmstrip.cpp
   src/ui/ImGuiBackend.cpp
   src/ui/DockLayout.cpp
   src/ui/UiFrame.cpp
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
-  src/ui/ParamEdit.cpp
   src/ui/PluginsPanel.cpp
   src/ui/ParametersPanel.cpp
   src/ui/PreviewPanel.cpp
   src/ui/FilmstripPanel.cpp
-  third_party/tinyexr/tinyexr.cc
+)
+if(APPLE)
+  target_sources(ofxrawhost_ui PRIVATE src/ui/MacPinch.m)
+endif()
+target_include_directories(ofxrawhost_ui PUBLIC
+  third_party/portable-file-dialogs
+  third_party/fontawesome
+  third_party/inter
+)
+target_compile_definitions(ofxrawhost_ui PUBLIC
+  "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
+  "OFX_UI_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf\""
+)
+target_link_libraries(ofxrawhost_ui PUBLIC ofxrawhost_services imgui_lib glfw)
+
+add_executable(OfxRawHost
+  src/app/main.cpp
+  src/app/RunApp.cpp
+)
+target_link_libraries(OfxRawHost PRIVATE ofxrawhost_ui)
+
+# The self-test is a separate binary on every platform whose release ships more
+# than one file: it links the libraries, not the shipping executable, so it needs
+# no window. The Windows release is deliberately a single .exe, so there the test
+# objects are also linked into the app and --selftest runs them in place.
+add_library(ofxrawhost_selftest OBJECT
+  src/selftest/Selftest.cpp
+  src/selftest/TestSupport.cpp
+  src/selftest/TestImage.cpp
+  src/selftest/TestState.cpp
+  src/selftest/TestPlugins.cpp
+  src/selftest/TestConcurrency.cpp
+)
+# The cases reach into the UI themes and into the codecs directly, so the test
+# objects link the whole stack.
+target_link_libraries(ofxrawhost_selftest PUBLIC ofxrawhost_ui)
+if(TARGET PkgConfig::LIBTIFF)
+  target_link_libraries(ofxrawhost_selftest PUBLIC PkgConfig::LIBTIFF)
+else()
+  target_include_directories(ofxrawhost_selftest PUBLIC ${LIBTIFF_INCLUDE_DIR})
+  target_link_libraries(ofxrawhost_selftest PUBLIC ${LIBTIFF_LIBRARY})
+endif()
+
+add_executable(OfxRawHostTests src/selftest/TestMain.cpp $<TARGET_OBJECTS:ofxrawhost_selftest>)
+target_link_libraries(OfxRawHostTests PRIVATE ofxrawhost_selftest)
+
+# Every module, so a global switch below reaches the libraries as well as the
+# two executables.
+set(OFX_MODULE_TARGETS
+  ofxrawhost_core
+  ofxrawhost_gfx
+  ofxrawhost_platform
+  ofxrawhost_io
+  ofxrawhost_ofx
+  ofxrawhost_engine
+  ofxrawhost_services
+  ofxrawhost_ui
+  ofxrawhost_selftest
+  OfxRawHost
+  OfxRawHostTests
 )
 
-if(APPLE)
-  # The update check uses Foundation's URL session, which needs Objective-C++.
-  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm src/platform/HttpApple.mm)
-else()
-  target_sources(OfxRawHost PRIVATE src/ofx/OfxMetalStub.cpp)
-endif()
+function(ofx_module_compile_options)
+  foreach(_ofx_target IN LISTS OFX_MODULE_TARGETS)
+    target_compile_options(${_ofx_target} PRIVATE ${ARGN})
+  endforeach()
+endfunction()
+
+function(ofx_module_compile_definitions)
+  foreach(_ofx_target IN LISTS OFX_MODULE_TARGETS)
+    target_compile_definitions(${_ofx_target} PRIVATE ${ARGN})
+  endforeach()
+endfunction()
 
 # Link-time optimization (cross-TU inlining, dead-code elimination).
 include(CheckIPOSupported)
 check_ipo_supported(RESULT OFX_IPO_SUPPORTED OUTPUT OFX_IPO_OUTPUT)
 if(OFX_IPO_SUPPORTED)
-  set_property(TARGET OfxRawHost PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  set_property(TARGET ${OFX_MODULE_TARGETS} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 else()
   message(STATUS "LTO not supported: ${OFX_IPO_OUTPUT}")
 endif()
@@ -188,35 +384,23 @@ endif()
 # SSE2 is the minimum SIMD baseline on x86_64 (always available there).
 # On 32-bit x86, require it explicitly so stb_image / stbir can use SSE2 code paths.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(i386|i486|i586|i686)$")
-  target_compile_options(OfxRawHost PRIVATE -msse2 -mfpmath=sse)
+  ofx_module_compile_options( -msse2 -mfpmath=sse)
 endif()
 
 # Optional: optimize for the build host CPU (enables AVX, F16C, etc.).
 option(OFX_NATIVE_ARCH "Build with -march=native for the host CPU" OFF)
 if(OFX_NATIVE_ARCH)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(OfxRawHost PRIVATE -march=native)
+    ofx_module_compile_options( -march=native)
   elseif(MSVC)
-    target_compile_options(OfxRawHost PRIVATE /arch:AVX2)
+    ofx_module_compile_options( /arch:AVX2)
   endif()
   message(STATUS "Building with native architecture optimization")
 endif()
 
-target_include_directories(OfxRawHost PRIVATE
-  src
-  third_party/openfx/include
-  third_party/stb
-  third_party/tinyexr
-  third_party/portable-file-dialogs
-  third_party/fontawesome
-  third_party/inter
-)
-
-target_compile_definitions(OfxRawHost PRIVATE
-  "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
-  "OFX_UI_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf\""
-  GL_SILENCE_DEPRECATION
-)
+# The include roots are PUBLIC on core, so every module inherits them, and the
+# two executables only add the flag they need.
+ofx_module_compile_definitions(GL_SILENCE_DEPRECATION)
 
 add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -225,51 +409,18 @@ add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
     $<TARGET_FILE_DIR:OfxRawHost>/Inter.ttf
+  # The sensor noise profiles sit beside the binary, like the fonts.
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json
+    $<TARGET_FILE_DIR:OfxRawHost>/noiseprofiles.json
 )
 
-if(TARGET PkgConfig::LIBRAW)
-  target_link_libraries(OfxRawHost PRIVATE PkgConfig::LIBRAW)
-else()
-  target_include_directories(OfxRawHost PRIVATE ${LIBRAW_INCLUDE_DIR})
-  target_link_libraries(OfxRawHost PRIVATE ${LIBRAW_LIBRARY})
-endif()
-
-if(TARGET PkgConfig::LIBTIFF)
-  target_link_libraries(OfxRawHost PRIVATE PkgConfig::LIBTIFF)
-else()
-  target_include_directories(OfxRawHost PRIVATE ${LIBTIFF_INCLUDE_DIR})
-  target_link_libraries(OfxRawHost PRIVATE ${LIBTIFF_LIBRARY})
-endif()
-
-if(TARGET PkgConfig::LCMS2)
-  target_link_libraries(OfxRawHost PRIVATE PkgConfig::LCMS2)
-else()
-  target_include_directories(OfxRawHost PRIVATE ${LCMS2_INCLUDE_DIR})
-  target_link_libraries(OfxRawHost PRIVATE ${LCMS2_LIBRARY})
-endif()
-
-if(TARGET PkgConfig::WEBP)
-  target_link_libraries(OfxRawHost PRIVATE PkgConfig::WEBP)
-else()
-  target_include_directories(OfxRawHost PRIVATE ${WEBP_INCLUDE_DIR})
-  target_link_libraries(OfxRawHost PRIVATE ${WEBP_LIBRARY})
-endif()
-
-if(TARGET PkgConfig::WEBPMUX)
-  target_link_libraries(OfxRawHost PRIVATE PkgConfig::WEBPMUX)
-else()
-  target_include_directories(OfxRawHost PRIVATE ${WEBP_INCLUDE_DIR})
-  target_link_libraries(OfxRawHost PRIVATE ${WEBPMUX_LIBRARY})
-endif()
-
-if(TARGET PkgConfig::JXL)
-  target_link_libraries(OfxRawHost PRIVATE PkgConfig::JXL)
-else()
-  target_include_directories(OfxRawHost PRIVATE ${JXL_INCLUDE_DIR})
-  target_link_libraries(OfxRawHost PRIVATE ${JXL_LIBRARY} ${JXL_THREADS_LIBRARY})
-endif()
-
-target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB)
+# The self-test reads the same files, so it finds them beside its own binary.
+add_custom_command(TARGET OfxRawHostTests POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json
+    $<TARGET_FILE_DIR:OfxRawHostTests>/noiseprofiles.json
+)
 
 # A vcpkg static build needs the dependencies of the libraries found above:
 # JPEG XL pulls in highway and brotli, libtiff pulls in jpeg and lzma, and so on.
@@ -282,51 +433,36 @@ if(WIN32 AND VCPKG_TARGET_TRIPLET MATCHES "-static$")
     message(FATAL_ERROR "No libraries under ${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib for the static build")
   endif()
   target_link_libraries(OfxRawHost PRIVATE ${OFX_VCPKG_STATIC_LIBS})
+  target_link_libraries(OfxRawHostTests PRIVATE ${OFX_VCPKG_STATIC_LIBS})
 endif()
 
 if(APPLE)
-  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal" "-framework CoreText")
+  target_link_libraries(OfxRawHost PRIVATE "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal" "-framework CoreText")
+  target_link_libraries(OfxRawHostTests PRIVATE "-framework Cocoa" "-framework CoreText")
 elseif(WIN32)
-  # The update check reaches GitHub through the WinHTTP library of Windows.
-  target_link_libraries(OfxRawHost PRIVATE opengl32 winhttp)
+  # The update check reaches GitHub through WinHTTP library of Windows.
+  target_link_libraries(OfxRawHost PRIVATE winhttp)
+  target_link_libraries(OfxRawHostTests PRIVATE winhttp)
 else()
   find_package(OpenGL REQUIRED)
   target_link_libraries(OfxRawHost PRIVATE OpenGL::GL)
 endif()
 
-# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform, Auto Exposure) ---
+# --- Bundled OFX plugin bundle: OfxRawHost.ofx.bundle (Transform, Auto Exposure, Denoise) ---
 find_package(Threads REQUIRED)
 
-# The support lib's log-indent counter is a process-global int (upstream calls it
-# "not MP sane"); action dispatches from the render and UI threads race on it.
-# Patch a private copy to thread_local so the submodule stays pristine.
-file(READ third_party/openfx/Support/Library/ofxsLog.cpp _ofxsLog)
-string(REPLACE "static int gIndent = 0;" "static thread_local int gIndent = 0;" _ofxsLog "${_ofxsLog}")
-if(NOT _ofxsLog MATCHES "static thread_local int gIndent = 0;")
-  message(FATAL_ERROR "ofxsLog.cpp gIndent patch anchor not found; update the CMakeLists.txt patch")
-endif()
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ofxsLog.cpp" "${_ofxsLog}")
+# The OpenFX Support library, with the one upstream fix described in the module.
+include(cmake/PatchOfxSupport.cmake)
 
-add_library(OfxSupport STATIC
-  third_party/openfx/Support/Library/ofxsCore.cpp
-  third_party/openfx/Support/Library/ofxsImageEffect.cpp
-  third_party/openfx/Support/Library/ofxsInteract.cpp
-  ${CMAKE_CURRENT_BINARY_DIR}/ofxsLog.cpp
-  third_party/openfx/Support/Library/ofxsMultiThread.cpp
-  third_party/openfx/Support/Library/ofxsParams.cpp
-  third_party/openfx/Support/Library/ofxsProperty.cpp
-  third_party/openfx/Support/Library/ofxsPropertyValidation.cpp
-)
-target_include_directories(OfxSupport PUBLIC
-  third_party/openfx/include
-  third_party/openfx/Support/include
-)
-target_link_libraries(OfxSupport PUBLIC Threads::Threads)
-set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-# Bundled plugins: the Transform and Auto Exposure effects ship inside the
-# Windows executable so the release is one file, and as an
+# Bundled plugins: the Transform, Auto Exposure, and Denoise (profiled) effects
+# ship inside the Windows executable so the release is one file, and as an
 # OfxRawHost.ofx.bundle everywhere else.
+set(OFX_BUNDLED_PLUGIN_SOURCES
+  plugins/Transform.cpp
+  plugins/AutoExposure.cpp
+  plugins/Denoise.cpp
+  plugins/BundledPlugins.cpp
+)
 
 # Version shown in the About window. A dev build keeps the -dev suffix, for
 # example 0.4.2-dev. The release build passes OFX_VERSION_LABEL as the git tag;
@@ -353,7 +489,7 @@ else()
   message(WARNING "version label '${OFX_VERSION_LABEL}' is not numeric; using 0.0.0")
   set(OFX_VERSION "0.0.0")
 endif()
-target_compile_definitions(OfxRawHost PRIVATE OFXRAWHOST_VERSION="${OFX_VERSION_LABEL}")
+target_compile_definitions(ofxrawhost_core PUBLIC OFXRAWHOST_VERSION="${OFX_VERSION_LABEL}")
 
 if(WIN32)
   enable_language(RC)
@@ -367,15 +503,23 @@ if(WIN32)
   string(REPLACE ";" "," OFX_VERSION_COMMAS "${_ofx_ver_parts}")
   set(OFX_ICON_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf")
   set(OFX_UI_FONT_PATH "${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf")
+  set(OFX_NOISE_PROFILE_PATH "${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json")
   set(OFX_APP_ICON_PATH "${CMAKE_SOURCE_DIR}/packaging/windows/ofxrawhost.ico")
   if(NOT EXISTS "${OFX_APP_ICON_PATH}")
     message(FATAL_ERROR "windows icon not found: ${OFX_APP_ICON_PATH}")
   endif()
   configure_file(packaging/windows/OfxRawHost.rc.in "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc" @ONLY)
 
-  target_sources(OfxRawHost PRIVATE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
+  target_sources(OfxRawHost PRIVATE ${OFX_BUNDLED_PLUGIN_SOURCES} "${CMAKE_CURRENT_BINARY_DIR}/OfxRawHost.rc")
+  # This release is one file, so --selftest runs inside it instead of forwarding
+  # to a sibling test binary.
+  target_sources(OfxRawHost PRIVATE $<TARGET_OBJECTS:ofxrawhost_selftest>)
   target_link_libraries(OfxRawHost PRIVATE OfxSupport)
-  target_compile_definitions(OfxRawHost PRIVATE OFX_EMBEDDED_PLUGIN)
+  target_compile_definitions(OfxRawHost PRIVATE OFX_SELFTEST_IN_APP)
+  # The standalone test binary carries the same factories, so it needs no
+  # installed plugin to pass.
+  target_sources(OfxRawHostTests PRIVATE ${OFX_BUNDLED_PLUGIN_SOURCES})
+  target_link_libraries(OfxRawHostTests PRIVATE OfxSupport)
   # Release build opens no console window. The host keeps main(), so name the CRT
   # entry point explicitly instead of adding a WinMain wrapper.
   set_target_properties(OfxRawHost PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -383,7 +527,7 @@ if(WIN32)
 else()
   # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
   # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
-  add_library(OfxRawHostBundled MODULE plugins/Transform.cpp plugins/AutoExposure.cpp plugins/BundledPlugins.cpp)
+  add_library(OfxRawHostBundled MODULE ${OFX_BUNDLED_PLUGIN_SOURCES})
   set_target_properties(OfxRawHostBundled PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
   target_link_libraries(OfxRawHostBundled PRIVATE OfxSupport)
   if(APPLE)
@@ -423,16 +567,22 @@ if(APPLE)
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:OfxRawHost>
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/MacOS/OfxRawHost
+    # --selftest forwards to this binary, so it travels inside the bundle.
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:OfxRawHostTests>
+      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/MacOS/OfxRawHostTests
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/fa-solid-900.ttf
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       ${CMAKE_SOURCE_DIR}/third_party/inter/Inter.ttf
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/Inter.ttf
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_SOURCE_DIR}/third_party/noiseprofiles/noiseprofiles.json
+      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/noiseprofiles.json
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       ${OFX_BUNDLE}
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle
     COMMAND ${CMAKE_COMMAND} -E echo "Built ${CMAKE_BINARY_DIR}/OfxRawHost.app"
-    DEPENDS OfxRawHost OfxRawHostBundled
+    DEPENDS OfxRawHost OfxRawHostTests OfxRawHostBundled
   )
 endif()

@@ -112,7 +112,8 @@ void TransformPlugin::computeCropWindow(double time, double srcW, double srcH,
   const double scale = 100.0 / zoomVal;
 
   // Largest rectangle with the target aspect ratio that fits the source, scaled by the zoom.
-  const double fitW = (ar >= srcW / srcH) ? srcW : srcH * ar;
+  double fitW = srcH * ar;
+  if (ar >= srcW / srcH) fitW = srcW;
   const double fitH = fitW / ar;
   w = fitW * scale;
   h = fitH * scale;
@@ -124,8 +125,10 @@ void TransformPlugin::computeCropWindow(double time, double srcW, double srcH,
   // slide beyond the source edge, with out-of-bounds areas rendered as black.
   const double offX = std::clamp(offsetX_->getValueAtTime(time), -100.0, 100.0) / 100.0;
   const double offY = std::clamp(offsetY_->getValueAtTime(time), -100.0, 100.0) / 100.0;
-  const double panX = (srcW > w) ? (srcW - w) * 0.5 : w * 0.5;
-  const double panY = (srcH > h) ? (srcH - h) * 0.5 : h * 0.5;
+  double panX = w * 0.5;
+  double panY = h * 0.5;
+  if (srcW > w) panX = (srcW - w) * 0.5;
+  if (srcH > h) panY = (srcH - h) * 0.5;
   const double cx = srcW * 0.5 + offX * panX;
   const double cy = srcH * 0.5 + offY * panY;
   x0 = cx - w * 0.5;

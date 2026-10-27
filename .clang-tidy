@@ -1,0 +1,40 @@
+# clang-tidy configuration for OfxRawHost.
+#
+# Build first, so clang-tidy has a compilation database:
+#   cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+#   clang-tidy -p build src/ui/ParamWidgets.cpp
+#
+# The check list is deliberately small. It holds the rules this repository
+# actually enforces today, so a run is either clean or a real finding. Widen it
+# as a cleanup lands, not before.
+#
+# The big rule in AGENTS.md, "never use a ternary when if/else will do", is only
+# partly expressible here: clang-tidy ships
+# readability-avoid-nested-conditional-operator for nested ternaries, and no
+# check at all for the plain operator, which stays a review rule.
+---
+Checks: >
+  -*,
+  readability-avoid-nested-conditional-operator,
+  readability-uniqueptr-delete-release,
+  bugprone-macro-parentheses,
+  bugprone-suspicious-semicolon,
+  bugprone-string-constructor,
+  bugprone-sizeof-expression,
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-move-forwarding-reference,
+  performance-move-const-arg,
+  performance-for-range-copy
+
+WarningsAsErrors:
+  readability-avoid-nested-conditional-operator
+
+# Only this repository's headers are reported; a finding inside a vendored
+# header or a dependency is not actionable here.
+HeaderFilterRegex: '^(src|plugins)/'
+
+# Report findings from the main file only, not from every included header, so one
+# run per file is enough.
+UseColor: false
+...
