@@ -447,15 +447,19 @@ When adding files:
 
 ## Definition of done (whole restructure)
 
-- [ ] `app/Bootstrap` constructs DAOs and managers; `RunApp` owns its lifetime.
-- [ ] UI open / export / color-space / chain / filmstrip flows go through manager
+- [x] `app/Bootstrap` constructs DAOs and managers; `RunApp` owns its lifetime.
+- [x] UI open / export / color-space / chain / filmstrip flows go through manager
       interfaces.
-- [ ] Disk I/O for sidecars and workspace projects goes through DAO interfaces.
-- [ ] No new `Workspace &` on manager APIs (Step 5).
-- [ ] Free-function service API is removed or reduced to documented shims.
-- [ ] `cmake -P cmake/check_layers.cmake` passes.
-- [ ] Full build and self-test pass on macOS (and CI platforms you touch).
-- [ ] `AGENTS.md` and `README.md` point only at this file as the restructure plan.
+- [x] Disk I/O for sidecars and workspace projects goes through DAO interfaces.
+- [x] No new `Workspace &` on manager APIs (Step 5).
+- [x] Free-function service API is removed or reduced to documented shims.
+- [x] `cmake -P cmake/check_layers.cmake` passes.
+- [x] Full build and self-test pass on macOS (and CI platforms you touch).
+- [x] `AGENTS.md` and `README.md` point only at this file as the restructure plan.
+
+Steps 1-7 landed. The free functions in `services/NodeGraph.*`, `ParamBridge.*`,
+and `ParamEdit.*` stay as the implementation layer under `NodeGraphManager` and
+`ParamEditManager`, and the self-test calls them directly on purpose.
 
 ---
 

@@ -124,7 +124,7 @@ void drawPluginsPanel(App &app) {
   int inputSpace = static_cast<int>(app.document.inputSpace);
   ImGui::BeginDisabled(app.document.full.px.empty());
   if (uiChoiceCombo("Input colorspace", nullptr, kColorSpaces, kColorSpaceCount, &inputSpace))
-    app.colorSpaces->setInputSpace(inputSpace);
+    app.colorSpaces->apply({ColorSpaceChange::Target::Input, inputSpace});
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     ImGui::SetTooltip("Space given to the first plugin in the chain. It starts at the space of the decoded image.");
   ImGui::EndDisabled();
@@ -134,7 +134,7 @@ void drawPluginsPanel(App &app) {
   // space produces.
   int previewSpace = static_cast<int>(app.gui.previewSpace);
   if (uiChoiceCombo("Preview colorspace", nullptr, kColorSpaces, kColorSpaceCount, &previewSpace))
-    app.colorSpaces->setPreviewSpace(previewSpace);
+    app.colorSpaces->apply({ColorSpaceChange::Target::Preview, previewSpace});
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
     ImGui::SetTooltip("Space the preview is shown in. The export has its own color space in the export dialog.");
 
@@ -142,7 +142,7 @@ void drawPluginsPanel(App &app) {
     const char *items[kPreviewResCount];
     for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
     int res = static_cast<int>(app.gui.previewRes);
-    if (uiChoiceCombo("Preview", nullptr, items, kPreviewResCount, &res)) app.colorSpaces->setPreviewRes(res);
+    if (uiChoiceCombo("Preview", nullptr, items, kPreviewResCount, &res)) app.colorSpaces->apply({ColorSpaceChange::Target::PreviewResolution, res});
   }
   ImGui::Separator();
   const std::string status = app.statusText();

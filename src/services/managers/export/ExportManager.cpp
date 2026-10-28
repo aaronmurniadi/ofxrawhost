@@ -71,9 +71,11 @@ class ExportManagerImpl : public ExportManager {
     return stem + exportExtension(session_.gui.exportFormat);
   }
 
-  void doExport(const std::string &path) override {
+  void doExport(const ExportRequest &request) override {
+    // Validation is business logic, so it lives here and not in the dialog.
     if (!canExport()) return;
-    std::string outPath = path;
+    if (request.outPath.empty()) return;
+    std::string outPath = request.outPath;
     if (fs::path(outPath).extension().empty()) outPath += exportExtension(session_.gui.exportFormat);
 
     // Wait for a quiet render before the job reads the document and the chain.

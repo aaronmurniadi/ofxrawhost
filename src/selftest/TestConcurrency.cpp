@@ -63,7 +63,7 @@ int testConcurrency(const Image &src) {
     }
     if (i % 17 == 0) app.rebuildPreviewImage();  // preview rewrite must wait out the worker
     if (i == 50) {
-      app.exports->doExport(out.string());
+      app.exports->doExport(ExportRequest{out.string()});
       // Mutating the graph right after an export must wait it out, not race it.
       if (app.chain.nodes.size() > 1) destroyNode(app.session(), 0);
       else addNode(app.session(), usable[i % (int)usable.size()]);

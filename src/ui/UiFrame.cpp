@@ -159,10 +159,10 @@ static void drawExportDialog(App &app) {
                                                           "Absolute colorimetric"};
   int outSpace = static_cast<int>(app.gui.exportSpace);
   if (uiChoiceCombo("Export colorspace", nullptr, kColorSpaces, kColorSpaceCount, &outSpace))
-    app.colorSpaces->setExportSpace(outSpace);
+    app.colorSpaces->apply({ColorSpaceChange::Target::Export, outSpace});
   int intent = static_cast<int>(app.gui.exportIntent);
   if (uiChoiceCombo("Intent", nullptr, kIntents, kRenderIntentCount, &intent))
-    app.colorSpaces->setExportIntent(intent);
+    app.colorSpaces->apply({ColorSpaceChange::Target::ExportIntent, intent});
 
   const ExportFormat format = app.gui.exportFormat;
   if (exportUsesBitDepth(format)) {
@@ -193,7 +193,7 @@ static void drawExportDialog(App &app) {
     auto sel = pfd::save_file("Export", app.exports->defaultExportName(),
                              {kExportFilters[idx * 2], kExportFilters[idx * 2 + 1]});
     const std::string outPath = sel.result();
-    if (!outPath.empty()) app.exports->doExport(outPath);
+    if (!outPath.empty()) app.exports->doExport(ExportRequest{outPath});
   }
   ImGui::SameLine();
   if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();

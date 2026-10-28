@@ -13,6 +13,26 @@ class ColorSpaceManagerImpl : public ColorSpaceManager {
  public:
   explicit ColorSpaceManagerImpl(ManagerSession session) : session_(session) {}
 
+  void apply(const ColorSpaceChange &change) override {
+    switch (change.target) {
+      case ColorSpaceChange::Target::Input:
+        setInputSpace(change.index);
+        return;
+      case ColorSpaceChange::Target::Preview:
+        setPreviewSpace(change.index);
+        return;
+      case ColorSpaceChange::Target::Export:
+        setExportSpace(change.index);
+        return;
+      case ColorSpaceChange::Target::ExportIntent:
+        setExportIntent(change.index);
+        return;
+      case ColorSpaceChange::Target::PreviewResolution:
+        setPreviewRes(change.index);
+        return;
+    }
+  }
+
   void setInputSpace(int index) override {
     session_.document.inputSpace = outputSpace(std::clamp(index, 0, kColorSpaceCount - 1));
     // The chain carries this space into its first plugin, and a later plugin can
