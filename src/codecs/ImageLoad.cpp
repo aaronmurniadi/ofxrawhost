@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -121,23 +122,26 @@ static std::string trimmed(const char *text) {
 
 static bool loadRaw(const std::string &path, Image &out, ImageMeta &meta) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
-  LibRaw raw;
-  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
-  if (raw.unpack() != LIBRAW_SUCCESS) return false;
+  // LibRaw is about 750 KB, which is larger than the 512 KB stack a worker
+  // thread gets, so it lives on the heap. A local here overflows the stack while
+  // a RAW decodes on the open worker.
+  std::unique_ptr<LibRaw> raw(new LibRaw);
+  if (raw->open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
+  if (raw->unpack() != LIBRAW_SUCCESS) return false;
   // LibRaw rewrites the maker and model into its own camera table spelling, which
   // is the spelling the noise profile database uses.
-  meta.cameraMaker = trimmed(raw.imgdata.idata.make);
-  meta.cameraModel = trimmed(raw.imgdata.idata.model);
-  meta.iso = (int)(raw.imgdata.other.iso_speed + 0.5f);
+  meta.cameraMaker = trimmed(raw->imgdata.idata.make);
+  meta.cameraModel = trimmed(raw->imgdata.idata.model);
+  meta.iso = (int)(raw->imgdata.other.iso_speed + 0.5f);
   meta.hasCamera = !meta.cameraMaker.empty() && !meta.cameraModel.empty();
-  raw.imgdata.params.output_bps = 16;
-  raw.imgdata.params.gamm[0] = 1.0;
-  raw.imgdata.params.gamm[1] = 1.0;
-  raw.imgdata.params.no_auto_bright = 1;
-  raw.imgdata.params.use_camera_wb = 1;
-  raw.imgdata.params.output_color = 1;
-  if (raw.dcraw_process() != LIBRAW_SUCCESS) return false;
-  libraw_processed_image_t *img = raw.dcraw_make_mem_image();
+  raw->imgdata.params.output_bps = 16;
+  raw->imgdata.params.gamm[0] = 1.0;
+  raw->imgdata.params.gamm[1] = 1.0;
+  raw->imgdata.params.no_auto_bright = 1;
+  raw->imgdata.params.use_camera_wb = 1;
+  raw->imgdata.params.output_color = 1;
+  if (raw->dcraw_process() != LIBRAW_SUCCESS) return false;
+  libraw_processed_image_t *img = raw->dcraw_make_mem_image();
   if (!img || img->type != LIBRAW_IMAGE_BITMAP || img->colors < 3) {
     if (img) LibRaw::dcraw_clear_mem(img);
     return false;
@@ -400,10 +404,12 @@ static bool loadStbThumbRGBA(const std::string &path, int maxEdge, std::vector<u
 static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w,
                                      int &h) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
-  LibRaw raw;
-  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
-  if (raw.unpack_thumb() != LIBRAW_SUCCESS) return false;
-  const libraw_thumbnail_t &t = raw.imgdata.thumbnail;
+  // Heap, for the same stack-size reason as loadRaw: the thumbnail worker thread
+  // has a 512 KB stack and LibRaw needs more than that.
+  std::unique_ptr<LibRaw> raw(new LibRaw);
+  if (raw->open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
+  if (raw->unpack_thumb() != LIBRAW_SUCCESS) return false;
+  const libraw_thumbnail_t &t = raw->imgdata.thumbnail;
   if (t.tlength <= 0 || !t.thumb) return false;
 
   std::vector<unsigned char> decoded;

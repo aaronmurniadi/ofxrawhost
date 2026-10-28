@@ -2,7 +2,47 @@
 
 #include "codecs/ImageIO.h"
 
+#include <functional>
 #include <utility>
+
+#if defined(__APPLE__)
+#include <pthread.h>
+#endif
+
+namespace {
+
+// RAW decode touches LibRaw, whose own state is about 750 KB, so the decode
+// thread gets the same 8 MB stack the filmstrip thumbnail thread uses. The
+// default 512 KB worker stack is too small for it.
+std::thread startLargeStackThread(std::function<void()> work) {
+#if defined(__APPLE__)
+  auto *ctx = new std::function<void()>(std::move(work));
+  pthread_t tid;
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, 8 * 1024 * 1024);
+  const int err = pthread_create(
+      &tid, &attr,
+      +[](void *p) -> void * {
+        auto *task = static_cast<std::function<void()> *>(p);
+        (*task)();
+        delete task;
+        return nullptr;
+      },
+      ctx);
+  pthread_attr_destroy(&attr);
+  if (err != 0) {
+    std::function<void()> task = std::move(*ctx);
+    delete ctx;
+    return std::thread(std::move(task));
+  }
+  return std::thread([tid]() { pthread_join(tid, nullptr); });
+#else
+  return std::thread(std::move(work));
+#endif
+}
+
+}  // namespace
 
 OpenWorker::~OpenWorker() { wait(); }
 
@@ -29,7 +69,7 @@ bool OpenWorker::start(std::string path, bool useSavedChain) {
   }
   done_ = false;
   busy_ = true;
-  thread_ = std::thread([this, moved = std::move(path), useSavedChain]() mutable {
+  thread_ = startLargeStackThread([this, moved = std::move(path), useSavedChain]() mutable {
     run(std::move(moved), useSavedChain);
   });
   return true;
