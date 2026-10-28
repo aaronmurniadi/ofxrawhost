@@ -6,6 +6,7 @@
 #include "persist/daos/WorkspaceProjectDao.h"
 #include "services/managers/document/DocumentManager.h"
 #include "services/managers/export/ExportManager.h"
+#include "services/managers/session/ColorSpaceManager.h"
 
 #include <memory>
 
@@ -16,6 +17,7 @@ struct Bootstrap {
   std::unique_ptr<WorkspaceProjectDao> projectDao;
   std::unique_ptr<DocumentManager> documents;
   std::unique_ptr<ExportManager> exports;
+  std::unique_ptr<ColorSpaceManager> colorSpaces;
 };
 
 // Builds DAOs then managers. Managers temporarily bind to workspace until later

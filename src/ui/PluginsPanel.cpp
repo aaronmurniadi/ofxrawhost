@@ -1,7 +1,8 @@
 #include "ui/UiFrame.h"
 
-#include "services/Actions.h"
 #include "codecs/ImageIO.h"
+#include "services/managers/document/DocumentManager.h"
+#include "services/managers/session/ColorSpaceManager.h"
 #include "services/ParamBridge.h"
 #include "persist/ProjectPersist.h"
 #include "services/NodeGraph.h"
@@ -101,11 +102,11 @@ static void drawNodeList(Workspace &app) {
   ImGui::EndChild();
 }
 
-void drawPluginsPanel(Workspace &app) {
+void drawPluginsPanel(App &app) {
   if (ImGui::Button("Open image")) {
     auto f = pfd::open_file("Open image", "", openImageDialogFilters());
     auto r = f.result();
-    if (!r.empty()) openPath(app, r[0]);
+    if (!r.empty()) app.documents->openPath(r[0]);
   }
   ImGui::SameLine();
   if (ImGui::Button("Open Directory")) {
@@ -123,7 +124,7 @@ void drawPluginsPanel(Workspace &app) {
   int inputSpace = static_cast<int>(app.document.inputSpace);
   ImGui::BeginDisabled(app.document.full.px.empty());
   if (uiChoiceCombo("Input colorspace", nullptr, kColorSpaces, kColorSpaceCount, &inputSpace))
-    setInputSpace(app, inputSpace);
+    app.colorSpaces->setInputSpace(inputSpace);
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     ImGui::SetTooltip("Space given to the first plugin in the chain. It starts at the space of the decoded image.");
   ImGui::EndDisabled();
@@ -133,7 +134,7 @@ void drawPluginsPanel(Workspace &app) {
   // space produces.
   int previewSpace = static_cast<int>(app.gui.previewSpace);
   if (uiChoiceCombo("Preview colorspace", nullptr, kColorSpaces, kColorSpaceCount, &previewSpace))
-    setPreviewSpace(app, previewSpace);
+    app.colorSpaces->setPreviewSpace(previewSpace);
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
     ImGui::SetTooltip("Space the preview is shown in. The export has its own color space in the export dialog.");
 
@@ -141,7 +142,7 @@ void drawPluginsPanel(Workspace &app) {
     const char *items[kPreviewResCount];
     for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
     int res = static_cast<int>(app.gui.previewRes);
-    if (uiChoiceCombo("Preview", nullptr, items, kPreviewResCount, &res)) setPreviewRes(app, res);
+    if (uiChoiceCombo("Preview", nullptr, items, kPreviewResCount, &res)) app.colorSpaces->setPreviewRes(res);
   }
   ImGui::Separator();
   const std::string status = app.statusText();

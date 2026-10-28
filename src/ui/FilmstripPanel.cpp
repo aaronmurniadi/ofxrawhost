@@ -1,7 +1,7 @@
 #include "ui/UiFrame.h"
 
-#include "services/Actions.h"
 #include "services/Filmstrip.h"
+#include "services/managers/document/DocumentManager.h"
 
 #include "imgui.h"
 
@@ -21,7 +21,7 @@ static const FilmstripTabItem kFilmstripTabs[] = {
     {FilmstripTab::Compressed, "Compressed"},
 };
 
-void drawFilmstripPanel(Workspace &app) {
+void drawFilmstripPanel(App &app) {
   if (app.document.workspaceDir.empty() || app.filmstrip.entries.empty()) {
     ImGui::TextDisabled("Open a directory to browse images.");
     return;
@@ -79,7 +79,7 @@ void drawFilmstripPanel(Workspace &app) {
       }
       if (ImGui::IsItemVisible()) requestFilmstripThumb(app.filmstrip, i, selected);
       if (selected) ImGui::PopStyleColor();
-      if (ImGui::IsItemClicked()) openPath(app, e.path);
+      if (ImGui::IsItemClicked()) app.documents->openPath(e.path);
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("%s", fs::path(e.path).filename().string().c_str());
       ImGui::PopID();

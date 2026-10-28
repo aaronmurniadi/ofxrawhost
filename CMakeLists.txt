@@ -275,9 +275,7 @@ add_library(ofxrawhost_engine STATIC
 target_link_libraries(ofxrawhost_engine PUBLIC ofxrawhost_model ofxrawhost_ofx)
 
 add_library(ofxrawhost_services STATIC
-  src/services/Actions.cpp
   src/services/NodeGraph.cpp
-  src/services/Export.cpp
   src/services/StateMapping.cpp
   src/services/ChainIO.cpp
   src/services/ParamBridge.cpp
@@ -288,6 +286,7 @@ add_library(ofxrawhost_services STATIC
   src/services/OpenWorker.cpp
   src/services/managers/document/DocumentManager.cpp
   src/services/managers/export/ExportManager.cpp
+  src/services/managers/session/ColorSpaceManager.cpp
 )
 target_link_libraries(ofxrawhost_services PUBLIC ofxrawhost_engine)
 

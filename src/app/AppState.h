@@ -7,6 +7,7 @@
 struct GLFWwindow;
 class DocumentManager;
 class ExportManager;
+class ColorSpaceManager;
 
 // Composition root: the running host's state plus the window and the preview
 // texture, which only the interface draws. Commands and services take a
@@ -17,4 +18,5 @@ struct App : Workspace {
   GlTexture previewTexture;
   DocumentManager *documents = nullptr;
   ExportManager *exports = nullptr;
+  ColorSpaceManager *colorSpaces = nullptr;
 };

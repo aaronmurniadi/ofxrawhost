@@ -6,5 +6,6 @@ Bootstrap initBootstrap(Workspace &workspace) {
   boot.projectDao = createWorkspaceProjectDao();
   boot.documents = createDocumentManager(workspace, *boot.sidecarDao, *boot.projectDao);
   boot.exports = createExportManager(workspace, *boot.sidecarDao);
+  boot.colorSpaces = createColorSpaceManager(workspace);
   return boot;
 }

@@ -1,9 +1,8 @@
 #include "ui/UiFrame.h"
 
-#include "services/Export.h"
-#include "services/Actions.h"
 #include "services/managers/document/DocumentManager.h"
 #include "services/managers/export/ExportManager.h"
+#include "services/managers/session/ColorSpaceManager.h"
 #include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
 #include "persist/ProjectPersist.h"
@@ -137,8 +136,8 @@ static const char *const kExportFilters[] = {
 };
 
 // Opens the export dialog; the destination is chosen from inside it.
-void exportImage(Workspace &app) {
-  if (!canExport(app)) return;
+void exportImage(App &app) {
+  if (!app.exports->canExport()) return;
   app.gui.showExportDialog = true;
 }
 
@@ -160,9 +159,10 @@ static void drawExportDialog(App &app) {
                                                           "Absolute colorimetric"};
   int outSpace = static_cast<int>(app.gui.exportSpace);
   if (uiChoiceCombo("Export colorspace", nullptr, kColorSpaces, kColorSpaceCount, &outSpace))
-    setExportSpace(app, outSpace);
+    app.colorSpaces->setExportSpace(outSpace);
   int intent = static_cast<int>(app.gui.exportIntent);
-  if (uiChoiceCombo("Intent", nullptr, kIntents, kRenderIntentCount, &intent)) setExportIntent(app, intent);
+  if (uiChoiceCombo("Intent", nullptr, kIntents, kRenderIntentCount, &intent))
+    app.colorSpaces->setExportIntent(intent);
 
   const ExportFormat format = app.gui.exportFormat;
   if (exportUsesBitDepth(format)) {
@@ -475,12 +475,12 @@ static void drawSidecarPrompt(App &app) {
   ImGui::Spacing();
   if (ImGui::Button("Yes", ImVec2(120.0f, 0.0f))) {
     ImGui::CloseCurrentPopup();
-    resolvePendingOpen(app, /*useSavedChain=*/true);
+    app.documents->resolvePendingOpen(/*useSavedChain=*/true);
   }
   ImGui::SameLine();
   if (ImGui::Button("No", ImVec2(120.0f, 0.0f))) {
     ImGui::CloseCurrentPopup();
-    resolvePendingOpen(app, /*useSavedChain=*/false);
+    app.documents->resolvePendingOpen(/*useSavedChain=*/false);
   }
   ImGui::EndPopup();
 }
@@ -493,7 +493,7 @@ void drawUiFrame(App &app) {
   if (!app.gui.pendingWorkspaceDir.empty()) {
     const std::string dir = std::move(app.gui.pendingWorkspaceDir);
     app.gui.pendingWorkspaceDir.clear();
-    openWorkspace(app, dir);
+    app.documents->openWorkspace(dir);
   }
 
   drawMenuBar(app);

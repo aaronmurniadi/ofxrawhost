@@ -1,7 +1,7 @@
 #include "services/StateMapping.h"
 
-#include "services/Workspace.h"
-#include "services/ChainIO.h"
+#include "core/UpdateChannel.h"
+#include "model/GuiState.h"
 
 #include <algorithm>
 
@@ -59,11 +59,6 @@ void applyAppearance(GuiState &gui, const PersistAppearance &appearance) {
   gui.fontApplyPending = true;
 }
 
-void saveCurrentInputSidecar(const DocumentState &document, const ChainState &chain) {
-  if (document.path.empty()) return;
-  saveInputSidecar(document.path, document.fileSpace, document.inputSpace, captureChain(chain));
-}
-
 PersistUpdates captureUpdates(const GuiState &gui) {
   PersistUpdates u;
   u.channel = static_cast<int>(gui.updateChannel);
@@ -83,12 +78,3 @@ void applyUpdates(GuiState &gui, const PersistUpdates &u) {
   gui.devBuildWarningShown = u.devWarningShown;
 }
 
-void persistWorkspace(const DocumentState &document, const GuiState &gui) {
-  // The per-user preferences file always reflects the current session, even when
-  // no workspace is open, so the next start restores the theme, font, and view.
-  saveGlobalSettings(captureGui(gui), captureAppearance(gui), captureUpdates(gui));
-  if (document.workspaceDir.empty()) return;
-  std::string active;
-  if (!document.path.empty()) active = relativeToWorkspace(document.workspaceDir, document.path);
-  saveWorkspaceProject(document.workspaceDir, active);
-}

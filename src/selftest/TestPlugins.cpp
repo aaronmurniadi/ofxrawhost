@@ -1,8 +1,8 @@
 #include "selftest/TestCases.h"
 #include "selftest/TestSupport.h"
 
-#include "services/Actions.h"
 #include "app/AppState.h"
+#include "services/managers/session/ColorSpaceManager.h"
 #include "services/ChainIO.h"
 #include "services/NodeGraph.h"
 #include "services/ParamBridge.h"
@@ -480,6 +480,7 @@ int testChainColorSpaceFlow() {
   if (it == plugins().end()) return fail("chain space: bundled Transform plugin not found");
 
   App app;
+  TestBootstrap wired(app);
   if (app.gui.previewSpace != ColorSpace::sRGB) return fail("chain space: preview default is not sRGB");
   if (app.gui.exportSpace != ColorSpace::sRGB) return fail("chain space: export default is not sRGB");
 
@@ -491,13 +492,13 @@ int testChainColorSpaceFlow() {
 
   // The document input space reaches the chain output, because Transform declares
   // no output space of its own.
-  setInputSpace(app, 0);  // sRGB
+  app.colorSpaces->setInputSpace(0);  // sRGB
   if (app.document.inputSpace != ColorSpace::sRGB) return fail("chain space: input space not set");
   if (app.render.outputSpace() != ColorSpace::sRGB) return fail("chain space: input space not carried");
 
   // The preview destination is the last conversion, so it must not move the
   // chain.
-  setPreviewSpace(app, 3);  // Linear Rec.2020
+  app.colorSpaces->setPreviewSpace(3);  // Linear Rec.2020
   if (app.gui.previewSpace != ColorSpace::LinearRec2020) return fail("chain space: preview space not set");
   if (app.render.outputSpace() != ColorSpace::sRGB) return fail("chain space: preview changed the chain");
 

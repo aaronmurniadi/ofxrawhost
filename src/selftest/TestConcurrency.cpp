@@ -2,8 +2,8 @@
 #include "selftest/TestSupport.h"
 
 #include "app/AppState.h"
-#include "services/Export.h"
 #include "services/NodeGraph.h"
+#include "services/managers/export/ExportManager.h"
 #include "services/ParamBridge.h"
 #include "engine/RenderWorker.h"
 #include "codecs/ImageIO.h"
@@ -31,6 +31,7 @@ int testConcurrency(const Image &src) {
   if (transformPi < 0) return fail("concurrency: Transform plugin missing");
 
   App app;
+  TestBootstrap wired(app);
   app.document.full = src;
   app.document.preview = src;
   app.render.start();
@@ -62,7 +63,7 @@ int testConcurrency(const Image &src) {
     }
     if (i % 17 == 0) app.rebuildPreviewImage();  // preview rewrite must wait out the worker
     if (i == 50) {
-      doExport(app, out.string());
+      app.exports->doExport(out.string());
       // Mutating the graph right after an export must wait it out, not race it.
       if (app.chain.nodes.size() > 1) destroyNode(app, 0);
       else addNode(app, usable[i % (int)usable.size()]);

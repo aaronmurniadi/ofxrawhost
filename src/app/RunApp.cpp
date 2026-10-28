@@ -1,8 +1,8 @@
 #include "app/RunApp.h"
 
 #include "app/Bootstrap.h"
-#include "services/Actions.h"
 #include "app/AppState.h"
+#include "services/managers/document/DocumentManager.h"
 #include "core/RenderContext.h"
 #include "services/StateMapping.h"
 #include "services/Filmstrip.h"
@@ -84,6 +84,7 @@ int runApp(const std::string &optionalPath) {
   Bootstrap boot = initBootstrap(app);
   app.documents = boot.documents.get();
   app.exports = boot.exports.get();
+  app.colorSpaces = boot.colorSpaces.get();
   glfwMakeContextCurrent(app.window);
   glfwSwapInterval(1);
 #if defined(__APPLE__)
@@ -122,14 +123,14 @@ int runApp(const std::string &optionalPath) {
     app.reportStatus("No OFX filter plugins found in the default OFX path or OFX_PLUGIN_PATH");
   else
     app.reportStatus("Add plugins with + to build a processing chain.");
-  if (!optionalPath.empty()) openPath(app, optionalPath);
+  if (!optionalPath.empty()) app.documents->openPath(optionalPath);
 
   app.render.start();
   app.filmstrip.thread = startFilmstripThumbThread(&app.filmstrip);
 
   glfwSetDropCallback(app.window, [](GLFWwindow *w, int count, const char **paths) {
     auto *app = static_cast<App *>(glfwGetWindowUserPointer(w));
-    if (app && count > 0) openPath(*app, paths[0]);
+    if (app && app->documents && count > 0) app->documents->openPath(paths[0]);
   });
   glfwSetWindowUserPointer(app.window, &app);
 
@@ -137,7 +138,7 @@ int runApp(const std::string &optionalPath) {
     glfwPollEvents();
     // Applies a decode that finished this frame, so the interface keeps drawing
     // while a RAW develops instead of blocking on it.
-    pumpOpen(app);
+    app.documents->pumpOpen();
     app.render.pumpUpload(app.previewTexture);
     pumpFilmstripThumbs(app.filmstrip);
     app.updates.pump();

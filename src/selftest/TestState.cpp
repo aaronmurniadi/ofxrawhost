@@ -1,8 +1,8 @@
 #include "selftest/TestCases.h"
 #include "selftest/TestSupport.h"
 
-#include "services/Actions.h"
 #include "app/AppState.h"
+#include "services/managers/document/DocumentManager.h"
 #include "services/ChainIO.h"
 #include "services/NodeGraph.h"
 #include "services/StateMapping.h"
@@ -310,11 +310,11 @@ int testStateFilesAreAppLevel() {
 // and nothing about the open may change before it arrives.
 // Opening decodes on a worker thread now, so a case that opens waits for the
 // decode and applies it the way the frame loop does before asserting on it.
-static bool finishOpen(Workspace &app) {
+static bool finishOpen(App &app) {
   // An open that stopped to ask which chain to use starts no decode, so an idle
   // worker is a pass, not a failure.
   for (int i = 0; i < 4000 && app.opener.busy(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  pumpOpen(app);
+  app.documents->pumpOpen();
   return !app.opener.busy();
 }
 
@@ -378,20 +378,21 @@ int testOpenWithSidecarPrompt() {
   // Image A opens with no other image open, so its chain is restored without an
   // answer. Its sidecar then records the chain that was built for it.
   App app;
-  openPath(app, imageA);
+  TestBootstrap wired(app);
+  app.documents->openPath(imageA);
   if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
   if (rc == 0 && app.document.path != imageA) rc = fail("open prompt: the first image did not open");
   if (rc == 0 && app.gui.showSidecarPrompt) rc = fail("open prompt: the first image asked");
   if (rc == 0) applyChain(app, makeChain(100.0));
   if (rc == 0 && openZoom(app) != 100.0) rc = fail("open prompt: the chain of the first image did not apply");
-  if (rc == 0) saveCurrentInputSidecar(app.document, app.chain);
+  if (rc == 0) app.documents->saveCurrentInputSidecar();
   if (rc == 0 && !saveInputSidecar(imageB, ColorSpace::sRGB, ColorSpace::sRGB, makeChain(300.0)))
     rc = fail("open prompt: the sidecar of the second image was not written");
 
   // Image B carries a saved chain of its own, so the open waits for the answer
   // and leaves the document and the chain alone until it arrives.
   if (rc == 0) {
-    openPath(app, imageB);
+    app.documents->openPath(imageB);
     if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the open did not ask");
     if (app.gui.pendingOpenPath != imageB) rc = fail("open prompt: the pending path is not the opened image");
@@ -400,24 +401,24 @@ int testOpenWithSidecarPrompt() {
   }
   // Yes: the chain recorded in the sidecar wins.
   if (rc == 0) {
-    resolvePendingOpen(app, true);
+    app.documents->resolvePendingOpen(true);
     if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.document.path != imageB) rc = fail("open prompt: Yes did not open the image");
     if (openZoom(app) != 300.0) rc = fail("open prompt: Yes did not restore the saved chain");
   }
   // No: the chain in place carries into the image, and the saved one is dropped.
   if (rc == 0) {
-    openPath(app, imageA);
+    app.documents->openPath(imageA);
     if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (!app.gui.showSidecarPrompt) rc = fail("open prompt: the second open did not ask");
-    resolvePendingOpen(app, false);
+    app.documents->resolvePendingOpen(false);
     if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.document.path != imageA) rc = fail("open prompt: No did not open the image");
     if (openZoom(app) != 300.0) rc = fail("open prompt: No did not keep the chain in place");
   }
   // An image with no sidecar needs no answer, and the chain carries into it.
   if (rc == 0) {
-    openPath(app, imageC);
+    app.documents->openPath(imageC);
     if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.gui.showSidecarPrompt) rc = fail("open prompt: an image without a sidecar asked");
     if (app.document.path != imageC) rc = fail("open prompt: the third image did not open");
@@ -429,7 +430,7 @@ int testOpenWithSidecarPrompt() {
     rc = fail("open prompt: the sidecar of the first image was not rewritten");
   if (rc == 0) {
     clearNodes(app);
-    openPath(app, imageA);
+    app.documents->openPath(imageA);
     if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.gui.showSidecarPrompt) rc = fail("open prompt: an empty chain asked");
     if (openZoom(app) != 500.0) rc = fail("open prompt: the saved chain was not restored over an empty one");
