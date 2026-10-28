@@ -6,7 +6,6 @@
 #include "services/managers/export/ExportManager.h"
 #include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
-#include "services/StateMapping.h"
 #include "persist/ProjectPersist.h"
 #include "platform/SystemUiFont.h"
 #include "engine/RenderWorker.h"
@@ -80,8 +79,8 @@ static void drawMenuBar(App &app) {
         if (!r.empty()) app.gui.pendingWorkspaceDir = r;
       }
       if (ImGui::MenuItem("Save Project")) {
-        saveCurrentInputSidecar(app.document, app.chain);
-        persistWorkspace(app.document, app.gui);
+        app.documents->saveCurrentInputSidecar();
+        app.documents->persistWorkspace();
         app.reportStatus("Saved project and sidecar");
       }
 #ifdef __APPLE__
@@ -355,7 +354,7 @@ static void drawDevBuildWarning(App &app) {
     ImGui::OpenPopup("Development build");
     app.gui.showDevBuildWarning = false;
     app.gui.devBuildWarningShown = true;
-    persistWorkspace(app.document, app.gui);
+    app.documents->persistWorkspace();
   }
   if (!ImGui::BeginPopupModal("Development build", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
@@ -366,7 +365,7 @@ static void drawDevBuildWarning(App &app) {
   ImGui::Spacing();
   if (ImGui::Button("Yes, turn it off", ImVec2(160.0f, 0.0f))) {
     app.gui.checkUpdatesAtStartup = false;
-    persistWorkspace(app.document, app.gui);
+    app.documents->persistWorkspace();
     ImGui::CloseCurrentPopup();
   }
   ImGui::SameLine();

@@ -192,6 +192,8 @@ add_library(ofxrawhost_io STATIC
   src/codecs/NoiseProfiles.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
+  src/persist/daos/SidecarDao.cpp
+  src/persist/daos/WorkspaceProjectDao.cpp
   third_party/tinyexr/tinyexr.cc
 )
 target_include_directories(ofxrawhost_io PRIVATE third_party/stb third_party/tinyexr)

@@ -1,11 +1,10 @@
 #include "app/Bootstrap.h"
 
-#include "services/managers/document/DocumentManager.h"
-#include "services/managers/export/ExportManager.h"
-
 Bootstrap initBootstrap(Workspace &workspace) {
   Bootstrap boot;
-  boot.documents = createDocumentManager(workspace);
-  boot.exports = createExportManager(workspace);
+  boot.sidecarDao = createSidecarDao();
+  boot.projectDao = createWorkspaceProjectDao();
+  boot.documents = createDocumentManager(workspace, *boot.sidecarDao, *boot.projectDao);
+  boot.exports = createExportManager(workspace, *boot.sidecarDao);
   return boot;
 }

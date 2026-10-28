@@ -6,6 +6,8 @@
 #include <string>
 
 struct Workspace;
+class SidecarDao;
+class WorkspaceProjectDao;
 
 class DocumentManager {
  public:
@@ -14,6 +16,11 @@ class DocumentManager {
   virtual bool openWorkspace(const std::string &dir) = 0;
   virtual void resolvePendingOpen(bool useSavedChain) = 0;
   virtual bool pumpOpen() = 0;
+  // Writes the sidecar of the open image through SidecarDao.
+  virtual void saveCurrentInputSidecar() = 0;
+  // Writes per-user settings and the workspace project through WorkspaceProjectDao.
+  virtual void persistWorkspace() = 0;
 };
 
-std::unique_ptr<DocumentManager> createDocumentManager(Workspace &workspace);
+std::unique_ptr<DocumentManager> createDocumentManager(Workspace &workspace, SidecarDao &sidecar,
+                                                       WorkspaceProjectDao &project);

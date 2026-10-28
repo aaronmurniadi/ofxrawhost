@@ -100,7 +100,7 @@ int runApp(const std::string &optionalPath) {
     PersistUpdates savedUpdates;
     // Without a settings file the channel follows the kind of build this is.
     savedUpdates.channel = static_cast<int>(defaultUpdateChannel());
-    if (loadGlobalSettings(saved, savedAppearance, savedUpdates)) {
+    if (boot.projectDao->loadSettings(saved, savedAppearance, savedUpdates)) {
       applyGui(app.gui, saved);
       applyAppearance(app.gui, savedAppearance);
       applyUpdates(app.gui, savedUpdates);
@@ -171,8 +171,8 @@ int runApp(const std::string &optionalPath) {
   app.filmstrip.cv.notify_one();
   if (app.filmstrip.thread.joinable()) app.filmstrip.thread.join();
   app.exporter.wait();
-  saveCurrentInputSidecar(app.document, app.chain);
-  persistWorkspace(app.document, app.gui);
+  app.documents->saveCurrentInputSidecar();
+  app.documents->persistWorkspace();
   clearNodes(app);
 
   freeFilmstripTextures(app.filmstrip);

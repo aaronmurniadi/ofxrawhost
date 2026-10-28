@@ -6,6 +6,7 @@
 #include <string>
 
 struct Workspace;
+class SidecarDao;
 
 class ExportManager {
  public:
@@ -15,4 +16,4 @@ class ExportManager {
   virtual void doExport(const std::string &outPath) = 0;
 };
 
-std::unique_ptr<ExportManager> createExportManager(Workspace &workspace);
+std::unique_ptr<ExportManager> createExportManager(Workspace &workspace, SidecarDao &sidecar);
