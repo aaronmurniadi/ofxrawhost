@@ -2,6 +2,8 @@
 
 #include "services/Export.h"
 #include "services/Actions.h"
+#include "services/managers/document/DocumentManager.h"
+#include "services/managers/export/ExportManager.h"
 #include "services/NodeGraph.h"
 #include "ofx/OfxHost.h"
 #include "services/StateMapping.h"
@@ -66,7 +68,7 @@ static void drawMenuBar(App &app) {
 #endif
         auto f = pfd::open_file("Open image", "", openImageDialogFilters());
         auto r = f.result();
-        if (!r.empty()) openPath(app, r[0]);
+        if (!r.empty()) app.documents->openPath(r[0]);
       }
 #ifdef __APPLE__
       if (ImGui::MenuItem("Open Directory", "⌘+Shift+O")) {
@@ -141,7 +143,7 @@ void exportImage(Workspace &app) {
   app.gui.showExportDialog = true;
 }
 
-static void drawExportDialog(Workspace &app) {
+static void drawExportDialog(App &app) {
   if (app.gui.showExportDialog) {
     ImGui::OpenPopup("Export");
     app.gui.showExportDialog = false;
@@ -189,9 +191,10 @@ static void drawExportDialog(Workspace &app) {
   if (ImGui::Button("Export", ImVec2(120, 0))) {
     ImGui::CloseCurrentPopup();
     const int idx = static_cast<int>(format);
-    auto sel = pfd::save_file("Export", defaultExportName(app), {kExportFilters[idx * 2], kExportFilters[idx * 2 + 1]});
+    auto sel = pfd::save_file("Export", app.exports->defaultExportName(),
+                             {kExportFilters[idx * 2], kExportFilters[idx * 2 + 1]});
     const std::string outPath = sel.result();
-    if (!outPath.empty()) doExport(app, outPath);
+    if (!outPath.empty()) app.exports->doExport(outPath);
   }
   ImGui::SameLine();
   if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();

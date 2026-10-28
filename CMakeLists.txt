@@ -284,6 +284,8 @@ add_library(ofxrawhost_services STATIC
   src/services/UpdateCheck.cpp
   src/services/Filmstrip.cpp
   src/services/OpenWorker.cpp
+  src/services/managers/document/DocumentManager.cpp
+  src/services/managers/export/ExportManager.cpp
 )
 target_link_libraries(ofxrawhost_services PUBLIC ofxrawhost_engine)
 
@@ -316,6 +318,7 @@ target_link_libraries(ofxrawhost_ui PUBLIC ofxrawhost_services imgui_lib glfw)
 add_executable(OfxRawHost
   src/app/main.cpp
   src/app/RunApp.cpp
+  src/app/Bootstrap.cpp
 )
 target_link_libraries(OfxRawHost PRIVATE ofxrawhost_ui)
 

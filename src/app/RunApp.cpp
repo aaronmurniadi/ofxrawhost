@@ -1,5 +1,6 @@
 #include "app/RunApp.h"
 
+#include "app/Bootstrap.h"
 #include "services/Actions.h"
 #include "app/AppState.h"
 #include "core/RenderContext.h"
@@ -80,6 +81,9 @@ int runApp(const std::string &optionalPath) {
 
   App app;
   app.window = window;
+  Bootstrap boot = initBootstrap(app);
+  app.documents = boot.documents.get();
+  app.exports = boot.exports.get();
   glfwMakeContextCurrent(app.window);
   glfwSwapInterval(1);
 #if defined(__APPLE__)
