@@ -4,13 +4,12 @@
 
 #include "persist/daos/SidecarDao.h"
 #include "persist/daos/WorkspaceProjectDao.h"
+#include "services/Workspace.h"
 #include "services/managers/document/DocumentManager.h"
 #include "services/managers/export/ExportManager.h"
 #include "services/managers/session/ColorSpaceManager.h"
 
 #include <memory>
-
-struct Workspace;
 
 struct Bootstrap {
   std::unique_ptr<SidecarDao> sidecarDao;

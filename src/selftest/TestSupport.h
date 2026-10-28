@@ -28,11 +28,12 @@ struct TestBootstrap {
   std::unique_ptr<ColorSpaceManager> colorSpacesOwned;
 
   explicit TestBootstrap(App &app) {
+    ManagerSession session = app.session();
     sidecarDao = createSidecarDao();
     projectDao = createWorkspaceProjectDao();
-    documentsOwned = createDocumentManager(app, *sidecarDao, *projectDao);
-    exportsOwned = createExportManager(app, *sidecarDao);
-    colorSpacesOwned = createColorSpaceManager(app);
+    documentsOwned = createDocumentManager(session, *sidecarDao, *projectDao);
+    exportsOwned = createExportManager(session, *sidecarDao);
+    colorSpacesOwned = createColorSpaceManager(session);
     app.documents = documentsOwned.get();
     app.exports = exportsOwned.get();
     app.colorSpaces = colorSpacesOwned.get();

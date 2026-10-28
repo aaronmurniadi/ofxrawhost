@@ -72,17 +72,17 @@ static bool readNodeColorParam(const Node &node, const char *label, ColorSpace &
   return false;
 }
 
-void syncChainColorSpaces(Workspace &app) {
+void syncChainColorSpaces(ManagerSession session) {
   // Walk the chain in order: the first plugin is told the document input space,
   // and every later plugin is told the space the previous plugin declares. The
   // space that leaves the last enabled plugin is what the preview and the export
   // start from.
-  ColorSpace carried = app.document.inputSpace;
+  ColorSpace carried = session.document.inputSpace;
   std::vector<Node *> changedNodes;
   std::vector<Param *> changedParams;
   {
     std::lock_guard<std::mutex> lock(renderContext().values());  // p->v may be written by an in-flight render
-    for (Node &node : app.chain.nodes) {
+    for (Node &node : session.chain.nodes) {
       if (!node.enabled || !node.instance) continue;
       if (Param *p = writeNodeColorParam(node, kInputColorSpaceLabel, colorSpaceName(carried))) {
         changedNodes.push_back(&node);
@@ -92,7 +92,7 @@ void syncChainColorSpaces(Workspace &app) {
       // The plugin does not describe its output, so the space it received passes
       // through unchanged.
     }
-    app.render.setOutputSpace(carried);
+    session.render.setOutputSpace(carried);
   }
   for (size_t i = 0; i < changedParams.size(); ++i) notifyChanged(*changedNodes[i], changedParams[i]);
 }
@@ -115,10 +115,10 @@ static Param *writeNodeDoubleParam(Node &node, const char *label, double value) 
   return nullptr;
 }
 
-int seedNoiseModelParams(Workspace &app, Node &node) {
-  if (!node.instance || !app.document.meta.hasCamera || app.document.meta.iso <= 0) return 0;
+int seedNoiseModelParams(ManagerSession session, Node &node) {
+  if (!node.instance || !session.document.meta.hasCamera || session.document.meta.iso <= 0) return 0;
   NoiseProfile profile;
-  if (!noiseProfileLookup(app.document.meta.cameraMaker, app.document.meta.cameraModel, app.document.meta.iso, profile)) return 0;
+  if (!noiseProfileLookup(session.document.meta.cameraMaker, session.document.meta.cameraModel, session.document.meta.iso, profile)) return 0;
 
   std::vector<Param *> changed;
   {
@@ -130,10 +130,10 @@ int seedNoiseModelParams(Workspace &app, Node &node) {
   return (int)changed.size();
 }
 
-int seedNoiseModelParams(Workspace &app) {
+int seedNoiseModelParams(ManagerSession session) {
   int seeded = 0;
-  for (Node &node : app.chain.nodes)
-    if (seedNoiseModelParams(app, node) > 0) ++seeded;
+  for (Node &node : session.chain.nodes)
+    if (seedNoiseModelParams(session, node) > 0) ++seeded;
   return seeded;
 }
 
@@ -167,8 +167,8 @@ bool hostSpaceForPluginName(const std::string &name, ColorSpace &out) {
   return false;
 }
 
-bool chainHasEnabledNode(Workspace &app) {
-  for (const Node &node : app.chain.nodes)
+bool chainHasEnabledNode(ManagerSession session) {
+  for (const Node &node : session.chain.nodes)
     if (node.enabled && node.instance) return true;
   return false;
 }

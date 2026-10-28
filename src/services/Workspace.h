@@ -5,17 +5,20 @@
 // line, and the two workers. The composition root (app/AppState.h) adds the
 // window and the texture on top, and only the interface code that draws the
 // preview sees those.
+//
+// Prefer ManagerSession (via session()) for new manager and chain APIs. Do not
+// grow this aggregate.
 
 #pragma once
 
 #include "core/StatusSink.h"
 #include "engine/ExportWorker.h"
-#include "engine/RenderInputs.h"
 #include "engine/RenderWorker.h"
 #include "model/Chain.h"
 #include "model/Document.h"
-#include "services/Filmstrip.h"
 #include "model/GuiState.h"
+#include "services/Filmstrip.h"
+#include "services/ManagerSession.h"
 #include "services/OpenWorker.h"
 #include "services/UpdateCheck.h"
 
@@ -36,23 +39,14 @@ struct Workspace {
   // Decodes the next image off the interface thread. Pumped once per frame.
   OpenWorker opener;
 
+  ManagerSession session() {
+    return ManagerSession{document, gui, chain, filmstrip, status, render, exporter, opener};
+  }
+
   void reportStatus(const std::string &text) { status.report(text); }
   std::string statusText() const { return status.text(); }
 
-  // The state one render pass reads. Captured per request, so the worker never
-  // looks at these members while the interface writes them.
-  RenderInputs renderInputs() {
-    RenderInputs in;
-    in.chain = &chain;
-    in.full = &document.full;
-    in.preview = &document.preview;
-    in.workingSpace = document.workingSpace;
-    in.previewSpace = gui.previewSpace;
-    in.previewMaxEdge = previewMaxEdge(gui);
-    return in;
-  }
-
-  void scheduleRender() { render.request(renderInputs()); }
-  void scheduleRecolor() { render.recolor(renderInputs()); }
-  void rebuildPreviewImage() { render.rebuildPreview(renderInputs()); }
+  void scheduleRender() { session().scheduleRender(); }
+  void scheduleRecolor() { session().scheduleRecolor(); }
+  void rebuildPreviewImage() { session().rebuildPreviewImage(); }
 };

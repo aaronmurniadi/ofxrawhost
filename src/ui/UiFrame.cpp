@@ -437,7 +437,7 @@ static void drawResetParamsConfirm(App &app) {
   }
   if (!ImGui::BeginPopupModal("Reset Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
-  Node *node = selectedNode(app);
+  Node *node = selectedNode(app.session());
   std::string label;
   if (node) label = plugins()[node->pluginIndex].label;
   ImGui::TextWrapped("Return every parameter of %s to its default value?", label.c_str());
@@ -446,7 +446,7 @@ static void drawResetParamsConfirm(App &app) {
   if (ImGui::Button("Reset", ImVec2(120.0f, 0.0f))) {
     ImGui::CloseCurrentPopup();
     if (node) {
-      const int count = resetNodeParamsToDefaults(app, *node);
+      const int count = resetNodeParamsToDefaults(app.session(), *node);
       app.reportStatus("Reset " + std::to_string(count) + " parameters of " + label);
     }
   }

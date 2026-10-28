@@ -1,11 +1,10 @@
-// Document open / workspace open use-cases. UI calls this instead of Actions.h
-// free functions once call sites move over.
+// Document open / workspace open use-cases.
 #pragma once
 
 #include <memory>
 #include <string>
 
-struct Workspace;
+struct ManagerSession;
 class SidecarDao;
 class WorkspaceProjectDao;
 
@@ -22,5 +21,5 @@ class DocumentManager {
   virtual void persistWorkspace() = 0;
 };
 
-std::unique_ptr<DocumentManager> createDocumentManager(Workspace &workspace, SidecarDao &sidecar,
+std::unique_ptr<DocumentManager> createDocumentManager(ManagerSession session, SidecarDao &sidecar,
                                                        WorkspaceProjectDao &project);

@@ -1,11 +1,10 @@
-// Export use-cases. UI calls this instead of Export.h free functions once call
-// sites move over.
+// Export use-cases.
 #pragma once
 
 #include <memory>
 #include <string>
 
-struct Workspace;
+struct ManagerSession;
 class SidecarDao;
 
 class ExportManager {
@@ -16,4 +15,4 @@ class ExportManager {
   virtual void doExport(const std::string &outPath) = 0;
 };
 
-std::unique_ptr<ExportManager> createExportManager(Workspace &workspace, SidecarDao &sidecar);
+std::unique_ptr<ExportManager> createExportManager(ManagerSession session, SidecarDao &sidecar);

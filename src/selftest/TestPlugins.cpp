@@ -72,23 +72,23 @@ int testDenoiseSeeding() {
   app.document.meta.cameraMaker = "Fujifilm";
   app.document.meta.cameraModel = "X-M1";
   app.document.meta.iso = 6400;
-  if (!addNode(app, index)) return fail("seeding: addNode");
+  if (!addNode(app.session(), index)) return fail("seeding: addNode");
   Param *slope = findParam(app.chain.nodes.back().instance.get(), "noiseSlope");
   Param *offset = findParam(app.chain.nodes.back().instance.get(), "noiseOffset");
   if (!slope || slope->v.empty() || !offset || offset->v.empty()) return fail("seeding: params missing");
   if (std::abs(slope->v[0] - 2.36110268483642e-05) > 1e-9) return fail("seeding: noiseSlope not seeded");
   if (std::abs(offset->v[0] - 1.17390034010813e-07) > 1e-11) return fail("seeding: noiseOffset not seeded");
-  clearNodes(app);
+  clearNodes(app.session());
 
   // A file with no camera data keeps the parameters the plugin declares.
   App plain;
-  if (!addNode(plain, index)) return fail("seeding: addNode (no camera)");
+  if (!addNode(plain.session(), index)) return fail("seeding: addNode (no camera)");
   slope = findParam(plain.chain.nodes.back().instance.get(), "noiseSlope");
   offset = findParam(plain.chain.nodes.back().instance.get(), "noiseOffset");
   if (!slope || !offset) return fail("seeding: params missing (no camera)");
   if (slope->v[0] != dprop(slope->props, kOfxParamPropDefault, 0, 0)) return fail("seeding: seeded without a camera");
   if (offset->v[0] != dprop(offset->props, kOfxParamPropDefault, 0, 0)) return fail("seeding: seeded without a camera");
-  clearNodes(plain);
+  clearNodes(plain.session());
   printf("ok  Denoise profile seeding\n");
   return 0;
 }
@@ -343,13 +343,13 @@ int testTransformLegacyMigration() {
   chain.nodes.push_back(std::move(pn));
 
   App app;
-  applyChain(app, chain);
+  applyChain(app.session(), chain);
   if (app.chain.nodes.size() != 1) return fail("migration: node missing");
   Param *zoom = findParam(app.chain.nodes[0].instance.get(), "zoom");
   if (!zoom || zoom->v.empty()) return fail("migration: zoom param missing");
   // crop 50 keeps half the source, so the merged Zoom must show the same field.
   if (std::abs(zoom->v[0] - 200.0) > 1e-9) return fail("migration: crop 50 and zoom 100 did not fold to 200");
-  clearNodes(app);
+  clearNodes(app.session());
   printf("ok  Transform legacy migration\n");
   return 0;
 }
@@ -452,7 +452,7 @@ int testResetNodeParams() {
   const int index = (int)(it - plugins().begin());
 
   App app;
-  if (!addNode(app, index)) return fail("reset: addNode");
+  if (!addNode(app.session(), index)) return fail("reset: addNode");
   Node &node = app.chain.nodes.back();
   Param *zoom = findParam(node.instance.get(), "zoom");
   Param *rotate = findParam(node.instance.get(), "rotate");
@@ -461,11 +461,11 @@ int testResetNodeParams() {
   zoom->v[0] = 500;
   rotate->v[0] = 45;
 
-  const int count = resetNodeParamsToDefaults(app, node);
+  const int count = resetNodeParamsToDefaults(app.session(), node);
   if (count <= 0) return fail("reset: nothing was reset");
   if (std::abs(zoom->v[0] - 100.0) > 1e-9) return fail("reset: zoom did not return to 100");
   if (std::abs(rotate->v[0] - 0.0) > 1e-9) return fail("reset: rotate did not return to 0");
-  clearNodes(app);
+  clearNodes(app.session());
   printf("ok  reset parameters\n");
   return 0;
 }
@@ -487,7 +487,7 @@ int testChainColorSpaceFlow() {
   app.document.fileSpace = ColorSpace::LinearRec709;
   app.document.workingSpace = ColorSpace::LinearRec709;
   app.document.inputSpace = ColorSpace::LinearRec709;
-  if (!addNode(app, (int)(it - plugins().begin()))) return fail("chain space: addNode");
+  if (!addNode(app.session(), (int)(it - plugins().begin()))) return fail("chain space: addNode");
   if (app.render.outputSpace() != ColorSpace::LinearRec709) return fail("chain space: space not carried through");
 
   // The document input space reaches the chain output, because Transform declares
@@ -502,7 +502,7 @@ int testChainColorSpaceFlow() {
   if (app.gui.previewSpace != ColorSpace::LinearRec2020) return fail("chain space: preview space not set");
   if (app.render.outputSpace() != ColorSpace::sRGB) return fail("chain space: preview changed the chain");
 
-  clearNodes(app);
+  clearNodes(app.session());
   printf("ok  chain color space flow\n");
   return 0;
 }

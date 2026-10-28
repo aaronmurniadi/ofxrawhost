@@ -40,7 +40,7 @@ static void importSpektrafilmPreset(Workspace &app, Node &node) {
   const PresetImportResult result = importSpektrafilmPreset(node, files.front());
   app.reportStatus(result.message);
   if (result.changed <= 0) return;
-  syncChainColorSpaces(app);
+  syncChainColorSpaces(app.session());
   app.scheduleRender();
 }
 
@@ -192,7 +192,7 @@ static bool drawPushButtonRow(Workspace &app, Param *p) {
   const ParamUiCache &ui = p->ui;
   bool changed = false;
   if (ImGui::Button(ui.idLabel.c_str())) {
-    Node *node = selectedNode(app);
+    Node *node = selectedNode(app.session());
     if (node && isHostRunButton(*node, p, "loadPreset")) {
       importSpektrafilmPreset(app, *node);
     } else if (node && isHostRunButton(*node, p, "exportLut")) {
@@ -202,7 +202,7 @@ static bool drawPushButtonRow(Workspace &app, Param *p) {
     }
   }
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-    Node *node = selectedNode(app);
+    Node *node = selectedNode(app.session());
     if (node && isHostRunButton(*node, p, "loadPreset"))
       ImGui::SetTooltip("Choose a .spkpreset file to apply to this plugin.");
     else if (node && isHostRunButton(*node, p, "exportLut"))
@@ -431,8 +431,8 @@ static void drawParam(Workspace &app, Param *p) {
   if (!ui.enabled) ImGui::EndDisabled();
   ImGui::PopID();
   if (!changed) return;
-  Node *node = selectedNode(app);
-  if (node) commitParamEdit(app, *node, p);
+  Node *node = selectedNode(app.session());
+  if (node) commitParamEdit(app.session(), *node, p);
 }
 
 static bool paramMatches(Param *p, const std::string &q) {

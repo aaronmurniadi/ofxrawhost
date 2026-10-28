@@ -383,7 +383,7 @@ int testOpenWithSidecarPrompt() {
   if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
   if (rc == 0 && app.document.path != imageA) rc = fail("open prompt: the first image did not open");
   if (rc == 0 && app.gui.showSidecarPrompt) rc = fail("open prompt: the first image asked");
-  if (rc == 0) applyChain(app, makeChain(100.0));
+  if (rc == 0) applyChain(app.session(), makeChain(100.0));
   if (rc == 0 && openZoom(app) != 100.0) rc = fail("open prompt: the chain of the first image did not apply");
   if (rc == 0) app.documents->saveCurrentInputSidecar();
   if (rc == 0 && !saveInputSidecar(imageB, ColorSpace::sRGB, ColorSpace::sRGB, makeChain(300.0)))
@@ -429,7 +429,7 @@ int testOpenWithSidecarPrompt() {
   if (rc == 0 && !saveInputSidecar(imageA, ColorSpace::sRGB, ColorSpace::sRGB, makeChain(500.0)))
     rc = fail("open prompt: the sidecar of the first image was not rewritten");
   if (rc == 0) {
-    clearNodes(app);
+    clearNodes(app.session());
     app.documents->openPath(imageA);
     if (!finishOpen(app)) return fail("open prompt: the decode did not finish");
     if (app.gui.showSidecarPrompt) rc = fail("open prompt: an empty chain asked");

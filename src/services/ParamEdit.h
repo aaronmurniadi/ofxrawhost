@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <string>
 
-struct Workspace;
+struct ManagerSession;
 struct Node;
 
 // Reads. Hold the value lock while copying.
@@ -25,7 +25,7 @@ void resetParamToDefault(Param *p);
 // Restores every value parameter of node to its OFX default, keeps the host
 // color-space parameters on the values the host drives, notifies the plugin, and
 // schedules a render. Returns the number of parameters it reset.
-int resetNodeParamsToDefaults(Workspace &app, Node &node);
+int resetNodeParamsToDefaults(ManagerSession session, Node &node);
 
 // Applies one completed edit end to end.
-void commitParamEdit(Workspace &app, Node &node, Param *p);
+void commitParamEdit(ManagerSession session, Node &node, Param *p);

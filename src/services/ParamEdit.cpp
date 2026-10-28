@@ -1,7 +1,7 @@
 #include "services/ParamEdit.h"
 #include "core/RenderContext.h"
 
-#include "services/Workspace.h"
+#include "services/ManagerSession.h"
 #include "services/ParamBridge.h"
 #include "engine/RenderWorker.h"
 
@@ -34,13 +34,13 @@ void resetParamToDefault(Param *p) {
   for (size_t i = 0; i < p->v.size() && i < p->ui.defaults.size(); ++i) p->v[i] = p->ui.defaults[i];
 }
 
-void commitParamEdit(Workspace &app, Node &node, Param *p) {
+void commitParamEdit(ManagerSession session, Node &node, Param *p) {
   notifyChanged(node, p);
-  syncChainColorSpaces(app);
-  app.scheduleRender();
+  syncChainColorSpaces(session);
+  session.scheduleRender();
 }
 
-int resetNodeParamsToDefaults(Workspace &app, Node &node) {
+int resetNodeParamsToDefaults(ManagerSession session, Node &node) {
   if (!node.instance) return 0;
   std::vector<Param *> reset;
   for (auto &up : node.instance->params) {
@@ -57,7 +57,7 @@ int resetNodeParamsToDefaults(Workspace &app, Node &node) {
   }
   // Notify after the values change, so the plugin sees the whole new state.
   for (Param *p : reset) notifyChanged(node, p);
-  syncChainColorSpaces(app);
-  app.scheduleRender();
+  syncChainColorSpaces(session);
+  session.scheduleRender();
   return (int)reset.size();
 }

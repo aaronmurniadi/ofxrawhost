@@ -174,7 +174,7 @@ int runApp(const std::string &optionalPath) {
   app.exporter.wait();
   app.documents->saveCurrentInputSidecar();
   app.documents->persistWorkspace();
-  clearNodes(app);
+  clearNodes(app.session());
 
   freeFilmstripTextures(app.filmstrip);
   app.previewTexture.destroy();

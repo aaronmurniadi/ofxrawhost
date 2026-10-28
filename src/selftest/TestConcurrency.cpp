@@ -35,9 +35,9 @@ int testConcurrency(const Image &src) {
   app.document.full = src;
   app.document.preview = src;
   app.render.start();
-  if (!addNode(app, transformPi)) return fail("concurrency addNode 1");
+  if (!addNode(app.session(), transformPi)) return fail("concurrency addNode 1");
   for (int pi : usable)
-    if (pi != transformPi && !addNode(app, pi)) return fail("concurrency addNode 2");
+    if (pi != transformPi && !addNode(app.session(), pi)) return fail("concurrency addNode 2");
 
   // UI-side queryOutputSize runs Transform's getRoD, whose clip-RoD suite reads must
   // not race the worker's dim writes in renderEffect/queryOutputSize.
@@ -59,20 +59,20 @@ int testConcurrency(const Image &src) {
       // Plugins panel colorspace combo).
       if (app.gui.previewSpace == ColorSpace::sRGB) app.gui.previewSpace = ColorSpace::LinearRec709;
       else app.gui.previewSpace = ColorSpace::sRGB;
-      syncChainColorSpaces(app);
+      syncChainColorSpaces(app.session());
     }
     if (i % 17 == 0) app.rebuildPreviewImage();  // preview rewrite must wait out the worker
     if (i == 50) {
       app.exports->doExport(out.string());
       // Mutating the graph right after an export must wait it out, not race it.
-      if (app.chain.nodes.size() > 1) destroyNode(app, 0);
-      else addNode(app, usable[i % (int)usable.size()]);
+      if (app.chain.nodes.size() > 1) destroyNode(app.session(), 0);
+      else addNode(app.session(), usable[i % (int)usable.size()]);
     }
     if (i % 7 == 0) {
       app.render.waitIdle();
-      if (app.chain.nodes.size() > 1) destroyNode(app, 0);
-      else addNode(app, usable[i % (int)usable.size()]);
-      if (app.chain.nodes.size() > 1) moveNode(app, 0, (int)app.chain.nodes.size() - 1);
+      if (app.chain.nodes.size() > 1) destroyNode(app.session(), 0);
+      else addNode(app.session(), usable[i % (int)usable.size()]);
+      if (app.chain.nodes.size() > 1) moveNode(app.session(), 0, (int)app.chain.nodes.size() - 1);
     }
   }
   app.render.waitIdle();  // also waits out the export thread
@@ -82,7 +82,7 @@ int testConcurrency(const Image &src) {
   fs::remove(out);
   const fs::path side = exportSidecarPath(out.string());
   if (fs::exists(side)) fs::remove(side);
-  clearNodes(app);
+  clearNodes(app.session());
   printf("ok  concurrency\n");
   return 0;
 }

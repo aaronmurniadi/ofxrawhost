@@ -1,9 +1,9 @@
-// Color space and preview-resolution commands formerly on Actions.h.
+// Color space and preview-resolution commands.
 #pragma once
 
 #include <memory>
 
-struct Workspace;
+struct ManagerSession;
 
 class ColorSpaceManager {
  public:
@@ -15,4 +15,4 @@ class ColorSpaceManager {
   virtual void setPreviewRes(int index) = 0;
 };
 
-std::unique_ptr<ColorSpaceManager> createColorSpaceManager(Workspace &workspace);
+std::unique_ptr<ColorSpaceManager> createColorSpaceManager(ManagerSession session);

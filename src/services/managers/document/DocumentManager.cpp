@@ -10,7 +10,7 @@
 #include "services/NodeGraph.h"
 #include "services/ParamBridge.h"
 #include "services/StateMapping.h"
-#include "services/Workspace.h"
+#include "services/ManagerSession.h"
 
 #include <filesystem>
 #include <utility>
@@ -41,23 +41,23 @@ void resetViewFor(GuiState &gui) {
 
 class DocumentManagerImpl : public DocumentManager {
  public:
-  DocumentManagerImpl(Workspace &workspace, SidecarDao &sidecar, WorkspaceProjectDao &project)
-      : workspace_(workspace), sidecar_(sidecar), project_(project) {}
+  DocumentManagerImpl(ManagerSession session, SidecarDao &sidecar, WorkspaceProjectDao &project)
+      : session_(session), sidecar_(sidecar), project_(project) {}
 
   void openPath(const std::string &path) override {
     if (isHostMetadataPath(path)) {
-      workspace_.reportStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
+      session_.reportStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
       return;
     }
     // The outgoing image keeps its own chain, so write its sidecar before the
     // document is replaced.
-    if (!workspace_.document.path.empty() && workspace_.document.path != path) saveCurrentInputSidecar();
+    if (!session_.document.path.empty() && session_.document.path != path) saveCurrentInputSidecar();
 
     // A saved chain and the chain in place are both work, so the user picks which
     // one this image opens with. The open resumes when they answer.
     if (savedChainNeedsAnswer(path)) {
-      workspace_.gui.pendingOpenPath = path;
-      workspace_.gui.showSidecarPrompt = true;
+      session_.gui.pendingOpenPath = path;
+      session_.gui.showSidecarPrompt = true;
       return;
     }
     startDecode(path, /*useSavedChain=*/true);
@@ -66,48 +66,48 @@ class DocumentManagerImpl : public DocumentManager {
   bool openWorkspace(const std::string &dir) override {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) {
-      workspace_.reportStatus("Not a directory");
+      session_.reportStatus("Not a directory");
       return false;
     }
     saveCurrentInputSidecar();
     persistWorkspace();
-    workspace_.document.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
-    refreshFilmstrip(workspace_.filmstrip, workspace_.document.workspaceDir, workspace_.document.path);
+    session_.document.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
+    refreshFilmstrip(session_.filmstrip, session_.document.workspaceDir, session_.document.path);
     // The project records which image was open. Its chain lives in the sidecar of
     // that image, and the interface state lives in the settings file.
     std::string activeRel;
-    project_.loadProject(workspace_.document.workspaceDir, activeRel);
+    project_.loadProject(session_.document.workspaceDir, activeRel);
     std::string toOpen;
     if (!activeRel.empty()) {
-      fs::path p = fs::path(workspace_.document.workspaceDir) / activeRel;
+      fs::path p = fs::path(session_.document.workspaceDir) / activeRel;
       if (fs::is_regular_file(p, ec)) toOpen = p.string();
     }
-    if (toOpen.empty() && !workspace_.filmstrip.entries.empty()) toOpen = workspace_.filmstrip.entries[0].path;
+    if (toOpen.empty() && !session_.filmstrip.entries.empty()) toOpen = session_.filmstrip.entries[0].path;
     if (!toOpen.empty())
       openPath(toOpen);
     else
-      workspace_.reportStatus("Directory: " + fs::path(workspace_.document.workspaceDir).filename().string() +
+      session_.reportStatus("Directory: " + fs::path(session_.document.workspaceDir).filename().string() +
                               " (no images)");
     // An open that waits for the user to answer records the active image itself
     // once it finishes, so a half-finished open leaves the project alone.
-    if (workspace_.gui.pendingOpenPath.empty()) persistWorkspace();
-    workspace_.gui.showFilmstrip = true;
+    if (session_.gui.pendingOpenPath.empty()) persistWorkspace();
+    session_.gui.showFilmstrip = true;
     return true;
   }
 
   void resolvePendingOpen(bool useSavedChain) override {
-    std::string path = std::move(workspace_.gui.pendingOpenPath);
-    workspace_.gui.pendingOpenPath.clear();
-    workspace_.gui.showSidecarPrompt = false;
+    std::string path = std::move(session_.gui.pendingOpenPath);
+    session_.gui.pendingOpenPath.clear();
+    session_.gui.showSidecarPrompt = false;
     if (path.empty()) return;
     startDecode(path, useSavedChain);
   }
 
   bool pumpOpen() override {
     DecodedImage decoded;
-    if (!workspace_.opener.take(decoded)) return false;
+    if (!session_.opener.take(decoded)) return false;
     if (!decoded.ok) {
-      workspace_.reportStatus("Could not decode " + fs::path(decoded.path).filename().string());
+      session_.reportStatus("Could not decode " + fs::path(decoded.path).filename().string());
       return true;
     }
     applyDecoded(std::move(decoded));
@@ -115,25 +115,25 @@ class DocumentManagerImpl : public DocumentManager {
   }
 
   void saveCurrentInputSidecar() override {
-    if (workspace_.document.path.empty()) return;
-    sidecar_.save(workspace_.document.path, workspace_.document.fileSpace, workspace_.document.inputSpace,
-                  captureChain(workspace_.chain));
+    if (session_.document.path.empty()) return;
+    sidecar_.save(session_.document.path, session_.document.fileSpace, session_.document.inputSpace,
+                  captureChain(session_.chain));
   }
 
   void persistWorkspace() override {
-    project_.saveSettings(captureGui(workspace_.gui), captureAppearance(workspace_.gui),
-                          captureUpdates(workspace_.gui));
-    if (workspace_.document.workspaceDir.empty()) return;
-    project_.saveActiveImage(workspace_.document.workspaceDir, workspace_.document.path);
+    project_.saveSettings(captureGui(session_.gui), captureAppearance(session_.gui),
+                          captureUpdates(session_.gui));
+    if (session_.document.workspaceDir.empty()) return;
+    project_.saveActiveImage(session_.document.workspaceDir, session_.document.path);
   }
 
  private:
   // Applies a sidecar to the image now open: the input space the user picked for
   // the chain, and the chain itself.
   void applySidecarFor(const PersistSidecar &sidecar) {
-    workspace_.document.inputSpace =
-        colorSpaceFromName(sidecar.chainInputColorSpace, workspace_.document.workingSpace);
-    applyChain(workspace_, sidecar.chain);
+    session_.document.inputSpace =
+        colorSpaceFromName(sidecar.chainInputColorSpace, session_.document.workingSpace);
+    applyChain(session_, sidecar.chain);
   }
 
   // The chain of the previous image stays in place when the new image has no
@@ -141,8 +141,8 @@ class DocumentManagerImpl : public DocumentManager {
   // the camera now open. Sets the status when a profile was applied, which is the
   // only cue the user gets for it.
   void seedNoiseForOpenCamera(const ImageMeta &meta) {
-    if (seedNoiseModelParams(workspace_) > 0)
-      workspace_.reportStatus("Denoise (profiled): " + meta.cameraMaker + " " + meta.cameraModel + " ISO " +
+    if (seedNoiseModelParams(session_) > 0)
+      session_.reportStatus("Denoise (profiled): " + meta.cameraMaker + " " + meta.cameraModel + " ISO " +
                               std::to_string(meta.iso) + " profile applied");
   }
 
@@ -150,8 +150,8 @@ class DocumentManagerImpl : public DocumentManager {
   // about: the image has a saved chain of its own, and the chain in place holds
   // plugins too, so the two cannot both survive the open.
   bool savedChainNeedsAnswer(const std::string &path) {
-    if (workspace_.document.path.empty() || workspace_.document.path == path) return false;
-    if (workspace_.chain.nodes.empty()) return false;
+    if (session_.document.path.empty() || session_.document.path == path) return false;
+    if (session_.chain.nodes.empty()) return false;
     PersistSidecar saved;
     return sidecar_.load(path, saved) && !saved.chain.nodes.empty();
   }
@@ -160,28 +160,28 @@ class DocumentManagerImpl : public DocumentManager {
   // thread: the slow part was the decode, which the worker already did.
   void applyDecoded(DecodedImage &&decoded) {
     const std::string name = fs::path(decoded.path).filename().string();
-    workspace_.render.waitIdle();  // worker reads inputSpace; stop it before swapping the image
-    adoptDocument(workspace_.document, decoded.path, std::move(decoded.full), decoded.fileSpace,
+    session_.render.waitIdle();  // worker reads inputSpace; stop it before swapping the image
+    adoptDocument(session_.document, decoded.path, std::move(decoded.full), decoded.fileSpace,
                   decoded.workingSpace, decoded.meta);
-    resetViewFor(workspace_.gui);
-    workspace_.reportStatus("Loaded " + name + " (" + colorSpaceName(decoded.fileSpace) + ")");
-    workspace_.filmstrip.index = filmstripIndexForPath(workspace_.filmstrip, decoded.path);
+    resetViewFor(session_.gui);
+    session_.reportStatus("Loaded " + name + " (" + colorSpaceName(decoded.fileSpace) + ")");
+    session_.filmstrip.index = filmstripIndexForPath(session_.filmstrip, decoded.path);
 
     PersistSidecar saved;
     if (!decoded.useSavedChain) {
       // The user chose the parameters of the image that was open, so they carry
       // into this image as they are.
-      workspace_.reportStatus("Loaded " + name + " with the parameters of the previous image");
+      session_.reportStatus("Loaded " + name + " with the parameters of the previous image");
     } else if (sidecar_.load(decoded.path, saved)) {
       applySidecarFor(saved);
     } else {
       seedNoiseForOpenCamera(decoded.meta);
     }
 
-    workspace_.rebuildPreviewImage();
+    session_.rebuildPreviewImage();
     // The chain carries the document input space into its first plugin, and no
     // sidecar may have run, so re-derive it for the image that is now open.
-    syncChainColorSpaces(workspace_);
+    syncChainColorSpaces(session_);
     persistWorkspace();
   }
 
@@ -189,21 +189,21 @@ class DocumentManagerImpl : public DocumentManager {
   // is pumped in, so the window keeps drawing while a RAW develops.
   void startDecode(const std::string &path, bool useSavedChain) {
     const std::string name = fs::path(path).filename().string();
-    if (!workspace_.opener.start(path, useSavedChain)) {
-      workspace_.reportStatus("Still opening " + fs::path(workspace_.opener.path()).filename().string());
+    if (!session_.opener.start(path, useSavedChain)) {
+      session_.reportStatus("Still opening " + fs::path(session_.opener.path()).filename().string());
       return;
     }
-    workspace_.reportStatus("Opening " + name + "\xE2\x80\xA6");
+    session_.reportStatus("Opening " + name + "\xE2\x80\xA6");
   }
 
-  Workspace &workspace_;
+  ManagerSession session_;
   SidecarDao &sidecar_;
   WorkspaceProjectDao &project_;
 };
 
 }  // namespace
 
-std::unique_ptr<DocumentManager> createDocumentManager(Workspace &workspace, SidecarDao &sidecar,
+std::unique_ptr<DocumentManager> createDocumentManager(ManagerSession session, SidecarDao &sidecar,
                                                        WorkspaceProjectDao &project) {
-  return std::make_unique<DocumentManagerImpl>(workspace, sidecar, project);
+  return std::make_unique<DocumentManagerImpl>(session, sidecar, project);
 }

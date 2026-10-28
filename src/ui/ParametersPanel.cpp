@@ -52,7 +52,7 @@ void drawParametersPanel(Workspace &app) {
 
   // The node list in the Plugins panel selects which plugin to edit, so this
   // panel only names the plugin whose parameters it shows.
-  Node *node = selectedNode(app);
+  Node *node = selectedNode(app.session());
   if (node) ImGui::SeparatorText(plugins()[node->pluginIndex].label.c_str());
   if (node) {
     drawParamActions(app, *node);
