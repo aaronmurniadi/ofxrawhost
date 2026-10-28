@@ -4,6 +4,8 @@
 #include "ofx/OfxRegistry.h"
 #include "persist/daos/SidecarDao.h"
 #include "persist/daos/WorkspaceProjectDao.h"
+#include "services/managers/chain/NodeGraphManager.h"
+#include "services/managers/chain/ParamEditManager.h"
 #include "services/managers/document/DocumentManager.h"
 #include "services/managers/export/ExportManager.h"
 #include "services/managers/session/ColorSpaceManager.h"
@@ -26,6 +28,8 @@ struct TestBootstrap {
   std::unique_ptr<DocumentManager> documentsOwned;
   std::unique_ptr<ExportManager> exportsOwned;
   std::unique_ptr<ColorSpaceManager> colorSpacesOwned;
+  std::unique_ptr<NodeGraphManager> nodeGraphOwned;
+  std::unique_ptr<ParamEditManager> paramEditsOwned;
 
   explicit TestBootstrap(App &app) {
     ManagerSession session = app.session();
@@ -34,8 +38,12 @@ struct TestBootstrap {
     documentsOwned = createDocumentManager(session, *sidecarDao, *projectDao);
     exportsOwned = createExportManager(session, *sidecarDao);
     colorSpacesOwned = createColorSpaceManager(session);
+    nodeGraphOwned = createNodeGraphManager(session);
+    paramEditsOwned = createParamEditManager(session);
     app.documents = documentsOwned.get();
     app.exports = exportsOwned.get();
     app.colorSpaces = colorSpacesOwned.get();
+    app.nodeGraph = nodeGraphOwned.get();
+    app.paramEdits = paramEditsOwned.get();
   }
 };

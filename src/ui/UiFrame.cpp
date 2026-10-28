@@ -3,14 +3,14 @@
 #include "services/managers/document/DocumentManager.h"
 #include "services/managers/export/ExportManager.h"
 #include "services/managers/session/ColorSpaceManager.h"
-#include "services/NodeGraph.h"
+#include "services/managers/chain/NodeGraphManager.h"
+#include "services/managers/chain/ParamEditManager.h"
 #include "ofx/OfxHost.h"
 #include "persist/ProjectPersist.h"
 #include "platform/SystemUiFont.h"
 #include "engine/RenderWorker.h"
 #include "services/UpdateCheck.h"
 #include "ui/Themes.h"
-#include "services/ParamEdit.h"
 #include "ui/DockLayout.h"
 #include "ui/ImGuiBackend.h"
 #include "ui/Widgets.h"
@@ -437,7 +437,7 @@ static void drawResetParamsConfirm(App &app) {
   }
   if (!ImGui::BeginPopupModal("Reset Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
-  Node *node = selectedNode(app.session());
+  Node *node = app.nodeGraph->selectedNode();
   std::string label;
   if (node) label = plugins()[node->pluginIndex].label;
   ImGui::TextWrapped("Return every parameter of %s to its default value?", label.c_str());
@@ -446,7 +446,7 @@ static void drawResetParamsConfirm(App &app) {
   if (ImGui::Button("Reset", ImVec2(120.0f, 0.0f))) {
     ImGui::CloseCurrentPopup();
     if (node) {
-      const int count = resetNodeParamsToDefaults(app.session(), *node);
+      const int count = app.paramEdits->resetToDefaults(*node);
       app.reportStatus("Reset " + std::to_string(count) + " parameters of " + label);
     }
   }

@@ -1,10 +1,13 @@
-// Document open / workspace open use-cases.
+// Facade over the open use-cases, for call sites that want one entry point.
+// Image and workspace flows live in OpenImageManager and OpenWorkspaceManager.
 #pragma once
 
 #include <memory>
 #include <string>
 
 struct ManagerSession;
+class OpenImageManager;
+class OpenWorkspaceManager;
 class SidecarDao;
 class WorkspaceProjectDao;
 

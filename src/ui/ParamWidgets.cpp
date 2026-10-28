@@ -1,7 +1,10 @@
 #include "ui/ParamWidgets.h"
 
+#include "ui/UiFrame.h"
+
 #include "core/RenderContext.h"
-#include "services/NodeGraph.h"
+#include "services/managers/chain/NodeGraphManager.h"
+#include "services/managers/chain/ParamEditManager.h"
 #include "services/ParamBridge.h"
 #include "engine/RenderWorker.h"
 #include "services/PluginPresets.h"
@@ -32,7 +35,7 @@
 // Opens the preset picker and applies the chosen file. A cancelled dialog leaves
 // the instance untouched, because the plugin's own button would otherwise
 // overwrite the edit with whatever its dropdown holds.
-static void importSpektrafilmPreset(Workspace &app, Node &node) {
+static void importSpektrafilmPreset(App &app, Node &node) {
   std::vector<std::string> files =
       pfd::open_file("Load spektrafilm preset", "", {"spektrafilm preset", presetDialogFilter()}).result();
   if (files.empty()) return;
@@ -46,7 +49,7 @@ static void importSpektrafilmPreset(Workspace &app, Node &node) {
 
 // Asks for a .cube destination, runs the plugin export, then moves the file the
 // plugin wrote to the chosen path. A cancelled dialog touches nothing.
-static void exportSpektrafilmLut(Workspace &app, Node &node, Param *button) {
+static void exportSpektrafilmLut(App &app, Node &node, Param *button) {
   const Param *identifier = findParam(node.instance.get(), "lutIdentifier");
   std::string stem;
   if (identifier) stem = identifier->s;
@@ -188,11 +191,11 @@ static bool choiceCombo(const ParamUiCache &ui, int &cur) {
 
 // A host-run push button: the spektrafilm preset and LUT buttons open a file
 // dialog instead of notifying the plugin, because the plugin has none.
-static bool drawPushButtonRow(Workspace &app, Param *p) {
+static bool drawPushButtonRow(App &app, Param *p) {
   const ParamUiCache &ui = p->ui;
   bool changed = false;
   if (ImGui::Button(ui.idLabel.c_str())) {
-    Node *node = selectedNode(app.session());
+    Node *node = app.nodeGraph->selectedNode();
     if (node && isHostRunButton(*node, p, "loadPreset")) {
       importSpektrafilmPreset(app, *node);
     } else if (node && isHostRunButton(*node, p, "exportLut")) {
@@ -202,7 +205,7 @@ static bool drawPushButtonRow(Workspace &app, Param *p) {
     }
   }
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-    Node *node = selectedNode(app.session());
+    Node *node = app.nodeGraph->selectedNode();
     if (node && isHostRunButton(*node, p, "loadPreset"))
       ImGui::SetTooltip("Choose a .spkpreset file to apply to this plugin.");
     else if (node && isHostRunButton(*node, p, "exportLut"))
@@ -402,7 +405,7 @@ static bool drawVectorRows(Param *p, float labelW, float valueBoxW, float btn) {
 }
 
 // Dispatch on the kind, then run the one post-edit sequence for every kind.
-static void drawParam(Workspace &app, Param *p) {
+static void drawParam(App &app, Param *p) {
   const ParamUiCache &ui = p->ui;
   ImGui::PushID(p->name.c_str());
   if (!ui.enabled) ImGui::BeginDisabled();
@@ -431,8 +434,8 @@ static void drawParam(Workspace &app, Param *p) {
   if (!ui.enabled) ImGui::EndDisabled();
   ImGui::PopID();
   if (!changed) return;
-  Node *node = selectedNode(app.session());
-  if (node) commitParamEdit(app.session(), *node, p);
+  Node *node = app.nodeGraph->selectedNode();
+  if (node) app.paramEdits->commit(*node, p);
 }
 
 static bool paramMatches(Param *p, const std::string &q) {
@@ -453,7 +456,7 @@ static bool subtreeMatches(Effect *e, const std::string &parent, const std::stri
   return false;
 }
 
-void drawParams(Workspace &app, Node &node, const std::string &parent) {
+void drawParams(App &app, Node &node, const std::string &parent) {
   if (!node.instance) return;
   const std::string filter = app.gui.paramFilter;
   const bool filtering = filter[0] != '\0';

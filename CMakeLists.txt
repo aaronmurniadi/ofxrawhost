@@ -284,7 +284,11 @@ add_library(ofxrawhost_services STATIC
   src/services/UpdateCheck.cpp
   src/services/Filmstrip.cpp
   src/services/OpenWorker.cpp
+  src/services/managers/chain/NodeGraphManager.cpp
+  src/services/managers/chain/ParamEditManager.cpp
   src/services/managers/document/DocumentManager.cpp
+  src/services/managers/document/OpenImageManager.cpp
+  src/services/managers/document/OpenWorkspaceManager.cpp
   src/services/managers/export/ExportManager.cpp
   src/services/managers/session/ColorSpaceManager.cpp
 )

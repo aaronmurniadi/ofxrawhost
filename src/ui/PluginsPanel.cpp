@@ -5,7 +5,7 @@
 #include "services/managers/session/ColorSpaceManager.h"
 #include "services/ParamBridge.h"
 #include "persist/ProjectPersist.h"
-#include "services/NodeGraph.h"
+#include "services/managers/chain/NodeGraphManager.h"
 #include "engine/RenderWorker.h"
 #include "ofx/OfxHost.h"
 #include "ui/Widgets.h"
@@ -16,7 +16,7 @@
 
 #include <string>
 
-static void drawPluginPicker(Workspace &app) {
+static void drawPluginPicker(App &app) {
   if (ImGui::Button("Add Plugin", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
@@ -39,7 +39,7 @@ static void drawPluginPicker(Workspace &app) {
           ImGui::SeparatorText(curAuthor.c_str());
         }
         if (ImGui::Selectable(pe.label.c_str())) {
-          addNode(app.session(), i);
+          app.nodeGraph->addNode(i);
           app.gui.pluginFilter[0] = '\0';
           ImGui::CloseCurrentPopup();
         }
@@ -51,7 +51,7 @@ static void drawPluginPicker(Workspace &app) {
   }
 }
 
-static void drawNodeList(Workspace &app) {
+static void drawNodeList(App &app) {
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
   if (app.chain.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a plugin to build a chain.");
   const float btnH = ImGui::GetFrameHeight();
@@ -77,7 +77,7 @@ static void drawNodeList(Workspace &app) {
     if (ImGui::BeginDragDropTarget()) {
       if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("NODE_IDX")) {
         const int from = *(const int *)payload->Data;
-        moveNode(app.session(), from, i);
+        app.nodeGraph->moveNode(from, i);
       }
       ImGui::EndDragDropTarget();
     }
@@ -88,17 +88,17 @@ static void drawNodeList(Workspace &app) {
       enabledIcon = ICON_FA_EYE;
       enabledHint = "Disable processing";
     }
-    if (iconBtn("##en", enabledIcon)) setNodeEnabled(app.session(), i, !node.enabled);
+    if (iconBtn("##en", enabledIcon)) app.nodeGraph->setNodeEnabled(i, !node.enabled);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", enabledHint);
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) moveNode(app.session(), i, i - 1);
+    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) app.nodeGraph->moveNode(i, i - 1);
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.chain.nodes.size()) moveNode(app.session(), i, i + 1);
+    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.chain.nodes.size()) app.nodeGraph->moveNode(i, i + 1);
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##rm", ICON_FA_XMARK)) removeAt = i;
     ImGui::PopID();
   }
-  if (removeAt >= 0) destroyNode(app.session(), removeAt);
+  if (removeAt >= 0) app.nodeGraph->destroyNode(removeAt);
   ImGui::EndChild();
 }
 

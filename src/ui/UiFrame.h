@@ -3,7 +3,7 @@
 #include "app/AppState.h"
 
 void drawPluginsPanel(App &app);
-void drawParametersPanel(Workspace &app);
+void drawParametersPanel(App &app);
 void drawPreviewPanel(App &app);
 void drawFilmstripPanel(App &app);
 void drawUiFrame(App &app);

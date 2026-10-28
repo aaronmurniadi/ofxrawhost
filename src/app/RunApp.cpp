@@ -85,6 +85,8 @@ int runApp(const std::string &optionalPath) {
   app.documents = boot.documents.get();
   app.exports = boot.exports.get();
   app.colorSpaces = boot.colorSpaces.get();
+  app.nodeGraph = boot.nodeGraph.get();
+  app.paramEdits = boot.paramEdits.get();
   glfwMakeContextCurrent(app.window);
   glfwSwapInterval(1);
 #if defined(__APPLE__)
