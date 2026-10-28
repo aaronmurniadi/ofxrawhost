@@ -56,8 +56,8 @@ static void drawOpeningState(ImDrawList *dl, const ImVec2 canvasPos, const ImVec
   const ImU32 accent = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
   drawOpeningSpinner(dl, ImVec2(center.x, center.y - 12.0f), 16.0f, accent);
   char label[192];
-  if (name.empty()) std::snprintf(label, sizeof label, "Opening\xE2\x80\xA6");
-  else std::snprintf(label, sizeof label, "Opening %s\xE2\x80\xA6", name.c_str());
+  if (name.empty()) std::snprintf(label, sizeof label, "Opening...");
+  else std::snprintf(label, sizeof label, "Opening %s...", name.c_str());
   const ImVec2 textSize = ImGui::CalcTextSize(label);
   dl->AddText(ImVec2(center.x - textSize.x * 0.5f, center.y + 16.0f), ImGui::GetColorU32(ImGuiCol_Text), label);
 }

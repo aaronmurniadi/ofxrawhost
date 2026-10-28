@@ -161,7 +161,7 @@ class OpenImageManagerImpl : public OpenImageManager {
       session_.reportStatus("Still opening " + fs::path(session_.opener.path()).filename().string());
       return;
     }
-    session_.reportStatus("Opening " + name + "\xE2\x80\xA6");
+    session_.reportStatus("Opening " + name + "...");
   }
 
   ManagerSession session_;
