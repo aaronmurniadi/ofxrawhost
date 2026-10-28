@@ -16,3 +16,10 @@ Never push a `vX.X.X` tag unless the user asks for it in that request.
 Always ask the user for the release kind before any release action.
 Always ask the user for the version number before you create a release branch.
 Never git push unless the user asks for it in that request.
+
+## Restructure plan
+
+`restructure-plan.md` is the **only** restructuring / architecture plan in this
+repo. Agents must follow it for backend layout work. Do not recreate `PLAN.md`,
+design drafts, overnight reports, or `docs/designs/` plan docs.
+

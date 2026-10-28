@@ -308,6 +308,11 @@ clang-tidy -p build src/services/ChainIO.cpp
 
 ## Development Roadmap
 
+Ongoing backend restructuring (hub-users-style managers, Bootstrap, DAOs) is
+specified **only** in [`restructure-plan.md`](restructure-plan.md). Do not add
+other plan or design-draft markdown files for that work.
+
+
 | Feature                                                                         | Status         |
 | ------------------------------------------------------------------------------- | -------------- |
 | C++17 + Dear ImGui UI (cross-platform codebase)                                 | Done (v0.2)    |
@@ -380,6 +385,7 @@ clang-tidy -p build src/services/ChainIO.cpp
 | Refactor: plugin preset/LUT policy out of the widgets; `drawParam` split        | Done (v0.4.4)  |
 | Refactor: OFX suites split per suite file; self-test is its own binary and gates CI | Done (v0.4.4) |
 | Style: `.clang-tidy`; no conditional operators left in the tree                 | Done (v0.4.4)  |
+| Restructure: hub-users-style Bootstrap / managers / DAOs (`restructure-plan.md`) | Planned        |
 
 ---
 
